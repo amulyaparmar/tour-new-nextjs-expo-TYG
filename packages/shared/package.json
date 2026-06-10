@@ -4,6 +4,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./shop-rubrics": "./src/shop-rubrics.ts",
     "./tour": "./src/tour.ts"
   },
   "scripts": {

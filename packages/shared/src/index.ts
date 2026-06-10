@@ -1,1 +1,2 @@
+export * from "./shop-rubrics";
 export * from "./tour";

@@ -65,7 +65,7 @@ export function CalendarView({ sessions }: { sessions: SessionSummary[] }) {
         router.push(`/sessions/${event.id}`);
       },
       onClickPlusEvents(date) {
-        setExpandedDate((prev) => (prev === date ? null : date));
+        setExpandedDate((prev) => (prev === String(date) ? null : String(date)));
       }
     }
   }, [eventsService, eventModal]);

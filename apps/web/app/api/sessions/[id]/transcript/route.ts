@@ -9,6 +9,6 @@ type Context = {
 
 export async function GET(_request: Request, context: Context) {
   const { id } = await context.params;
-  const transcript = getTranscriptForSession(id);
+  const transcript = await getTranscriptForSession(id);
   return NextResponse.json({ transcript });
 }

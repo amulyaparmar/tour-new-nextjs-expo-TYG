@@ -1,4 +1,4 @@
-import { TourNewHomeClient } from "../TourNewHomeClient";
+import { TourNewHomeClient } from "../../TourNewHomeClient";
 
 export const metadata = {
   title: "Tour Hub Dashboard Preview",

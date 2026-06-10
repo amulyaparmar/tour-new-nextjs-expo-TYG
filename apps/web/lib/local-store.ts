@@ -6,10 +6,20 @@ import path from "node:path";
 
 import type { AnalysisResult, FollowUpAction, SessionDetail, SessionSummary } from "@tour/shared";
 
+type TranscriptSegment = {
+  id: string;
+  sessionId: string;
+  speaker: string;
+  startTime: number;
+  endTime: number;
+  text: string;
+};
+
 type StoreShape = {
   sessions: SessionDetail[];
   analyses: Record<string, AnalysisResult>;
   actions: FollowUpAction[];
+  transcripts: Record<string, TranscriptSegment[]>;
 };
 
 const STORE_PATH = path.join(process.cwd(), ".codex", "local-session-store.json");
@@ -21,13 +31,15 @@ async function loadStore(): Promise<StoreShape> {
     return {
       sessions: parsed.sessions ?? [],
       analyses: parsed.analyses ?? {},
-      actions: parsed.actions ?? []
+      actions: parsed.actions ?? [],
+      transcripts: parsed.transcripts ?? {}
     };
   } catch {
     return {
       sessions: [],
       analyses: {},
-      actions: []
+      actions: [],
+      transcripts: {}
     };
   }
 }
@@ -161,4 +173,15 @@ export async function updateLocalActionStatus(actionId: string, status: FollowUp
   }
   action.status = status;
   await saveStore(store);
+}
+
+export async function saveLocalTranscript(sessionId: string, segments: TranscriptSegment[]) {
+  const store = await loadStore();
+  store.transcripts[sessionId] = segments;
+  await saveStore(store);
+}
+
+export async function getLocalTranscript(sessionId: string): Promise<TranscriptSegment[]> {
+  const store = await loadStore();
+  return store.transcripts[sessionId] ?? [];
 }

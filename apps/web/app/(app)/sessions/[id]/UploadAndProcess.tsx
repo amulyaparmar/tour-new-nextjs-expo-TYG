@@ -2,10 +2,33 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Video, Upload, Mic, Square, Clock, Loader2, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { Video, Upload, Mic, Square, CheckCircle2, XCircle, Brain, Sparkles, Image as ImageIcon, FileText } from "lucide-react";
 
 type Phase = "choose" | "recording" | "details" | "processing";
-type Step = "idle" | "uploading" | "uploaded" | "transcribing" | "extracting_screenshots" | "analyzing" | "done" | "error";
+type Step = "idle" | "uploading" | "uploaded" | "transcribing" | "extracting_screenshots" | "analyzing" | "generating_actions" | "done" | "error";
+
+const PIPELINE_STEPS: Array<{ key: Step; label: string; description: string; icon: "upload" | "mic" | "brain" | "image" | "sparkles" | "check" }> = [
+  { key: "uploading", label: "Uploading", description: "Sending recording to server", icon: "upload" },
+  { key: "transcribing", label: "Transcribing", description: "Converting speech to text with speaker detection", icon: "mic" },
+  { key: "analyzing", label: "Analyzing", description: "AI scoring against the rubric", icon: "brain" },
+  { key: "extracting_screenshots", label: "Extracting Frames", description: "Capturing key moments from video", icon: "image" },
+  { key: "generating_actions", label: "Follow-Up Actions", description: "Creating next steps for this prospect", icon: "sparkles" },
+  { key: "done", label: "Complete", description: "Analysis ready", icon: "check" },
+];
+
+const STEP_ICONS = {
+  upload: Upload,
+  mic: Mic,
+  brain: Brain,
+  image: ImageIcon,
+  sparkles: Sparkles,
+  check: CheckCircle2,
+};
+
+function stepIndex(step: Step): number {
+  const idx = PIPELINE_STEPS.findIndex((s) => s.key === step);
+  return idx >= 0 ? idx : -1;
+}
 
 export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: string; hasRecording: boolean }) {
   const router = useRouter();
@@ -22,6 +45,7 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [processingElapsed, setProcessingElapsed] = useState(0);
 
   useEffect(() => {
     return () => {
@@ -29,6 +53,19 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
+
+  useEffect(() => {
+    if (phase !== "processing" || step === "done" || step === "error") return;
+    const t = setInterval(() => setProcessingElapsed((e) => e + 1), 1000);
+    return () => clearInterval(t);
+  }, [phase, step]);
+
+  useEffect(() => {
+    if (step === "done") {
+      const timeout = setTimeout(() => router.refresh(), 800);
+      return () => clearTimeout(timeout);
+    }
+  }, [step, router]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60).toString().padStart(2, "0");
@@ -106,19 +143,20 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
     setPhase("processing");
     setStep("uploading");
     setProgress(0);
+    setProcessingElapsed(0);
     setErrorMsg(null);
     try {
       await uploadBlob(file);
       setStep("uploaded");
       setProgress(100);
       setStep("transcribing");
+
       const res = await fetch(`/api/sessions/${sessionId}/process`, { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => null) as { error?: string } | null;
         throw new Error(body?.error ?? "Processing failed");
       }
       setStep("done");
-      router.refresh();
     } catch (err) {
       setStep("error");
       setErrorMsg(err instanceof Error ? err.message : "Something went wrong");
@@ -159,34 +197,32 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
     setPhase("details");
   }
 
-  // ── Already has a recording ──
-  if (phase === "choose" && hasRecording) {
-    return (
-      <div className="card">
-        <div className="card-header"><h2>Recording</h2></div>
-        <div className="card-body" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <CheckCircle2 size={16} style={{ color: "var(--green-600)" }} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--green-600)" }}>Recording uploaded</span>
-          <button type="button" className="btn btn-outline btn-sm" onClick={async () => {
-            setPhase("processing");
-            setStep("transcribing");
-            try {
-              const res = await fetch(`/api/sessions/${sessionId}/process`, { method: "POST" });
-              if (!res.ok) {
-                const body = await res.json().catch(() => null) as { error?: string } | null;
-                throw new Error(body?.error ?? "Processing failed");
-              }
-              setStep("done");
-              router.refresh();
-            } catch (err) {
-              setStep("error");
-              setErrorMsg(err instanceof Error ? err.message : "Processing failed");
-            }
-          }}>Re-process</button>
-        </div>
-      </div>
-    );
-  }
+  const startProcessing = useCallback(async () => {
+    setPhase("processing");
+    setStep("transcribing");
+    setProcessingElapsed(0);
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/process`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error ?? "Processing failed");
+      }
+      setStep("done");
+    } catch (err) {
+      setStep("error");
+      setErrorMsg(err instanceof Error ? err.message : "Processing failed");
+    }
+  }, [sessionId]);
+
+  // Auto-start processing when recording exists but no analysis
+  const hasAutoStarted = useRef(false);
+  useEffect(() => {
+    if (hasRecording && phase === "choose" && !hasAutoStarted.current) {
+      hasAutoStarted.current = true;
+      startProcessing();
+    }
+  }, [hasRecording, phase, startProcessing]);
 
   // ── Choose: Record or Upload ──
   if (phase === "choose") {
@@ -246,7 +282,7 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
     );
   }
 
-  // ── Step 2: Details form after recording ──
+  // ── Details form after recording ──
   if (phase === "details") {
     return (
       <div className="card">
@@ -283,53 +319,149 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
     );
   }
 
-  // ── Processing pipeline ──
+  // ── Processing Pipeline ──
+  const currentIdx = stepIndex(step);
+  const isDone = step === "done";
+  const isError = step === "error";
+  const totalSteps = PIPELINE_STEPS.length;
+  const overallPct = isDone ? 100 : isError ? 0 : Math.round(((currentIdx < 0 ? 0 : currentIdx) / totalSteps) * 100);
+  const activeStep = PIPELINE_STEPS.find((ps) => ps.key === step || (step === "uploaded" && ps.key === "uploading"));
+
   return (
-    <div className="card">
-      <div className="card-header"><h2>Processing</h2></div>
-      <div className="card-body">
-        <div className="process-steps">
-          <ProcessStep icon={<Upload size={16} />} label="Upload recording" status={step === "uploading" ? "active" : progress >= 100 ? "done" : "pending"} />
-          <ProcessStep icon={<Mic size={16} />} label="Transcribe &amp; diarize" status={step === "transcribing" ? "active" : ["extracting_screenshots", "analyzing", "done"].includes(step) ? "done" : step === "error" ? "failed" : "pending"} />
-          <ProcessStep icon={<Video size={16} />} label="Extract key frames" status={step === "extracting_screenshots" ? "active" : ["analyzing", "done"].includes(step) ? "done" : "pending"} />
-          <ProcessStep icon={<AlertCircle size={16} />} label="AI analysis" status={step === "analyzing" ? "active" : step === "done" ? "done" : "pending"} />
-          <ProcessStep icon={<CheckCircle2 size={16} />} label="Generate actions" status={step === "done" ? "done" : "pending"} />
+    <div style={{
+      background: "white",
+      borderRadius: 16,
+      border: "1px solid var(--slate-200)",
+      overflow: "hidden",
+      boxShadow: "var(--shadow-card)",
+    }}>
+      {/* Header */}
+      <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--slate-200)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--slate-900)", margin: 0 }}>
+              {isDone ? "Analysis Complete" : isError ? "Processing Failed" : "Analyzing Your Tour"}
+            </h2>
+            <p style={{ fontSize: 13, color: "var(--slate-500)", margin: "2px 0 0" }}>
+              {isDone
+                ? "Loading your results..."
+                : isError
+                  ? errorMsg
+                  : activeStep
+                    ? activeStep.description
+                    : "Preparing..."}
+            </p>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--slate-500)", fontVariantNumeric: "tabular-nums" }}>
+              {formatTime(processingElapsed)}
+            </span>
+            {!isDone && !isError && <div className="pipeline-spinner" />}
+            {isDone && <CheckCircle2 size={22} style={{ color: "var(--green-600)" }} />}
+            {isError && <XCircle size={22} style={{ color: "#ef4444" }} />}
+          </div>
         </div>
 
-        {step === "uploading" && (
-          <div className="upload-progress-bar" style={{ marginTop: 12 }}>
-            <div className="upload-progress-fill" style={{ width: `${progress}%` }} />
-          </div>
-        )}
-
-        {step === "done" && (
-          <p style={{ marginTop: 12, fontSize: 13, color: "var(--green-600)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-            <CheckCircle2 size={16} /> Analysis complete! Refresh to see results.
-          </p>
-        )}
-
-        {step === "error" && (
-          <div style={{ marginTop: 12 }}>
-            <p style={{ color: "var(--red-700)", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-              <XCircle size={16} /> {errorMsg}
-            </p>
-            <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: 8 }} onClick={() => { setPhase("choose"); setStep("idle"); }}>
-              Try again
-            </button>
+        {/* Overall progress bar */}
+        {!isError && (
+          <div style={{ height: 6, borderRadius: 99, background: "var(--slate-100)", overflow: "hidden" }}>
+            <div style={{
+              height: "100%", borderRadius: 99,
+              background: isDone
+                ? "var(--green-500)"
+                : "linear-gradient(90deg, var(--indigo-500), var(--indigo-400))",
+              width: `${overallPct}%`,
+              transition: "width 0.5s ease",
+            }} />
           </div>
         )}
       </div>
-    </div>
-  );
-}
 
-function ProcessStep({ icon, label, status }: { icon: React.ReactNode; label: string; status: "pending" | "active" | "done" | "failed" }) {
-  return (
-    <div className="process-step" data-status={status}>
-      <span className="process-step-icon">
-        {status === "active" ? <Loader2 size={16} className="spin" /> : icon}
-      </span>
-      <span>{label}</span>
+      {/* Step details — compact horizontal on wider screens, vertical on small */}
+      <div style={{ padding: "16px 24px 20px" }}>
+        {/* Horizontal step indicators */}
+        <div style={{ display: "flex", gap: 0, marginBottom: 4 }}>
+          {PIPELINE_STEPS.map((ps, i) => {
+            const Icon = STEP_ICONS[ps.icon];
+            const isActive = ps.key === step || (step === "uploaded" && ps.key === "uploading");
+            const isPast = currentIdx > i || isDone;
+
+            let dotBg = "var(--slate-100)";
+            let dotColor = "var(--slate-400)";
+            let labelColor = "var(--slate-400)";
+
+            if (isPast) {
+              dotBg = "rgba(34,197,94,0.1)";
+              dotColor = "var(--green-600)";
+              labelColor = "var(--slate-600)";
+            } else if (isActive && !isDone) {
+              dotBg = "var(--indigo-50)";
+              dotColor = "var(--indigo-600)";
+              labelColor = "var(--slate-800)";
+            }
+
+            return (
+              <div key={ps.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: "50%",
+                  background: dotBg,
+                  display: "grid", placeItems: "center",
+                  transition: "all 0.3s ease",
+                  ...(isActive && !isDone ? { boxShadow: "0 0 0 3px var(--indigo-100)" } : {}),
+                }}>
+                  {isPast
+                    ? <CheckCircle2 size={14} style={{ color: dotColor }} />
+                    : isActive && !isDone
+                      ? <div className="pipeline-spinner-sm" />
+                      : <Icon size={14} style={{ color: dotColor }} />}
+                </div>
+                <span style={{
+                  fontSize: 10, fontWeight: 600, color: labelColor,
+                  textAlign: "center", lineHeight: 1.2,
+                  transition: "color 0.3s ease",
+                }}>
+                  {ps.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Connector line between dots */}
+        <div style={{ display: "flex", alignItems: "center", margin: "-46px 40px 28px", position: "relative", zIndex: 0 }}>
+          {PIPELINE_STEPS.slice(0, -1).map((_, i) => {
+            const isPast = currentIdx > i + 1 || isDone;
+            const isTransitioning = currentIdx === i + 1 && !isDone;
+            return (
+              <div key={i} style={{
+                flex: 1, height: 2,
+                background: isPast ? "var(--green-400)" : isTransitioning ? "var(--indigo-300)" : "var(--slate-200)",
+                transition: "background 0.3s ease",
+              }} />
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Error retry */}
+      {isError && (
+        <div style={{ padding: "0 24px 20px", display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => { hasAutoStarted.current = false; startProcessing(); }}
+          >
+            Retry Processing
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() => { setPhase("choose"); setStep("idle"); setErrorMsg(null); hasAutoStarted.current = false; }}
+          >
+            Upload Different File
+          </button>
+        </div>
+      )}
     </div>
   );
 }

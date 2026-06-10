@@ -34,8 +34,19 @@ export type CreateSessionInput = {
   notes?: string | null;
 };
 
+export type QuestionScore = {
+  id: string;
+  question: string;
+  maxPoints: number;
+  earnedPoints: number;
+  passed: boolean;
+  evidence: string;
+};
+
 export type AnalysisResult = {
   overallScore: number;
+  totalPointsEarned: number;
+  totalPointsPossible: number;
   summary: string;
   strengths: string[];
   opportunities: string[];
@@ -43,7 +54,11 @@ export type AnalysisResult = {
   sectionScores: Array<{
     section: string;
     score: number;
+    pointsEarned: number;
+    pointsPossible: number;
+    questions: QuestionScore[];
   }>;
+  fairHousingFlags?: string[];
   exactMoments: Array<{
     timestamp: string;
     transcriptQuote: string;

@@ -6,15 +6,16 @@ type Context = { params: Promise<{ filename: string }> };
 
 const MIME_TYPES: Record<string, string> = {
   mp4: "video/mp4",
-  webm: "video/webm",
-  m4a: "audio/m4a",
+  webm: "audio/webm",
+  m4a: "audio/mp4",
   wav: "audio/wav",
   mp3: "audio/mpeg",
+  ogg: "audio/ogg",
+  bin: "audio/webm",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",
   gif: "image/gif",
-  bin: "application/octet-stream"
 };
 
 export async function GET(_request: Request, context: Context) {

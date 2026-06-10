@@ -28,5 +28,65 @@
     "parsedText": null,
     "sessionId": null,
     "createdAt": "2026-06-10T17:39:03.945Z"
+  },
+  {
+    "id": "3775ca8d-c9cc-4fd8-a4f5-ca1858aba741",
+    "name": "uuu",
+    "type": "recording",
+    "description": "Recording from session \"uuu\" with knjk. Score: 68/100.",
+    "fileUrl": null,
+    "parsedText": "[0.0s] It's kind of open-ended, I'm kind of working on a business, so it's kind of open-ended.\n[29.0s] I'm doing a business, so I can do what I need to do.\n[56.0s] I'm Camilla, that's me.\n[58.0s] Nice to meet you.\n[66.0s] Do you have a budget or something specific you're looking for?\n[69.0s] Not really, I'm just shopping. I just knew about this apartment.\n[75.0s] Do you have friends that live here?\n[77.0s] No, not exactly. I knew about this apartment a few years ago.\n[88.0s] Are you also the highlighted person there?\n[91.0s] I'll give you your ID.",
+    "sessionId": "a5e6228a-1837-4255-99f1-5278c403ff94",
+    "createdAt": "2026-06-10T19:52:32.337Z"
+  },
+  {
+    "id": "ddfae913-34b6-4003-94af-0a68f55b4db2",
+    "name": "ffff",
+    "type": "recording",
+    "description": "Recording from session \"ffff\" with ddd. Score: 68/100.",
+    "fileUrl": null,
+    "parsedText": "[0.0s] It's kind of open-ended, I'm kind of working on a business, so it's kind of open-ended.\n[29.0s] I'm doing a business, so I can do what I need to do.\n[56.0s] I'm Camilla, that's me.\n[58.0s] Nice to meet you.\n[66.0s] Do you have a budget or something specific you're looking for?\n[69.0s] Not really, I'm just shopping. I just knew about this apartment.\n[75.0s] Do you have friends that live here?\n[77.0s] No, not exactly. I knew about this apartment a few years ago.\n[88.0s] Are you also the highlighted person there?\n[91.0s] I'll give you your ID.",
+    "sessionId": "2e47d28a-acf1-4590-a75a-8260c895e40a",
+    "createdAt": "2026-06-10T20:26:44.806Z"
+  },
+  {
+    "id": "14401fb3-b194-42c3-b427-3cc4888c992d",
+    "name": "mike",
+    "type": "recording",
+    "description": "Recording from session \"mike\" with mike joe. Score: 62/100.",
+    "fileUrl": null,
+    "parsedText": "[0.0s] Okay, what we can do is I can go and I can get you on a tour and then if you're interested\n[25.0s] we can go ahead and put your information in the system, we'll email you info, sounds good?\n[30.0s] Okay, you can follow me right this way, so we get several sponsorships from, go ahead,\n[38.0s] from different types of businesses, so we just got some face wash and sun cream, etc.\n[43.0s] we'll leave all that stuff right here for you, okay?\n[46.0s] And then of course we also get sponsored by Mountain Coffee and we also get sponsored\n[50.0s] by G.O.A.T. and we'll put those out in the front as long as they're here, they're two\n[54.0s] years for free right, okay?\n[56.0s] If you get a package, they're going to be either here in this Amazon locker or they're\n[59.0s] going to be in the back locker system, so you'll get a code and then this will be where",
+    "sessionId": "cc292232-ec73-42f4-94c8-1911d9fd209f",
+    "createdAt": "2026-06-10T20:51:10.543Z"
+  },
+  {
+    "id": "0fff9f95-3af8-492d-92ba-4dd0708b07d2",
+    "name": "2",
+    "type": "recording",
+    "description": "Recording from session \"2\" with 22. Score: 57/100.",
+    "fileUrl": null,
+    "parsedText": "[0.0s] Okay, what we can do is I can go and I can get you on a tour and then if you're interested\n[25.0s] we can go ahead and put your information in the system, we'll email you info, sounds good?\n[30.0s] Okay, you can follow me right this way, so we get several sponsorships from, go ahead,\n[38.0s] from different types of businesses, so we just got some face wash and sun cream, etc.\n[43.0s] we'll leave all that stuff right here for you, okay?\n[46.0s] And then of course we also get sponsored by Mountain Coffee and we also get sponsored\n[50.0s] by G.O.A.T. and we'll put those out in the front as long as they're here, they're two\n[54.0s] years for free right, okay?\n[56.0s] If you get a package, they're going to be either here in this Amazon locker or they're\n[59.0s] going to be in the back locker system, so you'll get a code and then this will be where",
+    "sessionId": "660532fa-0e3b-4f11-9dcc-c90f668d8bba",
+    "createdAt": "2026-06-10T20:54:50.058Z"
+  },
+  {
+    "id": "78e53a79-746a-401b-b2fd-7e41b8e0affd",
+    "name": "5555",
+    "type": "recording",
+    "description": "Recording from session \"5555\" with 6666. Score: 47/100.",
+    "fileUrl": null,
+    "parsedText": "[0.0s] Okay, what we can do is I can go and I can get you on a tour and then if you're interested\n[25.0s] we can go ahead and put your information in the system, we'll email you info, sounds good?\n[30.0s] Okay, you can follow me right this way, so we get several sponsorships from, go ahead,\n[38.0s] from different types of businesses, so we just got some face wash and sun cream, etc.\n[43.0s] We'll leave all that stuff right here for you, okay?\n[46.0s] And then of course we also get sponsored by Mountain Coffee, and we also get sponsored\n[50.0s] by Goose, and we'll put those out in the front as long as they're here, they're two years\n[55.0s] If you get a package, they're going to be either here in this Amazon locker, or they're\n[59.0s] going to be in the back of the locker system, so you'll get a code, and then this will be\n[63.0s] where your package will be left for you, okay?",
+    "sessionId": "7e9e24de-b723-4a52-a363-4ad2bee2e015",
+    "createdAt": "2026-06-10T21:14:05.873Z"
+  },
+  {
+    "id": "8fcca1cc-6bd2-428e-bd05-66a304a19d56",
+    "name": "999",
+    "type": "recording",
+    "description": "Recording from session \"999\" with 999. Score: 10/100.",
+    "fileUrl": null,
+    "parsedText": "[0.0s] This is an old skate park in Winterfell, Utah\n[30.0s] This is an old skate park in Winterfell, Utah\n[60.0s] This is an old skate park in Winterfell, Utah\n[90.0s] This is an old skate park in Winterfell, Utah\n[120.0s] This is an old skate park in Winterfell, Utah\n[150.0s] This is an old skate park in Winterfell, Utah\n[180.0s] This is an old skate park in Winterfell, Utah\n[210.0s] This is an old skate park in Winterfell, Utah\n[240.0s] This is an old skate park in Winterfell, Utah\n[270.0s] This is an old skate park in Winterfell, Utah",
+    "sessionId": "34a29aea-1810-4ec9-97b8-af3bd95fd8c8",
+    "createdAt": "2026-06-10T21:33:01.421Z"
   }
 ]

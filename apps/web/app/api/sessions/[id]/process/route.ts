@@ -5,7 +5,7 @@ import path from "node:path";
 import { generateAnalysis, generateFollowUpActions } from "@/lib/analysis";
 import { createMaterial, findMaterialBySessionId } from "@/lib/materials";
 import { extractScreenshots } from "@/lib/screenshots";
-import { getSessionById, replaceFollowUpActions, setSessionStatus, upsertAnalysis } from "@/lib/sessions";
+import { getSessionById, replaceFollowUpActions, saveTranscript, setSessionStatus, upsertAnalysis } from "@/lib/sessions";
 import { transcribeAudio } from "@/lib/transcribe";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
@@ -22,12 +22,17 @@ export async function POST(_request: Request, context: Context) {
 
     // Step 1: Transcription
     await setSessionStatus(id, "transcribing");
-    const audioBuffer = await fetchRecordingBuffer(id);
+    const { buffer: audioBuffer, mimeType } = await fetchRecordingBuffer(id);
     const transcript = await transcribeAudio(
       id,
       audioBuffer,
-      "audio/mpeg"
+      mimeType
     );
+
+    await saveTranscript(id, transcript.map((seg) => ({
+      ...seg,
+      sessionId: id
+    })));
 
     // Step 2: AI Analysis with real transcript (run before screenshots so we know key moments)
     await setSessionStatus(id, "analyzing");
@@ -64,7 +69,7 @@ export async function POST(_request: Request, context: Context) {
     if (!existing) {
       const transcriptPreview = transcript
         .slice(0, 10)
-        .map((s) => `[${s.start.toFixed(1)}s] ${s.text}`)
+        .map((s) => `[${s.startTime.toFixed(1)}s] ${s.text}`)
         .join("\n");
 
       await createMaterial({
@@ -72,7 +77,7 @@ export async function POST(_request: Request, context: Context) {
         type: "recording",
         description: `Recording from session "${session.title}"${session.prospectName ? ` with ${session.prospectName}` : ""}. Score: ${analysis.overallScore}/100.`,
         sessionId: id,
-        parsedText: transcriptPreview || null
+        parsedText: transcriptPreview || undefined
       });
     }
 
@@ -91,7 +96,20 @@ export async function POST(_request: Request, context: Context) {
   }
 }
 
-async function fetchRecordingBuffer(sessionId: string): Promise<Buffer> {
+const EXT_MIME: Record<string, string> = {
+  mp4: "video/mp4",
+  webm: "audio/webm",
+  m4a: "audio/m4a",
+  wav: "audio/wav",
+  mp3: "audio/mpeg",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  flac: "audio/flac",
+  mpga: "audio/mpeg",
+  bin: "audio/webm",
+};
+
+async function fetchRecordingBuffer(sessionId: string): Promise<{ buffer: Buffer; mimeType: string }> {
   // Try Supabase storage first
   try {
     const supabase = getSupabaseServiceClient();
@@ -103,7 +121,7 @@ async function fetchRecordingBuffer(sessionId: string): Promise<Buffer> {
         .download(`${sessionId}.${ext}`);
 
       if (data) {
-        return Buffer.from(await data.arrayBuffer());
+        return { buffer: Buffer.from(await data.arrayBuffer()), mimeType: EXT_MIME[ext] ?? "audio/mpeg" };
       }
     }
   } catch {
@@ -112,26 +130,26 @@ async function fetchRecordingBuffer(sessionId: string): Promise<Buffer> {
 
   // Try local uploads
   const localDir = path.join(process.cwd(), ".local-uploads");
-  const extensions = ["mp4", "webm", "m4a", "wav", "mp3", "bin"];
+  const extensions = ["mp4", "webm", "m4a", "wav", "mp3", "ogg", "flac", "bin"];
   for (const ext of extensions) {
     try {
-      return await readFile(path.join(localDir, `${sessionId}.${ext}`));
+      const buffer = await readFile(path.join(localDir, `${sessionId}.${ext}`));
+      return { buffer, mimeType: EXT_MIME[ext] ?? "audio/mpeg" };
     } catch {
       continue;
     }
   }
 
-  // Return empty buffer (will use fallback transcript)
-  return Buffer.alloc(0);
+  return { buffer: Buffer.alloc(0), mimeType: "audio/mpeg" };
 }
 
 function parseTimestamp(ts: string): number {
   const parts = ts.split(":").map(Number);
   if (parts.length === 2 && parts.every((n) => !isNaN(n))) {
-    return parts[0] * 60 + parts[1];
+    return parts[0]! * 60 + parts[1]!;
   }
   if (parts.length === 3 && parts.every((n) => !isNaN(n))) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return parts[0]! * 3600 + parts[1]! * 60 + parts[2]!;
   }
   return -1;
 }

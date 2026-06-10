@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BottomNav } from "../BottomNav";
+import "../globals.css";
 
 export default function AppLayout({
   children

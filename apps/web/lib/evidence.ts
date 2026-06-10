@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getScreenshots, type Screenshot } from "./screenshots";
+import { getTranscript } from "./sessions";
 
 export type TranscriptSegment = {
   id: string;
@@ -20,8 +21,8 @@ export type SessionScreenshot = {
   label: string;
 };
 
-export function getTranscriptForSession(_sessionId: string): TranscriptSegment[] {
-  return [];
+export async function getTranscriptForSession(sessionId: string): Promise<TranscriptSegment[]> {
+  return getTranscript(sessionId);
 }
 
 export async function getScreenshotsForSession(sessionId: string): Promise<SessionScreenshot[]> {
@@ -31,7 +32,7 @@ export async function getScreenshotsForSession(sessionId: string): Promise<Sessi
     id: s.id,
     sessionId: s.sessionId,
     timestamp: s.timestamp,
-    imageUrl: `/api/local-uploads/${s.filename}`,
+    imageUrl: s.imageUrl,
     reason: s.reason,
     label: s.label
   }));

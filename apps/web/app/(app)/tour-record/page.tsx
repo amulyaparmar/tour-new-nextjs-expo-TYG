@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { TourRidealongClient } from "../tour-ridealong/TourRidealongClient";
+import { TourRidealongClient } from "../../(ridealong)/tour-ridealong/TourRidealongClient";
 
 export const metadata: Metadata = {
   title: "Tour Record | Ridealong Recording Demo",

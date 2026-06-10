@@ -13,9 +13,11 @@ import {
   createLocalSession,
   getLocalAnalysis,
   getLocalSessionById,
+  getLocalTranscript,
   listLocalActions,
   listLocalSessions,
   replaceLocalActions,
+  saveLocalTranscript,
   setLocalSessionStatus,
   updateLocalActionStatus,
   updateLocalSession,
@@ -122,7 +124,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
 
 export async function updateSession(
   sessionId: string,
-  fields: { title?: string; scheduledAt?: string | null; prospectName?: string | null; location?: string | null; notes?: string | null }
+  fields: { title?: string; scheduledAt?: string | null; prospectName?: string | null; location?: string | null; notes?: string | null; videoUrl?: string | null; audioUrl?: string | null }
 ) {
   try {
     const supabase = getSupabaseServiceClient();
@@ -132,6 +134,8 @@ export async function updateSession(
     if (fields.prospectName !== undefined) row.prospect_name = fields.prospectName;
     if (fields.location !== undefined) row.location = fields.location;
     if (fields.notes !== undefined) row.notes = fields.notes;
+    if (fields.videoUrl !== undefined) row.video_url = fields.videoUrl;
+    if (fields.audioUrl !== undefined) row.audio_url = fields.audioUrl;
 
     const { error } = await supabase.from("sessions").update(row as never).eq("id", sessionId);
     if (error) throw error;
@@ -325,6 +329,65 @@ export async function setSessionStatus(
     }
   } catch {
     await setLocalSessionStatus(sessionId, status, overallScore);
+  }
+}
+
+export type StoredTranscriptSegment = {
+  id: string;
+  sessionId: string;
+  speaker: string;
+  startTime: number;
+  endTime: number;
+  text: string;
+};
+
+export async function saveTranscript(sessionId: string, segments: StoredTranscriptSegment[]) {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const json = segments.map((seg) => ({
+      speaker: seg.speaker,
+      startTime: seg.startTime,
+      endTime: seg.endTime,
+      text: seg.text
+    }));
+
+    const { error } = await supabase
+      .from("sessions")
+      .update({ transcript_json: json } as never)
+      .eq("id", sessionId);
+
+    if (error) throw error;
+  } catch {
+    await saveLocalTranscript(sessionId, segments);
+  }
+}
+
+export async function getTranscript(sessionId: string): Promise<StoredTranscriptSegment[]> {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("sessions")
+      .select("transcript_json")
+      .eq("id", sessionId)
+      .single<{ transcript_json: Array<{ speaker: string; startTime: number; endTime: number; text: string }> }>();
+
+    if (error) throw error;
+
+    const arr = data?.transcript_json ?? [];
+    if (arr.length > 0) {
+      return arr.map((seg, i) => ({
+        id: `${sessionId}-t${i}`,
+        sessionId,
+        speaker: seg.speaker,
+        startTime: seg.startTime,
+        endTime: seg.endTime,
+        text: seg.text
+      }));
+    }
+
+    return getLocalTranscript(sessionId);
+  } catch {
+    return getLocalTranscript(sessionId);
   }
 }
 

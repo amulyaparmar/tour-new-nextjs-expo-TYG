@@ -1,6 +1,4 @@
-import "./landing.css";
-
-export default function LandingLayout({
+export default function RidealongLayout({
   children
 }: Readonly<{
   children: React.ReactNode;

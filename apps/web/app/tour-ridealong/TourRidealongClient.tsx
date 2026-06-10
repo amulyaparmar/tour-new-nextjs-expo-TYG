@@ -1,48 +1,34 @@
 "use client";
 
-import { useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
-  ArrowUpRight,
-  Bell,
-  Bot,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   ClipboardCheck,
-  Folder,
-  Gift,
+  Circle,
+  FileText,
   Home,
-  Import,
-  MessageSquareText,
-  Mic2,
+  MessageSquare,
+  Mic,
+  Pause,
+  Pencil,
   Play,
-  Radio,
-  Search,
-  SearchCheck,
+  Plus,
+  Send,
+  Settings2,
   Sparkles,
   Square,
+  Triangle,
   UploadCloud,
-  Video,
+  UserRound,
+  UsersRound,
   Volume2
 } from "lucide-react";
 
-import {
-  buildMockRidealongPreview,
-  getRidealongMode,
-  mysteryShopRuns,
-  recordWorkflowSteps,
-  ridealongModes,
-  rolePlayScenarios,
-  tourRidealongDemo,
-  type CoachingInsight,
-  type RidealongModeId,
-  type TranscriptSegment
-} from "./demoData";
-
-function cn(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
+import { tourRidealongDemo, type SpeakerId, type TranscriptSegment } from "./demoData";
 
 function formatTime(seconds: number) {
   const wholeSeconds = Math.max(0, Math.floor(seconds));
@@ -51,833 +37,563 @@ function formatTime(seconds: number) {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
 
-function getModeIcon(modeId: RidealongModeId) {
-  if (modeId === "record") {
-    return <Radio className="h-5 w-5" />;
-  }
-
-  if (modeId === "review") {
-    return <ClipboardCheck className="h-5 w-5" />;
-  }
-
-  if (modeId === "roleplay") {
-    return <Bot className="h-5 w-5" />;
-  }
-
-  return <SearchCheck className="h-5 w-5" />;
-}
-
-function getInsightTone(impact: CoachingInsight["scoreImpact"]) {
-  if (impact === "gained") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  }
-
-  if (impact === "lost") {
-    return "border-amber-200 bg-amber-50 text-amber-700";
-  }
-
-  return "border-blue-200 bg-blue-50 text-blue-700";
-}
-
-function getSegmentTone(segment: TranscriptSegment, active: boolean) {
-  if (active) {
-    return "border-blue-300 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.06)]";
-  }
-
-  if (segment.kind === "gain") {
-    return "border-emerald-100 bg-white hover:border-emerald-200";
-  }
-
-  if (segment.kind === "loss") {
-    return "border-amber-100 bg-white hover:border-amber-200";
-  }
-
-  if (segment.kind === "tone") {
-    return "border-sky-100 bg-white hover:border-sky-200";
-  }
-
-  return "border-slate-200 bg-white hover:border-slate-300";
-}
-
 export function TourRidealongClient() {
   const pathname = usePathname();
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const segmentRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [activeModeId, setActiveModeId] = useState<RidealongModeId>(
-    pathname.includes("tour-ridealong") ? "review" : "record"
-  );
-  const [isRecording, setIsRecording] = useState(false);
-  const [activeSegmentId, setActiveSegmentId] = useState<string>(tourRidealongDemo.transcript[0]?.id || "");
-  const [currentTime, setCurrentTime] = useState(0);
+  const isRecordPage = pathname.includes("tour-record");
 
-  const activeMode = getRidealongMode(activeModeId);
-  const preview = buildMockRidealongPreview(activeModeId);
+  if (isRecordPage) {
+    return <TourRecordView />;
+  }
 
-  const activeInsight = useMemo(() => {
-    const activeSegment = tourRidealongDemo.transcript.find((segment) => segment.id === activeSegmentId);
-    return tourRidealongDemo.insights.find((insight) => insight.id === activeSegment?.insightId)
-      || tourRidealongDemo.insights.find((insight) => insight.segmentId === activeSegmentId)
-      || tourRidealongDemo.insights[0]!;
-  }, [activeSegmentId]);
+  return <TourReviewView />;
+}
 
-  const jumpTo = (segmentId: string, play = false) => {
-    const segment = tourRidealongDemo.transcript.find((item) => item.id === segmentId);
-    if (!segment) {
-      return;
-    }
-
-    setActiveModeId("review");
-    setActiveSegmentId(segment.id);
-    setCurrentTime(segment.start);
-
-    if (audioRef.current) {
-      audioRef.current.currentTime = segment.start;
-      if (play) {
-        void audioRef.current.play().catch(() => undefined);
-      }
-    }
-
-    segmentRefs.current[segment.id]?.scrollIntoView({
-      behavior: "smooth",
-      block: "center"
-    });
-  };
-
-  const duration = tourRidealongDemo.recording.duration;
-  const progress = duration ? Math.min(100, (currentTime / duration) * 100) : 0;
+function Shell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const navItems = [
+    { label: "Record", href: "/tour-record", active: pathname.includes("tour-record") },
+    { label: "Review", href: "/tour-ridealong", active: pathname.includes("tour-ridealong") },
+    { label: "Activity", href: "/tour-dashboard-preview", active: pathname.includes("activity") }
+  ];
 
   return (
-    <main className="min-h-screen bg-white text-[#232832]">
-      <div className="grid min-h-screen lg:grid-cols-[280px_minmax(0,1fr)]">
-        <Sidebar activeModeId={activeModeId} pathname={pathname} setActiveModeId={setActiveModeId} />
-
-        <section className="min-w-0 bg-white">
-          <Topbar isRecording={isRecording} onRecordingToggle={() => setIsRecording((value) => !value)} />
-
-          <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-7 px-5 py-8 sm:px-8">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <button
-                className="inline-flex w-fit items-center gap-2 rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-200"
-                type="button"
+    <main className="min-h-screen bg-[#fbfbfd] text-[#111827]">
+      <header className="sticky top-0 z-30 border-b border-black/[0.06] bg-white/92 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-[92rem] items-center justify-between px-5">
+          <a className="inline-flex items-center gap-3 text-lg font-semibold tracking-normal text-[#111827]" href="/">
+            <span className="grid h-6 w-6 place-items-center rounded-md text-[#006ce5]">
+              <Triangle className="h-5 w-5 rotate-90 fill-current stroke-current" />
+            </span>
+            Tour.video
+          </a>
+          <nav className="hidden h-full items-center gap-7 text-sm font-semibold text-[#4b5563] sm:flex">
+            {navItems.map((item) => (
+              <a
+                className={`flex h-full items-center border-b-2 transition ${
+                  item.active ? "border-[#006ce5] text-[#111827]" : "border-transparent hover:text-[#111827]"
+                }`}
+                href={item.href}
+                key={item.label}
               >
-                Wednesday, Jun 10, 2026
-                <ChevronDown className="h-4 w-4 text-slate-500" />
-              </button>
-              <button
-                className="inline-flex w-fit items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-800 ring-1 ring-slate-200 hover:bg-slate-50"
-                type="button"
-              >
-                For you
-                <ChevronDown className="h-4 w-4 text-slate-500" />
-              </button>
-            </div>
-
-            <section className="grid gap-5 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)] lg:grid-cols-[minmax(0,1fr)_320px] lg:p-7">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-blue-700">
-                  <span className="rounded-full bg-blue-50 px-3 py-1">Tour.video</span>
-                  <span className="rounded-full bg-slate-100 px-3 py-1">Ridealong workspace</span>
-                </div>
-                <h1 className="mt-4 max-w-3xl text-3xl font-semibold tracking-normal text-slate-950 sm:text-4xl">
-                  Record, review, role play, and mystery shop leasing conversations.
-                </h1>
-                <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">
-                  A cleaner workspace for tour audio, timestamped coaching, role-play scenarios, and QA review.
-                </p>
-                <div className="mt-6 grid gap-2 sm:grid-cols-3">
-                  <Metric label="Modes" value={String(ridealongModes.length)} />
-                  <Metric label="Review" value={tourRidealongDemo.recording.overallScore.toFixed(1)} />
-                  <Metric label="Moments" value={String(tourRidealongDemo.insights.length)} />
-                </div>
-              </div>
-
-              <RecordCard isRecording={isRecording} onRecordingToggle={() => setIsRecording((value) => !value)} />
-            </section>
-
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="min-w-0 space-y-5">
-                <ModeTabs activeModeId={activeModeId} setActiveModeId={setActiveModeId} />
-
-                <section className="rounded-[24px] border border-slate-200 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.05)]">
-                  <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase text-slate-400">{activeMode.eyebrow}</p>
-                      <h2 className="mt-1 text-xl font-semibold text-slate-950">{activeMode.headline}</h2>
-                      <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">{activeMode.summary}</p>
-                    </div>
-                    <div className="w-fit rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center">
-                      <div className="text-2xl font-semibold text-blue-700">{activeMode.primaryMetric}</div>
-                      <div className="text-[11px] font-semibold uppercase text-slate-500">{activeMode.metricLabel}</div>
-                    </div>
-                  </div>
-
-                  {activeModeId === "review" ? (
-                    <TranscriptReview activeSegmentId={activeSegmentId} jumpTo={jumpTo} segmentRefs={segmentRefs} />
-                  ) : (
-                    <ModeCanvas activeModeId={activeModeId} />
-                  )}
-                </section>
-              </div>
-
-              <aside className="space-y-5">
-                <ActionCard actionLabel={activeMode.actionLabel} nextAction={preview.recommendedNextAction} />
-
-                {activeModeId === "review" ? (
-                  <ReviewPanel activeInsight={activeInsight} jumpTo={jumpTo} />
-                ) : (
-                  <ModePanel activeModeId={activeModeId} />
-                )}
-              </aside>
-            </div>
-          </div>
-
-          <AudioDock
-            audioRef={audioRef}
-            currentTime={currentTime}
-            duration={duration}
-            jumpTo={jumpTo}
-            progress={progress}
-            setCurrentTime={setCurrentTime}
-          />
-        </section>
-      </div>
+                {item.label}
+              </a>
+            ))}
+          </nav>
+          <button className="inline-flex items-center gap-2 rounded-full bg-[#f3f6fb] py-1 pl-1 pr-2 text-sm font-semibold text-[#111827]" type="button">
+            <span className="grid h-9 w-9 place-items-center rounded-full bg-[#e8edf6]">JD</span>
+            <ChevronDown className="h-4 w-4 text-[#6b7280]" />
+          </button>
+        </div>
+      </header>
+      {children}
     </main>
   );
 }
 
-function Sidebar({
-  activeModeId,
-  pathname,
-  setActiveModeId
-}: {
-  activeModeId: RidealongModeId;
-  pathname: string;
-  setActiveModeId: (modeId: RidealongModeId) => void;
-}) {
+function TourRecordView() {
+  const [isRecording, setIsRecording] = useState(false);
+  const tourDetails = [
+    { label: "Tour type", value: "In-person", icon: UsersRound, tone: "text-[#006ce5] bg-[#eef5ff]" },
+    { label: "Property", value: "Downtown Lofts", icon: Home, tone: "text-[#1f9d55] bg-[#edf9f1]" },
+    { label: "Prospect", value: "Emma Johnson", icon: UserRound, tone: "text-[#7c3aed] bg-[#f4efff]" },
+    { label: "Tour time", value: "Today, 10:00 AM", icon: CalendarDays, tone: "text-[#0071e3] bg-[#eef7ff]" }
+  ];
+  const features = [
+    {
+      title: "One button recording",
+      detail: "Capture high-quality audio of the tour.",
+      icon: Mic,
+      tone: "text-[#16a34a]"
+    },
+    {
+      title: "AI-ready context",
+      detail: "Transcripts, notes, and highlights-ready to review.",
+      icon: FileText,
+      tone: "text-[#0071e3]"
+    },
+    {
+      title: "Share & follow up",
+      detail: "Send recaps and next steps to your team.",
+      icon: UsersRound,
+      tone: "text-[#7c3aed]"
+    }
+  ];
+  const steps = [
+    { title: "Confirm consent", detail: "Let the prospect know the tour will be recorded.", done: true },
+    { title: "Start recording", detail: "Tap the microphone to begin.", done: isRecording },
+    { title: "Capture the tour conversation", detail: "We'll capture audio and keep the context.", done: false },
+    { title: "Send to review", detail: "Transcripts and AI notes will be ready.", done: false }
+  ];
+
   return (
-    <aside className="hidden min-h-screen border-r border-slate-200 bg-white px-5 py-5 lg:flex lg:flex-col">
-      <div className="flex items-center justify-between">
-        <a className="flex items-center gap-3" href="/">
-          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-600 text-white">
-            <Play className="ml-0.5 h-5 w-5 fill-current" />
+    <Shell>
+      <section className="mx-auto grid max-w-[86rem] gap-10 px-5 py-10 lg:grid-cols-[0.78fr_1.22fr] lg:gap-16 lg:py-20">
+        <div className="flex flex-col justify-center">
+          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[#111827] shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-[#006ce5]" />
+            Tour recorder
           </span>
-          <span className="text-2xl font-semibold tracking-normal text-slate-950">Tour</span>
-        </a>
-        <button className="rounded-full bg-white p-2 text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50" type="button">
-          <Bell className="h-5 w-5" />
-        </button>
-      </div>
+          <h1 className="mt-7 max-w-xl text-[clamp(4rem,8vw,7rem)] font-semibold leading-[0.96] tracking-normal text-[#081226]">
+            Capture the tour<span className="text-[#006ce5]">.</span>
+          </h1>
+          <p className="mt-7 max-w-lg text-xl font-medium leading-8 text-[#667085]">
+            Record the conversation, keep the context, and prepare it for AI review.
+          </p>
 
-      <div className="mt-7 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="flex items-center gap-3 p-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
-            AP
-          </span>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-950">Amulya Parmar</div>
-            <div className="truncate text-xs text-slate-500">tour workspace</div>
-          </div>
-          <ChevronDown className="ml-auto h-4 w-4 text-slate-500" />
-        </div>
-        <div className="flex items-center gap-2 border-t border-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">
-          <Gift className="h-5 w-5" />
-          Get Pro For Free
-        </div>
-      </div>
-
-      <nav className="mt-6 space-y-1">
-        <NavLink active={pathname === "/"} href="/" icon={<Home className="h-5 w-5" />} label="Home" />
-        <NavLink active={pathname === "/tour-record"} href="/tour-record" icon={<Mic2 className="h-5 w-5" />} label="Tour Record" />
-        <NavLink active={pathname === "/tour-ridealong"} href="/tour-ridealong" icon={<MessageSquareText className="h-5 w-5" />} label="Ridealong" />
-      </nav>
-
-      <div className="mt-6 space-y-2">
-        <SidebarLabel>Modes</SidebarLabel>
-        {ridealongModes.map((mode) => {
-          const active = mode.id === activeModeId;
-          return (
-            <button
-              className={cn(
-                "flex min-h-10 w-full items-center gap-3 rounded-full border px-4 text-left text-sm font-semibold transition-colors",
-                active ? "border-blue-300 bg-white text-blue-700" : "border-transparent bg-white text-slate-600 hover:border-slate-200 hover:bg-white"
-              )}
-              key={mode.id}
-              onClick={() => setActiveModeId(mode.id)}
-              type="button"
-            >
-              {getModeIcon(mode.id)}
-              {mode.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="mt-6 space-y-2">
-        <SidebarLabel>Folders</SidebarLabel>
-        <NavLink href="/" icon={<Folder className="h-5 w-5" />} label="TYG" />
-      </div>
-
-      <div className="mt-auto space-y-4">
-        <div className="rounded-2xl bg-slate-50 p-4">
-          <h3 className="text-sm font-semibold text-slate-950">Get the desktop app</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-500">Local, reliable, bot-free recording</p>
-          <a className="mt-3 inline-flex text-sm font-semibold text-blue-700" href="/tour-record">
-            Download <ArrowUpRight className="ml-1 h-4 w-4" />
-          </a>
-        </div>
-        <div className="rounded-2xl bg-slate-50 p-4">
-          <div className="flex items-center justify-between text-sm font-semibold text-slate-950">
-            Basic <span className="h-px flex-1 bg-blue-100 ml-3" />
-          </div>
-          <p className="mt-3 text-sm text-slate-600">0 of 300 monthly mins used</p>
-          <button className="mt-4 min-h-10 w-full rounded-full border border-blue-600 bg-white px-4 text-sm font-semibold text-blue-700 hover:bg-blue-50" type="button">
-            Get Tour Pro
-          </button>
-        </div>
-      </div>
-    </aside>
-  );
-}
-
-function Topbar({
-  isRecording,
-  onRecordingToggle
-}: {
-  isRecording: boolean;
-  onRecordingToggle: () => void;
-}) {
-  return (
-    <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-8">
-      <div className="flex items-center gap-3">
-        <div className="flex min-h-11 flex-1 items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 text-slate-500 shadow-sm sm:max-w-[420px]">
-          <Search className="h-5 w-5 text-slate-700" />
-          <span className="text-sm sm:text-base">Ask or search</span>
-          <span className="ml-auto hidden text-sm text-slate-400 sm:inline">⌘K</span>
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          <IconButton label="Video" icon={<Video className="h-5 w-5" />} />
-          <button className="hidden min-h-11 items-center gap-2 rounded-2xl bg-slate-100 px-4 text-sm font-semibold text-slate-900 hover:bg-slate-200 sm:inline-flex" type="button">
-            <UploadCloud className="h-5 w-5" />
-            Import
-          </button>
-          <button
-            className={cn(
-              "inline-flex min-h-11 items-center gap-2 rounded-2xl px-4 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(37,99,235,0.22)]",
-              isRecording ? "bg-red-500 hover:bg-red-600" : "bg-blue-600 hover:bg-blue-700"
-            )}
-            onClick={onRecordingToggle}
-            type="button"
-          >
-            {isRecording ? <Square className="h-5 w-5 fill-current" /> : <Mic2 className="h-5 w-5" />}
-            {isRecording ? "Stop" : "Record"}
-          </button>
-          <IconButton label="Calendar" icon={<CalendarDays className="h-5 w-5" />} />
-        </div>
-      </div>
-    </header>
-  );
-}
-
-function ModeTabs({
-  activeModeId,
-  setActiveModeId
-}: {
-  activeModeId: RidealongModeId;
-  setActiveModeId: (modeId: RidealongModeId) => void;
-}) {
-  return (
-    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-      {ridealongModes.map((mode) => {
-        const active = mode.id === activeModeId;
-        return (
-          <button
-            className={cn(
-              "min-h-[86px] rounded-2xl border bg-white p-4 text-left transition-colors",
-              active
-                ? "border-blue-300 text-blue-800 shadow-[0_8px_24px_rgba(15,23,42,0.04)]"
-                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-            )}
-            key={mode.id}
-            onClick={() => setActiveModeId(mode.id)}
-            type="button"
-          >
-            <span className="flex items-center justify-between gap-3">
-              <span className="inline-flex items-center gap-2 text-sm font-semibold">
-                {getModeIcon(mode.id)}
-                {mode.label}
-              </span>
-              <span className="text-xs font-semibold text-slate-500">{mode.primaryMetric}</span>
-            </span>
-            <span className="mt-2 block text-xs leading-5 text-slate-500">{mode.eyebrow}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function RecordCard({
-  isRecording,
-  onRecordingToggle
-}: {
-  isRecording: boolean;
-  onRecordingToggle: () => void;
-}) {
-  return (
-    <div className="rounded-[24px] bg-slate-50 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-slate-950">Leasing tour ridealong</p>
-          <p className="mt-1 text-xs text-slate-500">Guest card, audio, notes, and review queue.</p>
-        </div>
-        <span className={cn("rounded-full px-3 py-1 text-xs font-semibold", isRecording ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-700")}>
-          {isRecording ? "Recording" : "Ready"}
-        </span>
-      </div>
-
-      <button
-        className={cn(
-          "mt-5 flex min-h-28 w-full items-center justify-center gap-3 rounded-[24px] border text-lg font-semibold transition-colors",
-          isRecording
-            ? "border-red-300 bg-white text-red-600 hover:bg-red-50"
-            : "border-blue-300 bg-white text-blue-700 hover:bg-slate-50"
-        )}
-        onClick={onRecordingToggle}
-        type="button"
-      >
-        {isRecording ? <Square className="h-5 w-5 fill-current" /> : <Mic2 className="h-5 w-5" />}
-        {isRecording ? "Stop recording" : "Hit record"}
-      </button>
-
-      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-        <MiniStat label="Mode" value="Field" />
-        <MiniStat label="Timer" value={isRecording ? "2:14" : "0:00"} />
-        <MiniStat label="Speakers" value="2" />
-      </div>
-    </div>
-  );
-}
-
-function ModeCanvas({ activeModeId }: { activeModeId: RidealongModeId }) {
-  if (activeModeId === "record") {
-    return (
-      <div className="grid gap-4 p-5 lg:grid-cols-2">
-        <CleanCard title="What gets saved" icon={<Import className="h-5 w-5" />}>
-          <DataRows rows={[
-            ["Audio file", "M4A or room recording"],
-            ["Transcript", "Speaker-separated segments"],
-            ["Context", "Property, prospect, tour type"],
-            ["Review queue", "AI and human notes"]
-          ]} />
-        </CleanCard>
-        <CleanCard title="After recording" icon={<Sparkles className="h-5 w-5" />}>
-          <DataRows rows={[
-            ["0-2 min", "Upload and normalize audio"],
-            ["2-4 min", "Transcript and speaker labels"],
-            ["4-6 min", "Rubric scoring and moments"],
-            ["Next", "Manager review and coaching"]
-          ]} />
-        </CleanCard>
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
-          <p className="text-sm font-semibold text-slate-950">Mock capture payload</p>
-          <pre className="mt-3 overflow-x-auto rounded-2xl bg-white p-4 text-xs leading-6 text-slate-600 ring-1 ring-slate-200">
-{`{
-  "source": "tour_ridealong",
-  "property": "Arden Square",
-  "capture": "mobile_audio",
-  "rubric": "leasing_tour_v1",
-  "reviewers": ["manager", "ai_coach"]
-}`}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  if (activeModeId === "roleplay") {
-    return (
-      <div className="grid gap-3 p-5">
-        {rolePlayScenarios.map((scenario) => (
-          <article className="rounded-2xl border border-slate-200 bg-white p-4 hover:bg-slate-50" key={scenario.id}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase text-slate-400">{scenario.persona}</p>
-                <h3 className="mt-1 text-lg font-semibold text-slate-950">{scenario.objection}</h3>
-              </div>
-              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">{scenario.difficulty}</span>
-            </div>
-            <p className="mt-3 text-sm leading-6 text-slate-600">{scenario.goal}</p>
-            <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm leading-6 text-slate-700">{scenario.coachPrompt}</p>
-          </article>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid gap-3 p-5">
-      {mysteryShopRuns.map((run) => (
-        <article className="rounded-2xl border border-slate-200 bg-white p-4 hover:bg-slate-50" key={run.id}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase text-slate-400">{run.shopperPersona}</p>
-              <h3 className="mt-1 text-lg font-semibold text-slate-950">{run.property}</h3>
-            </div>
-            <span className="rounded-2xl bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">{run.score}</span>
-          </div>
-          <p className="mt-3 text-sm leading-6 text-slate-600">{run.finding}</p>
-          <p className="mt-2 text-xs leading-5 text-slate-500">{run.followUp}</p>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function TranscriptReview({
-  activeSegmentId,
-  jumpTo,
-  segmentRefs
-}: {
-  activeSegmentId: string;
-  jumpTo: (segmentId: string, play?: boolean) => void;
-  segmentRefs: MutableRefObject<Record<string, HTMLDivElement | null>>;
-}) {
-  return (
-    <div className="max-h-[680px] overflow-y-auto p-5">
-      <div className="space-y-3">
-        {tourRidealongDemo.transcript.map((segment) => {
-          const speaker = tourRidealongDemo.speakers[segment.speakerId];
-          const active = segment.id === activeSegmentId;
-          const insight = segment.insightId
-            ? tourRidealongDemo.insights.find((item) => item.id === segment.insightId)
-            : null;
-
-          return (
-            <div
-              className={cn("rounded-2xl border p-4 transition-colors", getSegmentTone(segment, active))}
-              key={segment.id}
-              ref={(node) => {
-                segmentRefs.current[segment.id] = node;
-              }}
-            >
-              <button className="grid w-full grid-cols-[52px_minmax(0,1fr)] gap-3 text-left" onClick={() => jumpTo(segment.id, true)} type="button">
-                <span className="rounded-xl bg-slate-100 px-2 py-2 text-center text-xs font-semibold text-slate-600">
-                  {formatTime(segment.start)}
-                </span>
-                <span className="min-w-0">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-xs font-bold text-slate-950" style={{ backgroundColor: speaker.softColor }}>
-                      {speaker.name.replace("Speaker ", "S")}
-                    </span>
-                    <span className="text-sm font-semibold text-slate-950">{speaker.name}</span>
-                    <span className="text-xs text-slate-500">{speaker.role}</span>
-                    {insight ? (
-                      <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-semibold", getInsightTone(insight.scoreImpact))}>
-                        {insight.scoreImpact === "gained" ? "point gained" : insight.scoreImpact === "lost" ? "coaching moment" : "tone note"}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="mt-2 block text-sm leading-6 text-slate-700 sm:text-[15px]">{segment.text}</span>
-                </span>
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ActionCard({ actionLabel, nextAction }: { actionLabel: string; nextAction: string }) {
-  return (
-    <section className="rounded-[24px] border border-slate-200 bg-white p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase text-blue-700">Recommended action</p>
-          <h2 className="mt-2 text-lg font-semibold text-slate-950">{actionLabel}</h2>
-        </div>
-        <Sparkles className="mt-1 h-5 w-5 shrink-0 text-blue-600" />
-      </div>
-      <p className="mt-3 text-sm leading-6 text-slate-700">{nextAction}</p>
-    </section>
-  );
-}
-
-function ReviewPanel({
-  activeInsight,
-  jumpTo
-}: {
-  activeInsight: CoachingInsight;
-  jumpTo: (segmentId: string, play?: boolean) => void;
-}) {
-  return (
-    <>
-      <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.05)]">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-950">
-          <MessageSquareText className="h-5 w-5 text-blue-600" />
-          Active AI Comment
-        </h2>
-        <InsightBody insight={activeInsight} onJump={jumpTo} />
-      </section>
-
-      <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.05)]">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase text-slate-400">Rubric</p>
-            <h2 className="mt-1 text-lg font-semibold text-slate-950">Collaborative solution design</h2>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center">
-            <div className="text-2xl font-semibold text-blue-700">{tourRidealongDemo.recording.overallScore.toFixed(1)}</div>
-            <div className="text-[11px] font-semibold uppercase text-slate-500">overall</div>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-3">
-          {tourRidealongDemo.rubric.map((item) => (
-            <button
-              className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left hover:bg-slate-50"
-              key={item.id}
-              onClick={() => jumpTo(item.evidenceSegmentIds[0]!)}
-              type="button"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="min-w-0 text-sm font-semibold text-slate-950">{item.label}</span>
-                <span className="text-sm font-semibold text-slate-700">{item.score.toFixed(1)}</span>
-              </div>
-              <div className="mt-2 h-2 rounded-full bg-slate-100">
-                <div className="h-2 rounded-full bg-blue-600" style={{ width: `${Math.min(100, item.score * 10)}%` }} />
-              </div>
-              <p className="mt-2 text-xs leading-5 text-slate-500">{item.summary}</p>
-            </button>
-          ))}
-        </div>
-      </section>
-    </>
-  );
-}
-
-function ModePanel({ activeModeId }: { activeModeId: RidealongModeId }) {
-  const items = activeModeId === "record"
-    ? ["Confirm consent", "Attach property context", "Capture all speakers", "Send to review queue"]
-    : activeModeId === "roleplay"
-      ? ["Pick persona", "Practice objection", "Score the response", "Save the best wording"]
-      : ["Run shopper scenario", "Compare team behavior", "Flag missed steps", "Assign coaching follow-up"];
-
-  return (
-    <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.05)]">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-950">
-        <CheckCircle2 className="h-5 w-5 text-blue-600" />
-        Workflow checklist
-      </h2>
-      <div className="mt-4 space-y-2">
-        {items.map((item) => (
-          <div className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3 text-sm font-medium text-slate-700" key={item}>
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            {item}
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-5 space-y-2">
-        {recordWorkflowSteps.map((step) => (
-          <div className="rounded-2xl border border-slate-200 bg-white p-3" key={step.id}>
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-              <span className={cn("h-2.5 w-2.5 rounded-full", step.status === "complete" ? "bg-emerald-500" : step.status === "active" ? "bg-blue-600" : "bg-slate-300")} />
-              {step.label}
-            </div>
-            <p className="mt-1 text-xs leading-5 text-slate-500">{step.detail}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function AudioDock({
-  audioRef,
-  currentTime,
-  duration,
-  jumpTo,
-  progress,
-  setCurrentTime
-}: {
-  audioRef: MutableRefObject<HTMLAudioElement | null>;
-  currentTime: number;
-  duration: number;
-  jumpTo: (segmentId: string, play?: boolean) => void;
-  progress: number;
-  setCurrentTime: (time: number) => void;
-}) {
-  return (
-    <section className="sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-8">
-      <div className="mx-auto grid max-w-[1180px] gap-4 rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_12px_36px_rgba(15,23,42,0.08)] lg:grid-cols-[340px_minmax(0,1fr)] lg:items-center">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-            <Volume2 className="h-4 w-4 text-blue-600" />
-            Conversation Audio
-          </div>
-          <audio
-            className="mt-2 w-full"
-            controls
-            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-            preload="metadata"
-            ref={audioRef}
-            src={tourRidealongDemo.recording.audioSrc}
-          />
-        </div>
-
-        <div className="min-w-0">
-          <div className="mb-2 flex items-center justify-between gap-3 text-xs text-slate-500">
-            <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
-          </div>
-          <div className="relative h-2 rounded-full bg-slate-100">
-            <div className="absolute inset-y-0 left-0 rounded-full bg-blue-600" style={{ width: `${progress}%` }} />
-          </div>
-
-          <div className="mt-3 grid gap-2">
-            {tourRidealongDemo.speakerTracks.map((track) => {
-              const speaker = tourRidealongDemo.speakers[track.speakerId];
+          <div className="mt-9 max-w-lg divide-y divide-black/[0.07]">
+            {features.map((feature) => {
+              const Icon = feature.icon;
               return (
-                <div className="grid grid-cols-[88px_minmax(0,1fr)] items-center gap-3" key={track.speakerId}>
-                  <div className="min-w-0 text-xs">
-                    <div className="truncate font-semibold text-slate-950">{speaker.name}</div>
-                    <div className="text-slate-500">{speaker.talkTimePercent}% talk</div>
-                  </div>
-                  <div className="relative h-5 rounded-full bg-slate-100">
-                    {track.segments.map((segment) => (
-                      <button
-                        aria-label={`${speaker.name} at ${formatTime(segment.start)}`}
-                        className="absolute top-1 h-3 rounded-full transition-transform hover:scale-y-125 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                        key={segment.id}
-                        onClick={() => jumpTo(segment.segmentId, true)}
-                        style={{
-                          backgroundColor: speaker.color,
-                          left: `${(segment.start / duration) * 100}%`,
-                          width: `${Math.max(0.8, ((segment.end - segment.start) / duration) * 100)}%`
-                        }}
-                        type="button"
-                      />
-                    ))}
+                <div className="flex gap-5 py-5 first:pt-0" key={feature.title}>
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-black/10 bg-white shadow-sm">
+                    <Icon className={`h-5 w-5 ${feature.tone}`} />
+                  </span>
+                  <div>
+                    <h2 className="text-base font-semibold text-[#111827]">{feature.title}</h2>
+                    <p className="mt-1 text-sm font-medium leading-6 text-[#667085]">{feature.detail}</p>
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
-      </div>
-    </section>
-  );
-}
 
-function InsightBody({
-  insight,
-  onJump
-}: {
-  insight: CoachingInsight;
-  onJump: (segmentId: string, play?: boolean) => void;
-}) {
-  return (
-    <div className="mt-4 space-y-3">
-      <InsightLine label="What happened" text={insight.whatHappened} />
-      <InsightLine label="Why it matters" text={insight.whyItMatters} />
-      {insight.suggestedWording ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase text-blue-600">
-            <Sparkles className="h-4 w-4" />
-            Suggested wording
+          <section className="mt-10 max-w-lg rounded-[1.35rem] border border-black/10 bg-white p-4 shadow-sm">
+            <p className="text-sm font-medium text-[#667085]">Current tour</p>
+            <div className="mt-4 flex items-center gap-4">
+              <div className="grid h-16 w-16 shrink-0 place-items-end overflow-hidden rounded-xl bg-[linear-gradient(135deg,#bfd4ee,#eef4fb)] p-2">
+                <div className="grid h-12 w-10 grid-cols-3 gap-0.5 rounded-t-lg bg-white/90 p-1 shadow-sm">
+                  {Array.from({ length: 12 }).map((_, index) => (
+                    <span className="rounded-sm bg-[#9fb3c8]" key={index} />
+                  ))}
+                </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-base font-semibold text-[#111827]">Downtown Lofts</h2>
+                <p className="mt-1 truncate text-sm font-medium text-[#667085]">123 Main St, Austin, TX 78701</p>
+              </div>
+              <button className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-black/10 bg-white px-3 text-xs font-semibold text-[#344054] shadow-sm" type="button">
+                <Pencil className="h-3.5 w-3.5" />
+                Change tour
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <section className="self-center rounded-[1.75rem] border border-black/[0.06] bg-white p-6 shadow-[0_28px_80px_rgba(16,24,40,0.08)] sm:p-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="inline-flex items-center gap-3 text-lg font-medium text-[#344054]">
+              <span className={`h-2.5 w-2.5 rounded-full ${isRecording ? "bg-[#ff3b30]" : "bg-[#0f9f5e]"}`} />
+              {isRecording ? "Recording" : "Ready"}
+            </div>
+            <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-black/10 bg-white px-4 text-sm font-semibold text-[#344054] shadow-sm" type="button">
+              <Settings2 className="h-4 w-4" />
+              Recording settings
+            </button>
           </div>
-          <p className="mt-2 text-sm leading-6 text-slate-700">{insight.suggestedWording}</p>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {tourDetails.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div className="flex min-w-0 items-center gap-3 rounded-xl border border-black/10 bg-white p-3 shadow-sm" key={item.label}>
+                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${item.tone}`}>
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-[#344054]">{item.label}</p>
+                    <p className="text-[11px] font-medium leading-4 text-[#667085]">{item.value}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="py-14 text-center sm:py-16">
+            <button
+              className={`mx-auto grid h-36 w-36 place-items-center rounded-full transition ${
+                isRecording
+                  ? "bg-[#ff3b30] text-white shadow-[0_0_0_18px_rgba(255,59,48,0.10),0_0_0_36px_rgba(255,59,48,0.06)]"
+                  : "bg-[#006ce5] text-white shadow-[0_0_0_18px_rgba(0,108,229,0.10),0_0_0_36px_rgba(0,108,229,0.06)] hover:bg-[#0576f6]"
+              }`}
+              onClick={() => setIsRecording((value) => !value)}
+              type="button"
+            >
+              {isRecording ? <Square className="h-12 w-12 fill-current" /> : <Mic className="h-14 w-14" />}
+            </button>
+            <h2 className="mt-9 text-xl font-semibold text-[#111827]">
+              {isRecording ? "Recording tour audio" : "Tap to start recording"}
+            </h2>
+            <div className="mx-auto mt-3 flex h-5 w-44 items-center justify-center gap-1">
+              {Array.from({ length: 28 }).map((_, index) => (
+                <span
+                  className="w-0.5 rounded-full bg-[#98a2b3]"
+                  key={index}
+                  style={{ height: `${6 + (index % 6) * 2}px` }}
+                />
+              ))}
+            </div>
+            <p className="mt-2 text-sm font-medium text-[#667085]">
+              {isRecording ? "00:03:48 elapsed" : "Audio only - High quality"}
+            </p>
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-black/10">
+            {steps.map((step) => (
+              <div className="flex items-center gap-4 border-b border-black/10 p-4 last:border-b-0" key={step.title}>
+                {step.done ? (
+                  <CheckCircle2 className="h-6 w-6 shrink-0 text-[#16a34a]" />
+                ) : (
+                  <Circle className="h-6 w-6 shrink-0 text-[#98a2b3]" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-semibold text-[#111827]">{step.title}</h3>
+                  <p className="mt-0.5 text-xs font-medium text-[#667085]">{step.detail}</p>
+                </div>
+                {step.done && step.title === "Confirm consent" ? (
+                  <span className="text-xs font-semibold text-[#16a34a]">Confirmed</span>
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0 text-[#667085]" />
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <button className="inline-flex h-14 items-center justify-center gap-2 rounded-xl border border-[#006ce5] bg-white text-base font-semibold text-[#006ce5]" type="button">
+              <UploadCloud className="h-5 w-5" />
+              Upload recording
+            </button>
+            <a className="inline-flex h-14 items-center justify-center gap-2 rounded-xl bg-[#006ce5] text-base font-semibold text-white shadow-[0_12px_30px_rgba(0,108,229,0.22)]" href="/tour-ridealong">
+              <Send className="h-5 w-5" />
+              Send to review
+            </a>
+          </div>
+        </section>
+      </section>
+    </Shell>
+  );
+}
+
+function TourReviewView() {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const defaultSegment = tourRidealongDemo.transcript[0]!;
+  const defaultInsight = tourRidealongDemo.insights[0]!;
+  const [activeSegmentId, setActiveSegmentId] = useState(defaultSegment.id);
+  const [rightPanelTab, setRightPanelTab] = useState<"comments" | "rubric">("comments");
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === "rubric") {
+      setRightPanelTab("rubric");
+    }
+  }, []);
+
+  const activeSegment = useMemo(
+    () => tourRidealongDemo.transcript.find((segment) => segment.id === activeSegmentId) || defaultSegment,
+    [activeSegmentId, defaultSegment]
+  );
+  const activeInsight = useMemo(() => {
+    return tourRidealongDemo.insights.find((insight) => insight.segmentId === activeSegment?.id)
+      || defaultInsight;
+  }, [activeSegment?.id, defaultInsight]);
+  const transcript = tourRidealongDemo.transcript.slice(0, 12);
+  const speakerEntries = Object.entries(tourRidealongDemo.speakers) as Array<
+    [SpeakerId, (typeof tourRidealongDemo.speakers)[SpeakerId]]
+  >;
+  const comments = [
+    {
+      id: "comment-1",
+      author: "Reviewer",
+      time: "3:53",
+      text: "This is the key product moment. Keep the transcript-level coaching, not only the final score."
+    },
+    {
+      id: "comment-2",
+      author: "AI draft",
+      time: "6:06",
+      text: "Close the meeting with one concrete owner and implementation boundary."
+    }
+  ];
+
+  const jumpTo = (segment: TranscriptSegment) => {
+    setActiveSegmentId(segment.id);
+    setCurrentTime(segment.start);
+    if (audioRef.current) {
+      audioRef.current.currentTime = segment.start;
+      void audioRef.current.play().then(() => setIsPlaying(true)).catch(() => undefined);
+    }
+  };
+
+  const togglePlayback = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (audio.paused) {
+      void audio.play().then(() => setIsPlaying(true)).catch(() => undefined);
+      return;
+    }
+
+    audio.pause();
+    setIsPlaying(false);
+  };
+
+  return (
+    <Shell>
+      <section className="mx-auto max-w-[92rem] px-5 py-10 lg:py-12">
+        <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
+          <div>
+            <p className="text-sm font-semibold text-[#86868b]">Tour ridealong</p>
+            <h1 className="mt-4 text-[clamp(2.75rem,5.5vw,5.75rem)] font-semibold leading-[0.95] tracking-normal">
+              Review every voice clearly.
+            </h1>
+          </div>
+          <p className="max-w-2xl text-xl font-medium leading-8 text-[#6e6e73]">
+            Split the conversation by speaker, read the AI summary in context, and keep comments and rubric review open beside the recording.
+          </p>
         </div>
-      ) : null}
-      <button
-        className="inline-flex min-h-10 items-center gap-2 rounded-full border border-blue-300 bg-white px-4 text-sm font-semibold text-blue-700 hover:bg-slate-50"
-        onClick={() => onJump(insight.segmentId, true)}
-        type="button"
-      >
-        <Play className="h-4 w-4 fill-current" />
-        Play moment
-      </button>
-    </div>
-  );
-}
 
-function InsightLine({ label, text }: { label: string; text: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3">
-      <div className="text-xs font-semibold uppercase text-slate-400">{label}</div>
-      <p className="mt-2 text-sm leading-6 text-slate-700">{text}</p>
-    </div>
-  );
-}
+        <section className="mt-9 grid gap-5 xl:grid-cols-[minmax(0,1.12fr)_minmax(320px,0.8fr)_340px]">
+          <div className="rounded-[2rem] bg-white p-5 shadow-[0_28px_80px_rgba(0,0,0,0.08)] sm:p-6">
+            <div className="flex flex-col gap-5 border-b border-black/10 pb-6 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-[#86868b]">{tourRidealongDemo.recording.dateLabel}</p>
+                <h2 className="mt-1 text-2xl font-semibold tracking-normal">{tourRidealongDemo.recording.title}</h2>
+              </div>
+              <div className="rounded-full bg-[#f5f5f7] px-4 py-2 text-sm font-semibold text-[#1d1d1f]">
+                Score {tourRidealongDemo.recording.overallScore.toFixed(1)}
+              </div>
+            </div>
 
-function DataRows({ rows }: { rows: Array<[string, string]> }) {
-  return (
-    <div className="mt-3 divide-y divide-slate-100">
-      {rows.map(([label, value]) => (
-        <div className="flex items-center justify-between gap-3 py-2 text-sm" key={label}>
-          <span className="text-slate-500">{label}</span>
-          <span className="text-right font-medium text-slate-950">{value}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
+            <div className="mt-6 rounded-[1.5rem] bg-[#111113] p-5 text-white">
+              <audio
+                onPause={() => setIsPlaying(false)}
+                onPlay={() => setIsPlaying(true)}
+                onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+                preload="metadata"
+                ref={audioRef}
+                src={tourRidealongDemo.recording.audioSrc}
+              />
+              <div className="flex items-center gap-4">
+                <button
+                  className="grid h-14 w-14 place-items-center rounded-full bg-white text-black"
+                  onClick={togglePlayback}
+                  type="button"
+                >
+                  {isPlaying ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current" />}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-2 flex justify-between text-xs font-medium text-white/50">
+                    <span>{formatTime(currentTime)}</span>
+                    <span>{formatTime(tourRidealongDemo.recording.duration)}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-[#0071e3]"
+                      style={{
+                        width: `${Math.min(100, (currentTime / tourRidealongDemo.recording.duration) * 100)}%`
+                      }}
+                    />
+                  </div>
+                </div>
+                <Volume2 className="hidden h-5 w-5 text-white/50 sm:block" />
+              </div>
+            </div>
 
-function CleanCard({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4">
-      <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-        <span className="text-blue-600">{icon}</span>
-        {title}
-      </h3>
-      {children}
-    </section>
-  );
-}
+            <div className="mt-6">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-base font-semibold tracking-normal">Speaker view</h3>
+                <span className="rounded-full bg-[#f5f5f7] px-3 py-1 text-xs font-semibold text-[#6e6e73]">
+                  Split conversation
+                </span>
+              </div>
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl bg-slate-50 px-4 py-3">
-      <div className="text-2xl font-semibold text-slate-950">{value}</div>
-      <div className="text-xs font-semibold uppercase text-slate-500">{label}</div>
-    </div>
-  );
-}
+              <div className="grid gap-4 lg:grid-cols-2">
+                {speakerEntries.map(([speakerId, speaker]) => {
+                  const speakerTranscript = transcript.filter((segment) => segment.speakerId === speakerId);
+                  return (
+                    <section className="min-w-0 rounded-[1.5rem] bg-[#f5f5f7] p-4" key={speakerId}>
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span
+                            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold text-[#1d1d1f]"
+                            style={{ backgroundColor: speaker.softColor }}
+                          >
+                            {speaker.name.replace("Speaker ", "S")}
+                          </span>
+                          <div className="min-w-0">
+                            <h4 className="truncate text-sm font-semibold text-[#1d1d1f]">{speaker.name}</h4>
+                            <p className="truncate text-xs font-medium text-[#86868b]">{speaker.role}</p>
+                          </div>
+                        </div>
+                        <span className="shrink-0 text-xs font-semibold text-[#86868b]">
+                          {speaker.talkTimePercent}% talk
+                        </span>
+                      </div>
 
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
-      <div className="truncate text-sm font-semibold text-slate-950">{value}</div>
-      <div className="mt-1 text-[10px] font-semibold uppercase text-slate-400">{label}</div>
-    </div>
-  );
-}
+                      <div className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+                        {speakerTranscript.map((segment) => {
+                          const active = segment.id === activeSegmentId;
+                          return (
+                            <button
+                              className={`w-full rounded-2xl p-3 text-left transition ${
+                                active
+                                  ? "bg-white text-[#0071e3] shadow-[0_10px_30px_rgba(0,0,0,0.06)]"
+                                  : "bg-white/60 text-[#1d1d1f] hover:bg-white"
+                              }`}
+                              key={segment.id}
+                              onClick={() => jumpTo(segment)}
+                              type="button"
+                            >
+                              <span className="flex items-center justify-between gap-3 text-xs font-semibold">
+                                <span>{formatTime(segment.start)}</span>
+                                {segment.kind ? (
+                                  <span className="rounded-full bg-black/[0.04] px-2 py-0.5 text-[0.68rem] uppercase tracking-normal text-[#6e6e73]">
+                                    {segment.kind}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <span className="mt-2 block text-sm leading-6 text-[#424245]">{segment.text}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
 
-function IconButton({ icon, label }: { icon: ReactNode; label: string }) {
-  return (
-    <button aria-label={label} className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-800 hover:bg-slate-200" type="button">
-      {icon}
-    </button>
-  );
-}
+          <section className="rounded-[2rem] bg-white p-5 shadow-[0_28px_80px_rgba(0,0,0,0.08)] sm:p-6">
+            <div className="flex items-center justify-between gap-4 border-b border-black/10 pb-5">
+              <div>
+                <p className="text-sm font-semibold text-[#86868b]">AI review</p>
+                <h2 className="mt-1 text-2xl font-semibold tracking-normal">Summary and feedback</h2>
+              </div>
+              <span className="rounded-full bg-[#f5f5f7] px-3 py-1 text-sm font-semibold text-[#1d1d1f]">
+                Score {tourRidealongDemo.recording.overallScore.toFixed(1)}
+              </span>
+            </div>
 
-function NavLink({ active, href, icon, label }: { active?: boolean; href: string; icon: ReactNode; label: string }) {
-  return (
-    <a
-      className={cn(
-        "flex min-h-11 items-center gap-3 rounded-full px-4 text-sm font-semibold",
-        active ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100"
-      )}
-      href={href}
-    >
-      {icon}
-      {label}
-    </a>
-  );
-}
+            <section className="mt-5 rounded-[1.5rem] bg-[#f5f5f7] p-5">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#0071e3]">
+                <Sparkles className="h-4 w-4" />
+                Summary
+              </div>
+              <p className="mt-4 text-base leading-7 text-[#424245]">
+                This recording is a collaborative product review for tour recording, ridealong feedback, transcript review,
+                and rubric-based coaching. The strongest product direction is speaker-separated transcript evidence with
+                human comments beside AI-generated coaching.
+              </p>
+            </section>
 
-function SidebarLabel({ children }: { children: ReactNode }) {
-  return <div className="px-4 text-xs font-semibold uppercase text-slate-400">{children}</div>;
+            <section className="mt-4 rounded-[1.5rem] border border-black/10 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[#86868b]">Selected moment</p>
+                  <h3 className="mt-1 text-xl font-semibold tracking-normal">{activeInsight.title}</h3>
+                </div>
+                <span className="shrink-0 rounded-full bg-[#f5f5f7] px-3 py-1 text-xs font-semibold capitalize text-[#6e6e73]">
+                  {activeInsight.scoreImpact}
+                </span>
+              </div>
+
+              <p className="mt-4 text-base leading-7 text-[#424245]">{activeInsight.whatHappened}</p>
+              <div className="mt-4 rounded-2xl bg-[#f5f5f7] p-4">
+                <p className="text-xs font-semibold uppercase tracking-normal text-[#86868b]">Why it matters</p>
+                <p className="mt-2 text-sm leading-6 text-[#424245]">{activeInsight.whyItMatters}</p>
+              </div>
+              {activeInsight.suggestedWording ? (
+                <div className="mt-4 rounded-2xl bg-[#eef5ff] p-4 text-sm leading-6 text-[#1d1d1f]">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-normal text-[#0071e3]">Suggested rewrite</p>
+                  {activeInsight.suggestedWording}
+                </div>
+              ) : null}
+            </section>
+
+            <button className="mt-5 inline-flex h-12 w-full items-center justify-center rounded-full bg-[#1d1d1f] text-sm font-semibold text-white">
+              <Send className="mr-2 h-4 w-4" />
+              Create follow-up from review
+            </button>
+          </section>
+
+          <aside className="rounded-[2rem] bg-white p-5 shadow-[0_28px_80px_rgba(0,0,0,0.08)] sm:p-6">
+            <div className="grid grid-cols-2 rounded-full bg-[#f5f5f7] p-1">
+              {(["comments", "rubric"] as const).map((tab) => (
+                <button
+                  className={`inline-flex h-10 items-center justify-center gap-2 rounded-full text-sm font-semibold capitalize transition ${
+                    rightPanelTab === tab ? "bg-white text-[#1d1d1f] shadow-sm" : "text-[#6e6e73] hover:text-[#1d1d1f]"
+                  }`}
+                  key={tab}
+                  onClick={() => setRightPanelTab(tab)}
+                  type="button"
+                >
+                  {tab === "comments" ? <MessageSquare className="h-4 w-4" /> : <ClipboardCheck className="h-4 w-4" />}
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {rightPanelTab === "comments" ? (
+              <section className="mt-5">
+                <div className="rounded-[1.5rem] border border-black/10 p-4">
+                  <label className="text-sm font-semibold text-[#1d1d1f]" htmlFor="review-comment">
+                    Add comment
+                  </label>
+                  <textarea
+                    className="mt-3 min-h-24 w-full resize-none rounded-2xl border border-black/10 bg-[#f5f5f7] p-3 text-sm leading-6 outline-none transition placeholder:text-[#86868b] focus:border-[#0071e3] focus:bg-white"
+                    id="review-comment"
+                    placeholder={`Comment on ${formatTime(activeSegment.start)}...`}
+                  />
+                  <button className="mt-3 inline-flex h-10 w-full items-center justify-center rounded-full bg-[#0071e3] text-sm font-semibold text-white" type="button">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add to review
+                  </button>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  {comments.map((comment) => (
+                    <article className="rounded-[1.35rem] bg-[#f5f5f7] p-4" key={comment.id}>
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-semibold text-[#1d1d1f]">{comment.author}</h3>
+                        <span className="text-xs font-semibold text-[#86868b]">{comment.time}</span>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-[#424245]">{comment.text}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <section className="mt-5 space-y-3">
+                {tourRidealongDemo.rubric.map((item) => (
+                  <article className="rounded-[1.35rem] border border-black/10 p-4" key={item.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-sm font-semibold text-[#1d1d1f]">{item.label}</h3>
+                      <span className="rounded-full bg-[#f5f5f7] px-2.5 py-1 text-xs font-bold text-[#1d1d1f]">
+                        {item.score.toFixed(1)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-[#6e6e73]">{item.summary}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {item.evidenceSegmentIds.map((segmentId) => (
+                        <button
+                          className="rounded-full bg-[#eef5ff] px-2.5 py-1 text-xs font-semibold text-[#0071e3]"
+                          key={segmentId}
+                          onClick={() => setActiveSegmentId(segmentId)}
+                          type="button"
+                        >
+                          {segmentId.replace("seg-", "#")}
+                        </button>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </section>
+            )}
+          </aside>
+        </section>
+      </section>
+    </Shell>
+  );
 }

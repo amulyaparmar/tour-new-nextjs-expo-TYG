@@ -6,6 +6,6 @@ export const metadata = {
     "Tour.video turns anonymous website visitors into qualified leasing conversations with video tours, AI answers, scheduling, and attribution."
 };
 
-export default function Page() {
+export default function TourNewPage() {
   return <LandingPage />;
 }

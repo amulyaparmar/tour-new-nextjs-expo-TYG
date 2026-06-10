@@ -1,10 +1,19 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { ClipboardList, BookOpen, Mic, Paperclip, Plus } from "lucide-react";
 import { createMaterial, listMaterials } from "@/lib/materials";
-import type { Material } from "@/lib/materials";
+import type { Material, MaterialType } from "@/lib/materials";
+
+const TYPE_ICONS: Record<string, React.ReactNode> = {
+  rubric: <ClipboardList size={20} />,
+  training: <BookOpen size={20} />,
+  recording: <Mic size={20} />,
+  other: <Paperclip size={20} />
+};
 
 export default async function MaterialsPage() {
   const materials = await listMaterials();
+  const recordings = materials.filter((m) => m.type === "recording");
   const rubrics = materials.filter((m) => m.type === "rubric");
   const training = materials.filter((m) => m.type === "training");
   const other = materials.filter((m) => m.type === "other");
@@ -13,13 +22,13 @@ export default async function MaterialsPage() {
     <>
       <div className="page-header">
         <h1>Materials</h1>
-        <p>Rubrics, training docs, and sales resources</p>
+        <p>Rubrics, recordings, training docs, and sales resources</p>
       </div>
 
-      {/* ── Add material form ── */}
       <details className="card" style={{ marginBottom: 16 }}>
-        <summary className="card-header" style={{ cursor: "pointer", userSelect: "none" }}>
-          <h2>+ Add Material</h2>
+        <summary className="card-header" style={{ cursor: "pointer", userSelect: "none", display: "flex", alignItems: "center", gap: 6 }}>
+          <Plus size={16} />
+          <h2>Add Material</h2>
         </summary>
         <div className="card-body">
           <form action={createMaterialAction} className="form-grid">
@@ -44,59 +53,60 @@ export default async function MaterialsPage() {
         </div>
       </details>
 
-      {/* ── Rubrics ── */}
+      {recordings.length > 0 && (
+        <MaterialSection title="Recordings" materials={recordings} />
+      )}
       {rubrics.length > 0 && (
-        <>
-          <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--slate-700)", marginBottom: 8 }}>Rubrics</h2>
-          <div className="materials-grid" style={{ marginBottom: 16 }}>
-            {rubrics.map((m) => <MaterialCard key={m.id} material={m} />)}
-          </div>
-        </>
+        <MaterialSection title="Rubrics" materials={rubrics} />
       )}
-
-      {/* ── Training ── */}
       {training.length > 0 && (
-        <>
-          <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--slate-700)", marginBottom: 8 }}>Training</h2>
-          <div className="materials-grid" style={{ marginBottom: 16 }}>
-            {training.map((m) => <MaterialCard key={m.id} material={m} />)}
-          </div>
-        </>
+        <MaterialSection title="Training" materials={training} />
       )}
-
-      {/* ── Other ── */}
       {other.length > 0 && (
-        <>
-          <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--slate-700)", marginBottom: 8 }}>Other</h2>
-          <div className="materials-grid">
-            {other.map((m) => <MaterialCard key={m.id} material={m} />)}
-          </div>
-        </>
+        <MaterialSection title="Other" materials={other} />
       )}
 
       {materials.length === 0 && (
-        <div className="empty-state">No materials yet. Add a rubric or training doc above.</div>
+        <div className="empty-state">No materials yet. Add a rubric or training doc above, or record a session to see it here.</div>
       )}
     </>
   );
 }
 
+function MaterialSection({ title, materials }: { title: string; materials: Material[] }) {
+  return (
+    <>
+      <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--slate-700)", marginBottom: 8 }}>{title}</h2>
+      <div className="materials-grid" style={{ marginBottom: 16 }}>
+        {materials.map((m) => <MaterialCard key={m.id} material={m} />)}
+      </div>
+    </>
+  );
+}
+
 function MaterialCard({ material }: { material: Material }) {
-  const icons: Record<string, string> = { rubric: "📋", training: "📖", other: "📎" };
+  const href = material.type === "recording" && material.sessionId
+    ? `/sessions/${material.sessionId}`
+    : `/materials/${material.id}`;
 
   return (
-    <Link href={`/materials/${material.id}`} className="material-card">
+    <Link href={href} className="material-card">
       <div className={`material-card-icon ${material.type}`}>
-        {icons[material.type] ?? "📎"}
+        {TYPE_ICONS[material.type] ?? <Paperclip size={20} />}
       </div>
       <div className="material-card-info">
         <div className="material-card-name">{material.name}</div>
         <div className="material-card-meta">
-          {material.type} · {new Date(material.createdAt).toLocaleDateString()}
+          {material.type} &middot; {new Date(material.createdAt).toLocaleDateString()}
         </div>
         {material.description && (
           <div style={{ fontSize: 12, color: "var(--slate-500)", marginTop: 2 }}>
-            {material.description.length > 80 ? material.description.slice(0, 80) + "…" : material.description}
+            {material.description.length > 80 ? material.description.slice(0, 80) + "\u2026" : material.description}
+          </div>
+        )}
+        {material.type === "recording" && material.sessionId && (
+          <div style={{ fontSize: 11, color: "var(--indigo-500)", marginTop: 3, fontWeight: 500 }}>
+            View session &rarr;
           </div>
         )}
       </div>
@@ -110,7 +120,7 @@ async function createMaterialAction(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
 
-  const type = (formData.get("type") as "rubric" | "training" | "other") ?? "other";
+  const type = (formData.get("type") as MaterialType) ?? "other";
   const description = String(formData.get("description") ?? "").trim();
 
   await createMaterial({ name, type, description });

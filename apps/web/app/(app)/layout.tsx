@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { BottomNav } from "../BottomNav";
 
 export default function AppLayout({
@@ -8,14 +9,13 @@ export default function AppLayout({
   return (
     <div className="app-shell">
       <header className="top-bar">
-        <div className="top-bar-brand">
-          <span className="brand-icon">
-            <svg viewBox="0 0 24 24" fill="white" width="14" height="14">
-              <polygon points="9,6 9,18 19,12" />
-            </svg>
-          </span>
-          <span className="brand-name">Tour.video</span>
-        </div>
+        <img src="/images/tour logo TYG dark.svg" alt="Tour" height="28" style={{ height: 28, width: "auto" }} />
+        <Link href="/profile" className="top-bar-avatar" aria-label="Profile">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+        </Link>
       </header>
       <main className="main-content">{children}</main>
       <BottomNav />

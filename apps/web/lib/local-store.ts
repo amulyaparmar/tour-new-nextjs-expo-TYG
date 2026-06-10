@@ -79,6 +79,21 @@ export async function getLocalSessionById(sessionId: string): Promise<SessionDet
   return store.sessions.find((session) => session.id === sessionId) ?? null;
 }
 
+export async function updateLocalSession(
+  sessionId: string,
+  fields: { title?: string; scheduledAt?: string | null; prospectName?: string | null; location?: string | null; notes?: string | null }
+) {
+  const store = await loadStore();
+  const session = store.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  if (fields.title !== undefined) session.title = fields.title;
+  if (fields.scheduledAt !== undefined) session.scheduledAt = fields.scheduledAt;
+  if (fields.prospectName !== undefined) session.prospectName = fields.prospectName;
+  if (fields.location !== undefined) session.location = fields.location;
+  if (fields.notes !== undefined) session.notes = fields.notes;
+  await saveStore(store);
+}
+
 export async function setLocalSessionStatus(
   sessionId: string,
   status: SessionDetail["status"],

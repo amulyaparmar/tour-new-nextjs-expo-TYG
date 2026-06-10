@@ -1,5 +1,4 @@
 import type { NextConfig } from "next";
-import path from "node:path";
 
 const nextConfig: NextConfig = {
   images: {
@@ -22,10 +21,7 @@ const nextConfig: NextConfig = {
       }
     ]
   },
-  transpilePackages: ["@tour/shared"],
-  turbopack: {
-    root: path.join(__dirname, "..", "..")
-  }
+  transpilePackages: ["@tour/shared"]
 };
 
 export default nextConfig;

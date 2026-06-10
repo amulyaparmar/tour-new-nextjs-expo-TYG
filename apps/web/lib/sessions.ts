@@ -18,6 +18,7 @@ import {
   replaceLocalActions,
   setLocalSessionStatus,
   updateLocalActionStatus,
+  updateLocalSession,
   upsertLocalAnalysis
 } from "./local-store";
 import { getSupabaseServiceClient } from "./supabase";
@@ -116,6 +117,26 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       prospectName: input.prospectName ?? null,
       notes: input.notes ?? null
     });
+  }
+}
+
+export async function updateSession(
+  sessionId: string,
+  fields: { title?: string; scheduledAt?: string | null; prospectName?: string | null; location?: string | null; notes?: string | null }
+) {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const row: Record<string, unknown> = {};
+    if (fields.title !== undefined) row.title = fields.title;
+    if (fields.scheduledAt !== undefined) row.scheduled_at = fields.scheduledAt;
+    if (fields.prospectName !== undefined) row.prospect_name = fields.prospectName;
+    if (fields.location !== undefined) row.location = fields.location;
+    if (fields.notes !== undefined) row.notes = fields.notes;
+
+    const { error } = await supabase.from("sessions").update(row as never).eq("id", sessionId);
+    if (error) throw error;
+  } catch {
+    await updateLocalSession(sessionId, fields);
   }
 }
 

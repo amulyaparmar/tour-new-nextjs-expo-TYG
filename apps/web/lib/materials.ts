@@ -4,13 +4,16 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
+export type MaterialType = "rubric" | "training" | "recording" | "other";
+
 export type Material = {
   id: string;
   name: string;
-  type: "rubric" | "training" | "other";
+  type: MaterialType;
   description: string;
   fileUrl: string | null;
   parsedText: string | null;
+  sessionId: string | null;
   createdAt: string;
 };
 
@@ -41,10 +44,11 @@ export async function getMaterial(id: string): Promise<Material | null> {
 
 export async function createMaterial(input: {
   name: string;
-  type: Material["type"];
+  type: MaterialType;
   description: string;
   fileUrl?: string;
   parsedText?: string;
+  sessionId?: string;
 }): Promise<Material> {
   const materials = await readStore();
   const material: Material = {
@@ -54,11 +58,17 @@ export async function createMaterial(input: {
     description: input.description,
     fileUrl: input.fileUrl ?? null,
     parsedText: input.parsedText ?? null,
+    sessionId: input.sessionId ?? null,
     createdAt: new Date().toISOString()
   };
   materials.push(material);
   await writeStore(materials);
   return material;
+}
+
+export async function findMaterialBySessionId(sessionId: string): Promise<Material | null> {
+  const materials = await readStore();
+  return materials.find((m) => m.sessionId === sessionId) ?? null;
 }
 
 export async function deleteMaterial(id: string): Promise<void> {
@@ -85,6 +95,7 @@ function getDefaultMaterials(): Material[] {
         "Follow-Up (0-100): Mentioned follow-up? Planned a follow-up?",
         "Compliance / Fair Housing (0-100): Avoided discriminatory language or steering?"
       ].join("\n"),
+      sessionId: null,
       createdAt: new Date().toISOString()
     },
     {
@@ -94,6 +105,7 @@ function getDefaultMaterials(): Material[] {
       description: "Best practices for closing apartment tours: assumptive close, urgency creation, and next-step confirmation.",
       fileUrl: null,
       parsedText: null,
+      sessionId: null,
       createdAt: new Date().toISOString()
     }
   ];

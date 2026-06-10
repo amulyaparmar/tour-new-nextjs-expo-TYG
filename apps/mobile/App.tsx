@@ -1,6 +1,8 @@
 import { StatusBar } from "expo-status-bar";
-import { useMemo, useState } from "react";
+import { VideoView, useVideoPlayer } from "expo-video";
+import { useEffect, useMemo, useState } from "react";
 import {
+  AppState,
   KeyboardAvoidingView,
   Pressable,
   ScrollView,
@@ -10,7 +12,10 @@ import {
   View
 } from "react-native";
 
-type Screen = "home" | "profile" | "tour";
+const onboardingBackground = require("./assets/videos/login-bg.mp4");
+
+type Screen = "onboarding" | "home" | "profile" | "tour";
+type OnboardingStep = "rep" | "property" | "security";
 type TourStep = "contact" | "preferences" | "ready";
 
 const leasingAgent = {
@@ -46,9 +51,30 @@ const tourSteps: Array<{ id: TourStep; label: string }> = [
   { id: "ready", label: "Tour" }
 ];
 
+const onboardingSteps: Array<{ id: OnboardingStep; label: string }> = [
+  { id: "rep", label: "You" },
+  { id: "property", label: "Property" },
+  { id: "security", label: "Verify" }
+];
+
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("home");
+  const player = useVideoPlayer(onboardingBackground, (videoPlayer) => {
+    videoPlayer.loop = true;
+    videoPlayer.muted = true;
+    videoPlayer.play();
+  });
+  const [screen, setScreen] = useState<Screen>("onboarding");
+  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>("rep");
   const [tourStep, setTourStep] = useState<TourStep>("contact");
+  const [onboarding, setOnboarding] = useState({
+    name: leasingAgent.name,
+    email: leasingAgent.email,
+    phone: leasingAgent.phone,
+    property: leasingAgent.property,
+    teamInvites: "",
+    password: "",
+    verificationCode: ""
+  });
   const [prospect, setProspect] = useState({
     name: "",
     email: "",
@@ -58,7 +84,29 @@ export default function App() {
     budget: "$2,200 - $2,600"
   });
 
+  useEffect(() => {
+    player.play();
+
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        player.play();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [player]);
+
+  const activeOnboardingStepIndex = useMemo(
+    () => onboardingSteps.findIndex((step) => step.id === onboardingStep),
+    [onboardingStep]
+  );
   const activeStepIndex = useMemo(() => tourSteps.findIndex((step) => step.id === tourStep), [tourStep]);
+
+  const updateOnboarding = (key: keyof typeof onboarding, value: string) => {
+    setOnboarding((current) => ({ ...current, [key]: value }));
+  };
 
   const updateProspect = (key: keyof typeof prospect, value: string) => {
     setProspect((current) => ({ ...current, [key]: value }));
@@ -74,8 +122,20 @@ export default function App() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
+          {screen === "onboarding" ? (
+            <OnboardingScreen
+              activeStepIndex={activeOnboardingStepIndex}
+              onboarding={onboarding}
+              player={player}
+              step={onboardingStep}
+              onChange={updateOnboarding}
+              onFinish={() => setScreen("home")}
+              onStepChange={setOnboardingStep}
+            />
+          ) : null}
+
           {screen === "home" ? (
-            <HomeScreen onOpenProfile={() => setScreen("profile")} />
+            <HomeScreen onOpenProfile={() => setScreen("profile")} onRestartOnboarding={() => setScreen("onboarding")} />
           ) : null}
 
           {screen === "profile" ? (
@@ -104,7 +164,169 @@ export default function App() {
   );
 }
 
-function HomeScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
+function OnboardingScreen({
+  activeStepIndex,
+  onboarding,
+  player,
+  step,
+  onChange,
+  onFinish,
+  onStepChange
+}: {
+  activeStepIndex: number;
+  onboarding: {
+    name: string;
+    email: string;
+    phone: string;
+    property: string;
+    teamInvites: string;
+    password: string;
+    verificationCode: string;
+  };
+  player: ReturnType<typeof useVideoPlayer>;
+  step: OnboardingStep;
+  onChange: (key: keyof typeof onboarding, value: string) => void;
+  onFinish: () => void;
+  onStepChange: (step: OnboardingStep) => void;
+}) {
+  return (
+    <View style={styles.onboardingShell}>
+      <VideoView
+        allowsFullscreen={false}
+        allowsPictureInPicture={false}
+        contentFit="cover"
+        nativeControls={false}
+        player={player}
+        playsInline
+        style={styles.onboardingVideo}
+      />
+      <View style={styles.onboardingScrim} />
+      <View style={styles.onboardingContent}>
+        <View style={styles.onboardingHeader}>
+          <Text style={styles.onboardingEyebrow}>Tour.video onboarding</Text>
+          <Text style={styles.onboardingTitle}>Set up your leasing profile.</Text>
+          <Text style={styles.onboardingSubtitle}>
+            Create the card visitors scan before a tour, attach it to your property, and verify your phone.
+          </Text>
+        </View>
+
+        <View style={styles.onboardingStepper}>
+          {onboardingSteps.map((item, index) => {
+            const active = index === activeStepIndex;
+            const complete = index < activeStepIndex;
+            return (
+              <View style={styles.onboardingStepItem} key={item.id}>
+                <View
+                  style={[
+                    styles.onboardingStepDot,
+                    active && styles.onboardingStepDotActive,
+                    complete && styles.onboardingStepDotComplete
+                  ]}
+                >
+                  <Text style={[styles.onboardingStepDotText, (active || complete) && styles.onboardingStepDotTextActive]}>
+                    {index + 1}
+                  </Text>
+                </View>
+                <Text style={[styles.onboardingStepLabel, active && styles.onboardingStepLabelActive]}>{item.label}</Text>
+              </View>
+            );
+          })}
+        </View>
+
+        <View style={styles.onboardingCard}>
+          {step === "rep" ? (
+            <View style={styles.formSection}>
+              <Text style={styles.formTitle}>Your leasing rep details</Text>
+              <TextInput
+                placeholder="Name"
+                placeholderTextColor="#8a94a6"
+                value={onboarding.name}
+                onChangeText={(value) => onChange("name", value)}
+                style={styles.input}
+              />
+              <TextInput
+                autoCapitalize="none"
+                autoComplete="email"
+                keyboardType="email-address"
+                placeholder="Email"
+                placeholderTextColor="#8a94a6"
+                value={onboarding.email}
+                onChangeText={(value) => onChange("email", value)}
+                style={styles.input}
+              />
+              <TextInput
+                autoComplete="tel"
+                keyboardType="phone-pad"
+                placeholder="Phone"
+                placeholderTextColor="#8a94a6"
+                value={onboarding.phone}
+                onChangeText={(value) => onChange("phone", value)}
+                style={styles.input}
+              />
+              <PrimaryAction label="Continue to property" onPress={() => onStepChange("property")} />
+            </View>
+          ) : null}
+
+          {step === "property" ? (
+            <View style={styles.formSection}>
+              <Text style={styles.formTitle}>Property and team</Text>
+              <TextInput
+                placeholder="Property name"
+                placeholderTextColor="#8a94a6"
+                value={onboarding.property}
+                onChangeText={(value) => onChange("property", value)}
+                style={styles.input}
+              />
+              <TextInput
+                multiline
+                placeholder="Invite team members by email"
+                placeholderTextColor="#8a94a6"
+                value={onboarding.teamInvites}
+                onChangeText={(value) => onChange("teamInvites", value)}
+                style={[styles.input, styles.multilineInput]}
+              />
+              <PrimaryAction label="Continue to verification" onPress={() => onStepChange("security")} />
+            </View>
+          ) : null}
+
+          {step === "security" ? (
+            <View style={styles.formSection}>
+              <Text style={styles.formTitle}>Password and phone verification</Text>
+              <TextInput
+                placeholder="Create password"
+                placeholderTextColor="#8a94a6"
+                secureTextEntry
+                value={onboarding.password}
+                onChangeText={(value) => onChange("password", value)}
+                style={styles.input}
+              />
+              <TextInput
+                keyboardType="number-pad"
+                placeholder="6-digit code"
+                placeholderTextColor="#8a94a6"
+                value={onboarding.verificationCode}
+                onChangeText={(value) => onChange("verificationCode", value)}
+                style={styles.input}
+              />
+              <View style={styles.codeHint}>
+                <Text style={styles.codeHintText}>Code sent to {onboarding.phone || leasingAgent.phone}</Text>
+              </View>
+              <PrimaryAction label="Finish setup" onPress={onFinish} />
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function HomeScreen({
+  onOpenProfile,
+  onRestartOnboarding
+}: {
+  onOpenProfile: () => void;
+  onRestartOnboarding: () => void;
+}) {
   return (
     <View style={styles.page}>
       <Header eyebrow="Tour home" title="Start every tour with the right contact." />
@@ -156,6 +378,14 @@ function HomeScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
           <Text style={styles.primaryButtonText}>Open digital business card</Text>
         </Pressable>
       </View>
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={onRestartOnboarding}
+        style={({ pressed }) => [styles.secondarySetupButton, pressed && styles.pressed]}
+      >
+        <Text style={styles.secondarySetupText}>Review onboarding setup</Text>
+      </Pressable>
 
       <View style={styles.previewPanel}>
         <Text style={styles.panelLabel}>Contact exchange</Text>
@@ -468,6 +698,99 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 64
   },
+  onboardingShell: {
+    borderCurve: "continuous",
+    borderRadius: 34,
+    minHeight: 760,
+    overflow: "hidden"
+  },
+  onboardingVideo: {
+    ...StyleSheet.absoluteFillObject
+  },
+  onboardingScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(8, 18, 38, 0.58)"
+  },
+  onboardingContent: {
+    gap: 18,
+    minHeight: 760,
+    padding: 18,
+    justifyContent: "flex-end"
+  },
+  onboardingHeader: {
+    gap: 10,
+    paddingTop: 40
+  },
+  onboardingEyebrow: {
+    color: "rgba(255,255,255,0.78)",
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  onboardingTitle: {
+    color: "#ffffff",
+    fontSize: 36,
+    fontWeight: "900",
+    letterSpacing: 0,
+    lineHeight: 40
+  },
+  onboardingSubtitle: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 16,
+    fontWeight: "700",
+    lineHeight: 23
+  },
+  onboardingStepper: {
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderColor: "rgba(255,255,255,0.18)",
+    borderCurve: "continuous",
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    padding: 12
+  },
+  onboardingStepItem: {
+    alignItems: "center",
+    flex: 1,
+    gap: 8
+  },
+  onboardingStepDot: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderRadius: 999,
+    height: 34,
+    justifyContent: "center",
+    width: 34
+  },
+  onboardingStepDotActive: {
+    backgroundColor: "#ffffff"
+  },
+  onboardingStepDotComplete: {
+    backgroundColor: "#16a34a"
+  },
+  onboardingStepDotText: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  onboardingStepDotTextActive: {
+    color: "#101828"
+  },
+  onboardingStepLabel: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  onboardingStepLabelActive: {
+    color: "#ffffff"
+  },
+  onboardingCard: {
+    backgroundColor: "rgba(255,255,255,0.96)",
+    borderCurve: "continuous",
+    borderRadius: 30,
+    padding: 18
+  },
   page: {
     gap: 18
   },
@@ -620,6 +943,21 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: "#ffffff",
     fontSize: 16,
+    fontWeight: "900"
+  },
+  secondarySetupButton: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "rgba(16, 24, 40, 0.08)",
+    borderCurve: "continuous",
+    borderRadius: 18,
+    borderWidth: 1,
+    minHeight: 52,
+    justifyContent: "center"
+  },
+  secondarySetupText: {
+    color: "#344054",
+    fontSize: 15,
     fontWeight: "900"
   },
   pressed: {
@@ -848,6 +1186,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     minHeight: 54,
     paddingHorizontal: 14
+  },
+  multilineInput: {
+    minHeight: 96,
+    paddingTop: 14,
+    textAlignVertical: "top"
+  },
+  codeHint: {
+    backgroundColor: "#eaf4ff",
+    borderCurve: "continuous",
+    borderRadius: 16,
+    padding: 12
+  },
+  codeHintText: {
+    color: "#006ce5",
+    fontSize: 13,
+    fontWeight: "800"
   },
   choiceGroup: {
     gap: 10

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "default-rubric-1",
+    "name": "Apartment Tour Rubric",
+    "type": "rubric",
+    "description": "Default mystery shopping rubric with 8 sections: Greeting, Needs Discovery, Tour, Personalization, Objection Handling, Closing, Follow-Up, Compliance.",
+    "fileUrl": null,
+    "parsedText": "Greeting & Introduction (0-100): Did the agent greet promptly? Introduce themselves? Give attention?\nNeeds Discovery (0-100): Asked what customer wants? Move-in timeline? How they heard about property?\nTour & Demonstration (0-100): Explained tour structure? Showed relevant features? Explained benefits?\nPersonalization (0-100): Tailored tour to stated needs? Referenced prospect priorities?\nObjection Handling (0-100): Customer raised objection? Agent addressed properly?\nClosing (0-100): Created urgency? Asked for the close? Explained next steps?\nFollow-Up (0-100): Mentioned follow-up? Planned a follow-up?\nCompliance / Fair Housing (0-100): Avoided discriminatory language or steering?",
+    "sessionId": null,
+    "createdAt": "2026-06-10T17:39:03.944Z"
+  },
+  {
+    "id": "default-training-1",
+    "name": "Closing Techniques Guide",
+    "type": "training",
+    "description": "Best practices for closing apartment tours: assumptive close, urgency creation, and next-step confirmation.",
+    "fileUrl": null,
+    "parsedText": null,
+    "sessionId": null,
+    "createdAt": "2026-06-10T17:39:03.944Z"
+  },
+  {
+    "id": "faa4575c-b462-4c30-99ad-1de59d915e93",
+    "name": "rubric1",
+    "type": "rubric",
+    "description": "test",
+    "fileUrl": null,
+    "parsedText": null,
+    "sessionId": null,
+    "createdAt": "2026-06-10T17:39:03.945Z"
+  }
+]

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "NEXT_IGNORE_INCORRECT_LOCKFILE=true next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -11,22 +11,24 @@
     "clean": "rm -rf .next"
   },
   "dependencies": {
-    "@tour/shared": "*",
     "@supabase/supabase-js": "^2.108.1",
+    "@tour/shared": "*",
     "lucide-react": "^0.468.0",
     "next": "^16.0.0",
     "react": "^19.2.4",
+    "react-day-picker": "^10.0.1",
     "react-dom": "^19.2.4",
     "server-only": "^0.0.1"
   },
   "devDependencies": {
-    "@tour/config": "*",
     "@tailwindcss/postcss": "^4.1.0",
+    "@tour/config": "*",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^4.1.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "yarn": "^1.22.22"
   }
 }

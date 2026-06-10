@@ -2,6 +2,7 @@
   "extends": "@tour/config/tsconfig/nextjs.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@/*": [
         "./*"

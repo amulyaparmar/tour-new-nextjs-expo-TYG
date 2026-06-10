@@ -1,0 +1,30 @@
+{
+  "name": "@tour/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "dev": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "build": "expo export",
+    "lint": "echo \"No mobile lint configured\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf .expo dist"
+  },
+  "dependencies": {
+    "@tour/shared": "*",
+    "@supabase/supabase-js": "^2.108.1",
+    "expo": "~54.0.9",
+    "expo-status-bar": "~3.0.8",
+    "react": "19.1.0",
+    "react-native": "0.81.4"
+  },
+  "devDependencies": {
+    "@tour/config": "*",
+    "@types/react": "^19.1.0",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "tour-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@10.9.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "web": "turbo dev --filter=@tour/web",
+    "mobile": "turbo dev --filter=@tour/mobile"
+  },
+  "devDependencies": {
+    "turbo": "^2.8.0",
+    "typescript": "^6.0.3"
+  }
+}

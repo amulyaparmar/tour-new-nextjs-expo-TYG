@@ -15,7 +15,7 @@ body {
   margin: 0;
 }
 
-button {
+.dashboard-button {
   border: 0;
   border-radius: 8px;
   background: #087f8c;
@@ -116,7 +116,7 @@ h2 {
   color: #64748b;
 }
 
-.grid {
+.dashboard-grid {
   display: grid;
   gap: 16px;
   grid-template-columns: 2fr 1fr;
@@ -141,7 +141,7 @@ h2 {
 
 @media (max-width: 900px) {
   .shell,
-  .grid,
+  .dashboard-grid,
   .metrics {
     grid-template-columns: 1fr;
   }

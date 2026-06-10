@@ -689,14 +689,17 @@ export const tourRidealongSocialPosts = [
 }>;
 
 export function getRidealongMode(modeId: RidealongModeId) {
-  return ridealongModes.find((mode) => mode.id === modeId) || ridealongModes[0];
+  return ridealongModes.find((mode) => mode.id === modeId) || ridealongModes[0]!;
 }
 
 export function buildMockRidealongPreview(modeId: RidealongModeId) {
   const mode = getRidealongMode(modeId);
-  const topReviewMoment = reviewMoments.find((moment) => moment.impact === "loss") || reviewMoments[0];
-  const topScenario = rolePlayScenarios.find((scenario) => scenario.difficulty === "Hard") || rolePlayScenarios[0];
-  const lowestShop = mysteryShopRuns.reduce((lowest, run) => run.score < lowest.score ? run : lowest, mysteryShopRuns[0]);
+  const topReviewMoment = reviewMoments.find((moment) => moment.impact === "loss") || reviewMoments[0]!;
+  const topScenario = rolePlayScenarios.find((scenario) => scenario.difficulty === "Hard") || rolePlayScenarios[0]!;
+  const lowestShop = mysteryShopRuns.reduce(
+    (lowest, run) => run.score < lowest.score ? run : lowest,
+    mysteryShopRuns[0]!
+  );
 
   return {
     mode,

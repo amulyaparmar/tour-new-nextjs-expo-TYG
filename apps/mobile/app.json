@@ -4,6 +4,7 @@
     "slug": "tour-hub",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/images/tour-logo.png",
     "scheme": "tourhub",
     "userInterfaceStyle": "light",
     "experiments": {
@@ -14,11 +15,15 @@
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#087f8c"
       }
     },
     "web": {
       "bundler": "metro"
-    }
+    },
+    "plugins": [
+      "expo-video"
+    ]
   }
 }

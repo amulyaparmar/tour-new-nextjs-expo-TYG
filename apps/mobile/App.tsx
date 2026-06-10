@@ -1,116 +1,203 @@
 import { StatusBar } from "expo-status-bar";
-import { tourMetrics, tourWorkspace } from "@tour/shared";
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { VideoView, useVideoPlayer } from "expo-video";
+import { useEffect } from "react";
+import { AppState, Image, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-const items = [
-  "Review AI summary from Downtown leasing walkthrough",
-  "Update approved studio apartment talk track",
-  "Share follow-up media with prospect"
-];
+const loginBackground = require("./assets/videos/login-bg.mp4");
+const tourLogo = require("./assets/images/tour-logo.png");
 
 export default function App() {
+  const player = useVideoPlayer(loginBackground, (videoPlayer) => {
+    videoPlayer.loop = true;
+    videoPlayer.muted = true;
+    videoPlayer.play();
+  });
+
+  useEffect(() => {
+    player.play();
+
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        player.play();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [player]);
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" />
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.eyebrow}>{tourWorkspace.name}</Text>
-        <Text style={styles.title}>Today's tour workspace</Text>
+    <View style={styles.screen}>
+      <StatusBar hidden />
+      <VideoView
+        player={player}
+        style={styles.backgroundVideo}
+        contentFit="cover"
+        nativeControls={false}
+        allowsFullscreen={false}
+        allowsPictureInPicture={false}
+        playsInline
+      />
+      <View style={styles.scrim} />
 
-        <View style={styles.metrics}>
-          {tourMetrics.slice(0, 3).map((metric) => (
-            <View key={metric.label} style={styles.metricCard}>
-              <Text style={styles.metricValue}>{metric.value}</Text>
-              <Text style={styles.metricLabel}>{metric.shortLabel}</Text>
-            </View>
-          ))}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>AI recording notes</Text>
-          <Text style={styles.cardCopy}>
-            Capture tour transcripts, objections, questions, and follow-up tasks.
+      <KeyboardAvoidingView behavior="padding" style={styles.content}>
+        <View style={styles.brandLockup}>
+          <Image source={tourLogo} style={styles.logo} resizeMode="contain" />
+          <Text style={styles.subtitle}>
+            Every great business deserves a great tour. Build yours today.
           </Text>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Next actions</Text>
-          {items.map((item) => (
-            <Text key={item} style={styles.listItem}>
-              {item}
-            </Text>
-          ))}
+        <View style={styles.form}>
+          <TextInput
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            placeholder="Email"
+            placeholderTextColor="rgba(255,255,255,0.78)"
+            style={styles.input}
+          />
+          <TextInput
+            autoCapitalize="none"
+            placeholder="Password"
+            placeholderTextColor="rgba(255,255,255,0.78)"
+            secureTextEntry
+            style={styles.input}
+          />
+
+          <Pressable style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+            <Text style={styles.primaryButtonText}>Sign in</Text>
+          </Pressable>
+
+          <View style={styles.dividerRow}>
+            <View style={styles.divider} />
+            <Text style={styles.dividerText}>or</Text>
+            <View style={styles.divider} />
+          </View>
+
+          <Pressable style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+            <Text style={styles.secondaryButtonText}>Sign in with Google</Text>
+          </Pressable>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>© 2024</Text>
+          <Text style={styles.footerText}>About Us</Text>
+        </View>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    backgroundColor: "#f6f8fb",
-    flex: 1
-  },
-  container: {
-    gap: 16,
-    padding: 20
-  },
-  eyebrow: {
-    color: "#087f8c",
-    fontSize: 13,
-    fontWeight: "700",
-    textTransform: "uppercase"
-  },
-  title: {
-    color: "#172033",
-    fontSize: 30,
-    fontWeight: "800"
-  },
-  metrics: {
-    flexDirection: "row",
-    gap: 10
-  },
-  metricCard: {
-    backgroundColor: "#ffffff",
-    borderColor: "#e2e8f0",
-    borderRadius: 8,
-    borderWidth: 1,
+  screen: {
+    backgroundColor: "#000000",
     flex: 1,
-    padding: 14
+    height: "100%",
+    overflow: "hidden",
+    width: "100%"
   },
-  metricValue: {
-    color: "#172033",
-    fontSize: 24,
-    fontWeight: "800"
+  backgroundVideo: {
+    ...StyleSheet.absoluteFillObject,
+    height: "100%",
+    width: "100%"
   },
-  metricLabel: {
-    color: "#64748b",
-    fontSize: 12,
-    marginTop: 4
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)"
   },
-  card: {
-    backgroundColor: "#ffffff",
-    borderColor: "#e2e8f0",
+  content: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 22,
+    paddingVertical: 28
+  },
+  brandLockup: {
+    gap: 14,
+    marginBottom: 28
+  },
+  logo: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderRadius: 8,
+    height: 74,
+    width: 184
+  },
+  subtitle: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "600",
+    lineHeight: 25,
+    maxWidth: 340
+  },
+  form: {
+    gap: 12
+  },
+  input: {
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderColor: "rgba(255,255,255,0.22)",
     borderRadius: 8,
     borderWidth: 1,
-    padding: 18
+    color: "#ffffff",
+    fontSize: 16,
+    minHeight: 52,
+    paddingHorizontal: 14
   },
-  cardTitle: {
+  primaryButton: {
+    alignItems: "center",
+    backgroundColor: "#4d8ae5",
+    borderRadius: 8,
+    minHeight: 52,
+    justifyContent: "center"
+  },
+  primaryButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "800"
+  },
+  pressed: {
+    opacity: 0.82
+  },
+  dividerRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    paddingVertical: 2
+  },
+  divider: {
+    backgroundColor: "rgba(255,255,255,0.55)",
+    flex: 1,
+    height: StyleSheet.hairlineWidth
+  },
+  dividerText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  secondaryButton: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderRadius: 8,
+    minHeight: 52,
+    justifyContent: "center"
+  },
+  secondaryButtonText: {
     color: "#172033",
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 8
+    fontSize: 16,
+    fontWeight: "800"
   },
-  cardCopy: {
-    color: "#64748b",
-    fontSize: 15,
-    lineHeight: 22
+  footer: {
+    bottom: 24,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    left: 22,
+    position: "absolute",
+    right: 22
   },
-  listItem: {
-    borderTopColor: "#e2e8f0",
-    borderTopWidth: 1,
-    color: "#475569",
-    fontSize: 15,
-    lineHeight: 22,
-    paddingVertical: 12
+  footerText: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 13,
+    fontWeight: "600"
   }
 });

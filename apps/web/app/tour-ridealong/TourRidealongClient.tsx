@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
+  Bell,
+  Bookmark,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -10,13 +12,20 @@ import {
   ClipboardCheck,
   Circle,
   FileText,
+  Filter,
+  HelpCircle,
   Home,
+  Link2,
+  ListChecks,
   MessageSquare,
   Mic,
+  MoreHorizontal,
   Pause,
   Pencil,
   Play,
   Plus,
+  RotateCw,
+  Search,
   Send,
   Settings2,
   Sparkles,
@@ -28,7 +37,7 @@ import {
   Volume2
 } from "lucide-react";
 
-import { tourRidealongDemo, type SpeakerId, type TranscriptSegment } from "./demoData";
+import { tourRidealongDemo, type TranscriptSegment } from "./demoData";
 
 function formatTime(seconds: number) {
   const wholeSeconds = Math.max(0, Math.floor(seconds));
@@ -50,11 +59,20 @@ export function TourRidealongClient() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const navItems = [
-    { label: "Record", href: "/tour-record", active: pathname.includes("tour-record") },
-    { label: "Review", href: "/tour-ridealong", active: pathname.includes("tour-ridealong") },
-    { label: "Activity", href: "/tour-dashboard-preview", active: pathname.includes("activity") }
-  ];
+  const isRidealongPage = pathname.includes("tour-ridealong");
+  const navItems = isRidealongPage
+    ? [
+        { label: "Tours", href: "/tour-new", active: false },
+        { label: "Library", href: "/tour-dashboard-preview", active: false },
+        { label: "Ridealongs", href: "/tour-ridealong", active: true },
+        { label: "Team", href: "/tour-dashboard-preview", active: false },
+        { label: "Reports", href: "/tour-dashboard-preview", active: false }
+      ]
+    : [
+        { label: "Record", href: "/tour-record", active: pathname.includes("tour-record") },
+        { label: "Review", href: "/tour-ridealong", active: pathname.includes("tour-ridealong") },
+        { label: "Activity", href: "/tour-dashboard-preview", active: pathname.includes("activity") }
+      ];
 
   return (
     <main className="min-h-screen bg-[#fbfbfd] text-[#111827]">
@@ -64,9 +82,9 @@ function Shell({ children }: { children: React.ReactNode }) {
             <span className="grid h-6 w-6 place-items-center rounded-md text-[#006ce5]">
               <Triangle className="h-5 w-5 rotate-90 fill-current stroke-current" />
             </span>
-            Tour.video
+            {isRidealongPage ? "Tour" : "Tour.video"}
           </a>
-          <nav className="hidden h-full items-center gap-7 text-sm font-semibold text-[#4b5563] sm:flex">
+          <nav className="hidden h-full items-center gap-7 text-sm font-semibold text-[#4b5563] md:flex">
             {navItems.map((item) => (
               <a
                 className={`flex h-full items-center border-b-2 transition ${
@@ -79,10 +97,34 @@ function Shell({ children }: { children: React.ReactNode }) {
               </a>
             ))}
           </nav>
-          <button className="inline-flex items-center gap-2 rounded-full bg-[#f3f6fb] py-1 pl-1 pr-2 text-sm font-semibold text-[#111827]" type="button">
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-[#e8edf6]">JD</span>
-            <ChevronDown className="h-4 w-4 text-[#6b7280]" />
-          </button>
+          {isRidealongPage ? (
+            <div className="flex min-w-0 items-center gap-4">
+              <div className="hidden h-10 w-[21rem] items-center gap-2 rounded-xl border border-black/10 bg-white px-3 text-sm text-[#667085] shadow-sm lg:flex">
+                <Search className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">Search tours, people, or notes...</span>
+                <span className="rounded-md bg-[#f5f7fb] px-2 py-0.5 text-xs font-semibold text-[#667085]">⌘ K</span>
+              </div>
+              <button className="relative hidden h-10 w-10 place-items-center rounded-full border border-black/10 bg-white text-[#475467] shadow-sm sm:grid" type="button">
+                <Bell className="h-4 w-4" />
+                <span className="absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full bg-[#ef4444] text-[10px] font-bold text-white">
+                  3
+                </span>
+              </button>
+              <button className="inline-flex items-center gap-3 rounded-full bg-white py-1 pl-1 pr-2 text-sm font-semibold text-[#111827]" type="button">
+                <span className="grid h-9 w-9 place-items-center rounded-full bg-[#f0d7c5] text-xs">AJ</span>
+                <span className="hidden text-left leading-tight sm:block">
+                  <span className="block text-sm">Alex Johnson</span>
+                  <span className="block text-xs font-medium text-[#667085]">Leasing Manager</span>
+                </span>
+                <ChevronDown className="h-4 w-4 text-[#6b7280]" />
+              </button>
+            </div>
+          ) : (
+            <button className="inline-flex items-center gap-2 rounded-full bg-[#f3f6fb] py-1 pl-1 pr-2 text-sm font-semibold text-[#111827]" type="button">
+              <span className="grid h-9 w-9 place-items-center rounded-full bg-[#e8edf6]">JD</span>
+              <ChevronDown className="h-4 w-4 text-[#6b7280]" />
+            </button>
+          )}
         </div>
       </header>
       {children}
@@ -279,13 +321,13 @@ function TourReviewView() {
   const defaultSegment = tourRidealongDemo.transcript[0]!;
   const defaultInsight = tourRidealongDemo.insights[0]!;
   const [activeSegmentId, setActiveSegmentId] = useState(defaultSegment.id);
-  const [rightPanelTab, setRightPanelTab] = useState<"comments" | "rubric">("comments");
+  const [reviewTab, setReviewTab] = useState<"comments" | "rubric">("comments");
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
 
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("tab") === "rubric") {
-      setRightPanelTab("rubric");
+      setReviewTab("rubric");
     }
   }, []);
 
@@ -297,10 +339,7 @@ function TourReviewView() {
     return tourRidealongDemo.insights.find((insight) => insight.segmentId === activeSegment?.id)
       || defaultInsight;
   }, [activeSegment?.id, defaultInsight]);
-  const transcript = tourRidealongDemo.transcript.slice(0, 12);
-  const speakerEntries = Object.entries(tourRidealongDemo.speakers) as Array<
-    [SpeakerId, (typeof tourRidealongDemo.speakers)[SpeakerId]]
-  >;
+  const transcript = tourRidealongDemo.transcript.slice(0, 9);
   const comments = [
     {
       id: "comment-1",
@@ -314,6 +353,22 @@ function TourReviewView() {
       time: "6:06",
       text: "Close the meeting with one concrete owner and implementation boundary."
     }
+  ];
+  const highlights = [
+    "Speaker 1 clarified the actual review use case before design continued.",
+    "Transcript-level coaching was identified as the most important product moment.",
+    "Rubric feedback needs evidence and suggested rewrites, not only a final score.",
+    "The next implementation step should end with a sharper owner and boundary."
+  ];
+  const topics = ["Transcript review", "Rubric", "Comments", "AI feedback", "Tone", "Next steps"];
+  const questions = [
+    { label: "Should comments attach to a timestamp or full segment?", time: "2:53" },
+    { label: "Should rubric evidence open the transcript line directly?", time: "3:33" }
+  ];
+  const nextSteps = [
+    { label: "Move comments and rubric into the left review rail", status: "Completed" },
+    { label: "Persist reviewer comments by transcript segment", status: "Pending" },
+    { label: "Connect rubric evidence pills to saved highlights", status: "Pending" }
   ];
 
   const jumpTo = (segment: TranscriptSegment) => {
@@ -340,32 +395,120 @@ function TourReviewView() {
 
   return (
     <Shell>
-      <section className="mx-auto max-w-[92rem] px-5 py-10 lg:py-12">
-        <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
+      <section className="mx-auto max-w-[92rem] px-5 py-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-sm font-semibold text-[#86868b]">Tour ridealong</p>
-            <h1 className="mt-4 text-[clamp(2.75rem,5.5vw,5.75rem)] font-semibold leading-[0.95] tracking-normal">
-              Review every voice clearly.
-            </h1>
+            <a className="inline-flex items-center gap-2 text-sm font-semibold text-[#667085]" href="/tour-new">
+              <ChevronRight className="h-4 w-4 rotate-180" />
+              Ridealongs
+            </a>
+            <div className="mt-5 flex items-center gap-3">
+              <h1 className="text-4xl font-semibold tracking-normal text-[#101828]">Tour ridealong</h1>
+              <Pencil className="h-5 w-5 text-[#667085]" />
+            </div>
+            <p className="mt-3 text-sm font-medium text-[#667085]">
+              Downtown leasing walkthrough <span className="px-2">•</span> May 29, 2025 <span className="px-2">•</span>
+              10:00 AM <span className="px-2">•</span> {formatTime(tourRidealongDemo.recording.duration)}{" "}
+              <span className="px-2">•</span> Emma Johnson
+            </p>
           </div>
-          <p className="max-w-2xl text-xl font-medium leading-8 text-[#6e6e73]">
-            Split the conversation by speaker, read the AI summary in context, and keep comments and rubric review open beside the recording.
-          </p>
+          <div className="flex gap-3">
+            <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-black/10 bg-white px-4 text-sm font-semibold text-[#344054] shadow-sm" type="button">
+              <Link2 className="h-4 w-4" />
+              Share
+            </button>
+            <button className="grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white text-[#344054] shadow-sm" type="button">
+              <MoreHorizontal className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
-        <section className="mt-9 grid gap-5 xl:grid-cols-[minmax(0,1.12fr)_minmax(320px,0.8fr)_340px]">
-          <div className="rounded-[2rem] bg-white p-5 shadow-[0_28px_80px_rgba(0,0,0,0.08)] sm:p-6">
-            <div className="flex flex-col gap-5 border-b border-black/10 pb-6 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-medium text-[#86868b]">{tourRidealongDemo.recording.dateLabel}</p>
-                <h2 className="mt-1 text-2xl font-semibold tracking-normal">{tourRidealongDemo.recording.title}</h2>
+        <section className="mt-6 grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
+          <aside className="order-2 space-y-5 xl:order-1">
+            <section className="rounded-[1.5rem] border border-black/10 bg-white p-4 shadow-sm">
+              <div className="grid grid-cols-2 rounded-full bg-[#f5f7fb] p-1">
+                {(["comments", "rubric"] as const).map((tab) => (
+                  <button
+                    className={`inline-flex h-10 items-center justify-center gap-2 rounded-full text-sm font-semibold capitalize transition ${
+                      reviewTab === tab ? "bg-white text-[#101828] shadow-sm" : "text-[#667085] hover:text-[#101828]"
+                    }`}
+                    key={tab}
+                    onClick={() => setReviewTab(tab)}
+                    type="button"
+                  >
+                    {tab === "comments" ? <MessageSquare className="h-4 w-4" /> : <ClipboardCheck className="h-4 w-4" />}
+                    {tab}
+                  </button>
+                ))}
               </div>
-              <div className="rounded-full bg-[#f5f5f7] px-4 py-2 text-sm font-semibold text-[#1d1d1f]">
-                Score {tourRidealongDemo.recording.overallScore.toFixed(1)}
-              </div>
-            </div>
 
-            <div className="mt-6 rounded-[1.5rem] bg-[#111113] p-5 text-white">
+              {reviewTab === "comments" ? (
+                <section className="mt-5">
+                  <label className="text-sm font-semibold text-[#101828]" htmlFor="review-comment">
+                    Add comment
+                  </label>
+                  <textarea
+                    className="mt-3 min-h-28 w-full resize-none rounded-2xl border border-black/10 bg-[#f8fafc] p-3 text-sm leading-6 outline-none transition placeholder:text-[#98a2b3] focus:border-[#0071e3] focus:bg-white"
+                    id="review-comment"
+                    placeholder={`Comment on ${formatTime(activeSegment.start)}...`}
+                  />
+                  <button className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl bg-[#0071e3] text-sm font-semibold text-white" type="button">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add to review
+                  </button>
+
+                  <div className="mt-5 space-y-3">
+                    {comments.map((comment) => (
+                      <article className="rounded-2xl bg-[#f5f7fb] p-4" key={comment.id}>
+                        <div className="flex items-center justify-between gap-3">
+                          <h3 className="text-sm font-semibold text-[#101828]">{comment.author}</h3>
+                          <span className="text-xs font-semibold text-[#98a2b3]">{comment.time}</span>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-[#475467]">{comment.text}</p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ) : (
+                <section className="mt-5 space-y-3">
+                  {tourRidealongDemo.rubric.map((item) => (
+                    <article className="rounded-2xl border border-black/10 p-4" key={item.id}>
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="text-sm font-semibold text-[#101828]">{item.label}</h3>
+                        <span className="rounded-full bg-[#f5f7fb] px-2.5 py-1 text-xs font-bold text-[#101828]">
+                          {item.score.toFixed(1)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-[#667085]">{item.summary}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {item.evidenceSegmentIds.map((segmentId) => (
+                          <button
+                            className="rounded-full bg-[#eef5ff] px-2.5 py-1 text-xs font-semibold text-[#0071e3]"
+                            key={segmentId}
+                            onClick={() => setActiveSegmentId(segmentId)}
+                            type="button"
+                          >
+                            {segmentId.replace("seg-", "#")}
+                          </button>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </section>
+              )}
+            </section>
+          </aside>
+
+          <main className="order-1 min-w-0 space-y-5 xl:order-2">
+            <section className="overflow-hidden rounded-[1.5rem] border border-black/10 bg-white shadow-sm">
+              <div className="flex border-b border-black/10 px-5">
+                <button className="h-14 border-b-2 border-[#0071e3] px-2 text-sm font-semibold text-[#0071e3]" type="button">
+                  Review moments
+                </button>
+                <button className="ml-8 h-14 border-b-2 border-transparent px-2 text-sm font-semibold text-[#667085]" type="button">
+                  Summary
+                </button>
+              </div>
               <audio
                 onPause={() => setIsPlaying(false)}
                 onPlay={() => setIsPlaying(true)}
@@ -374,223 +517,200 @@ function TourReviewView() {
                 ref={audioRef}
                 src={tourRidealongDemo.recording.audioSrc}
               />
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-5 p-5">
                 <button
-                  className="grid h-14 w-14 place-items-center rounded-full bg-white text-black"
+                  className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-[#0071e3] text-white shadow-[0_10px_24px_rgba(0,113,227,0.24)]"
                   onClick={togglePlayback}
                   type="button"
                 >
                   {isPlaying ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current" />}
                 </button>
-                <div className="min-w-0 flex-1">
-                  <div className="mb-2 flex justify-between text-xs font-medium text-white/50">
-                    <span>{formatTime(currentTime)}</span>
-                    <span>{formatTime(tourRidealongDemo.recording.duration)}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-[#0071e3]"
-                      style={{
-                        width: `${Math.min(100, (currentTime / tourRidealongDemo.recording.duration) * 100)}%`
-                      }}
+                <span className="text-sm font-semibold text-[#475467]">{formatTime(currentTime || activeSegment.start)}</span>
+                <div className="relative flex h-16 min-w-0 flex-1 items-center gap-1">
+                  {Array.from({ length: 86 }).map((_, index) => (
+                    <span
+                      className={`w-0.5 rounded-full ${index < 42 ? "bg-[#0071e3]" : "bg-[#d7dee8]"}`}
+                      key={index}
+                      style={{ height: `${10 + ((index * 7) % 26)}px` }}
                     />
-                  </div>
+                  ))}
+                  {["EJ", "PR", "EJ", "PR", "EJ"].map((label, index) => (
+                    <span
+                      className={`absolute top-0 grid h-6 w-6 place-items-center rounded-full text-[10px] font-bold ${
+                        label === "EJ" ? "bg-[#dbeafe] text-[#0071e3]" : "bg-[#ede9fe] text-[#7c3aed]"
+                      }`}
+                      key={`${label}-${index}`}
+                      style={{ left: `${18 + index * 17}%` }}
+                    >
+                      {label}
+                    </span>
+                  ))}
                 </div>
-                <Volume2 className="hidden h-5 w-5 text-white/50 sm:block" />
+                <span className="text-sm font-semibold text-[#475467]">{formatTime(tourRidealongDemo.recording.duration)}</span>
+                <button className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-[#344054]" type="button">
+                  1x
+                </button>
+                <Volume2 className="h-5 w-5 text-[#667085]" />
               </div>
-            </div>
+            </section>
 
-            <div className="mt-6">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-base font-semibold tracking-normal">Speaker view</h3>
-                <span className="rounded-full bg-[#f5f5f7] px-3 py-1 text-xs font-semibold text-[#6e6e73]">
-                  Split conversation
-                </span>
+            <section className="overflow-hidden rounded-[1.5rem] border border-black/10 bg-white shadow-sm">
+              <div className="flex flex-col gap-4 border-b border-black/10 p-5 lg:flex-row lg:items-center lg:justify-between">
+                <h2 className="text-xl font-semibold text-[#101828]">Transcript</h2>
+                <div className="flex gap-3">
+                  <div className="flex h-11 min-w-0 items-center gap-2 rounded-xl border border-black/10 bg-white px-3 text-sm text-[#667085] shadow-sm sm:w-64">
+                    <Search className="h-4 w-4 shrink-0" />
+                    <span className="truncate">Search transcript...</span>
+                  </div>
+                  <button className="inline-flex h-11 items-center gap-2 rounded-xl border border-black/10 bg-white px-3 text-sm font-semibold text-[#344054] shadow-sm" type="button">
+                    <Filter className="h-4 w-4" />
+                    Filters
+                  </button>
+                </div>
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-2">
-                {speakerEntries.map(([speakerId, speaker]) => {
-                  const speakerTranscript = transcript.filter((segment) => segment.speakerId === speakerId);
+              <div className="divide-y divide-black/10">
+                {transcript.map((segment) => {
+                  const active = segment.id === activeSegmentId;
+                  const speaker = tourRidealongDemo.speakers[segment.speakerId];
+                  const initials = speaker.name.replace("Speaker ", "S");
                   return (
-                    <section className="min-w-0 rounded-[1.5rem] bg-[#f5f5f7] p-4" key={speakerId}>
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <span
-                            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold text-[#1d1d1f]"
-                            style={{ backgroundColor: speaker.softColor }}
-                          >
-                            {speaker.name.replace("Speaker ", "S")}
-                          </span>
-                          <div className="min-w-0">
-                            <h4 className="truncate text-sm font-semibold text-[#1d1d1f]">{speaker.name}</h4>
-                            <p className="truncate text-xs font-medium text-[#86868b]">{speaker.role}</p>
-                          </div>
-                        </div>
-                        <span className="shrink-0 text-xs font-semibold text-[#86868b]">
-                          {speaker.talkTimePercent}% talk
+                    <button
+                      className={`grid w-full grid-cols-[4rem_9rem_minmax(0,1fr)_7rem_2rem] items-center gap-4 px-5 py-4 text-left transition ${
+                        active ? "border-l-4 border-[#0071e3] bg-[#f3f8ff]" : "border-l-4 border-transparent hover:bg-[#fbfcfe]"
+                      }`}
+                      key={segment.id}
+                      onClick={() => jumpTo(segment)}
+                      type="button"
+                    >
+                      <span className="text-sm font-semibold text-[#475467]">{formatTime(segment.start)}</span>
+                      <span className="flex items-center gap-3">
+                        <span
+                          className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-bold"
+                          style={{ backgroundColor: speaker.softColor, color: speaker.color }}
+                        >
+                          {initials}
                         </span>
-                      </div>
-
-                      <div className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
-                        {speakerTranscript.map((segment) => {
-                          const active = segment.id === activeSegmentId;
-                          return (
-                            <button
-                              className={`w-full rounded-2xl p-3 text-left transition ${
-                                active
-                                  ? "bg-white text-[#0071e3] shadow-[0_10px_30px_rgba(0,0,0,0.06)]"
-                                  : "bg-white/60 text-[#1d1d1f] hover:bg-white"
-                              }`}
-                              key={segment.id}
-                              onClick={() => jumpTo(segment)}
-                              type="button"
-                            >
-                              <span className="flex items-center justify-between gap-3 text-xs font-semibold">
-                                <span>{formatTime(segment.start)}</span>
-                                {segment.kind ? (
-                                  <span className="rounded-full bg-black/[0.04] px-2 py-0.5 text-[0.68rem] uppercase tracking-normal text-[#6e6e73]">
-                                    {segment.kind}
-                                  </span>
-                                ) : null}
-                              </span>
-                              <span className="mt-2 block text-sm leading-6 text-[#424245]">{segment.text}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </section>
+                        <span className="truncate text-sm font-semibold" style={{ color: speaker.color }}>
+                          {speaker.name}
+                        </span>
+                      </span>
+                      <span className="min-w-0 text-sm leading-6 text-[#344054]">{segment.text}</span>
+                      <span className="justify-self-start rounded-lg bg-[#f5f7fb] px-2.5 py-1 text-xs font-semibold capitalize text-[#667085]">
+                        {segment.kind || "Context"}
+                      </span>
+                      <Bookmark className="h-5 w-5 justify-self-end text-[#667085]" />
+                    </button>
                   );
                 })}
               </div>
-            </div>
-          </div>
 
-          <section className="rounded-[2rem] bg-white p-5 shadow-[0_28px_80px_rgba(0,0,0,0.08)] sm:p-6">
-            <div className="flex items-center justify-between gap-4 border-b border-black/10 pb-5">
-              <div>
-                <p className="text-sm font-semibold text-[#86868b]">AI review</p>
-                <h2 className="mt-1 text-2xl font-semibold tracking-normal">Summary and feedback</h2>
+              <div className="grid gap-4 border-t border-black/10 p-5 text-sm sm:grid-cols-3 lg:grid-cols-6">
+                {[
+                  ["Tour type", "On-site walkthrough"],
+                  ["Property", "Downtown Lofts"],
+                  ["Unit", "1203 (2BD)"],
+                  ["Participants", "S0, S1"],
+                  ["Tags", "+ Add tag"],
+                  ["Created", "May 29, 2025"]
+                ].map(([label, value]) => (
+                  <div className="min-w-0" key={label}>
+                    <p className="font-semibold text-[#667085]">{label}</p>
+                    <p className="mt-1 truncate font-medium text-[#344054]">{value}</p>
+                  </div>
+                ))}
               </div>
-              <span className="rounded-full bg-[#f5f5f7] px-3 py-1 text-sm font-semibold text-[#1d1d1f]">
+            </section>
+          </main>
+
+          <aside className="order-3 space-y-5">
+            <section className="flex items-center justify-between rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-[#101828]">Score</h2>
+                <HelpCircle className="h-4 w-4 text-[#98a2b3]" />
+              </div>
+              <span className="rounded-xl bg-[#f5f7fb] px-3 py-2 text-sm font-semibold text-[#101828]">
                 Score {tourRidealongDemo.recording.overallScore.toFixed(1)}
               </span>
-            </div>
-
-            <section className="mt-5 rounded-[1.5rem] bg-[#f5f5f7] p-5">
-              <div className="flex items-center gap-2 text-sm font-semibold text-[#0071e3]">
-                <Sparkles className="h-4 w-4" />
-                Summary
-              </div>
-              <p className="mt-4 text-base leading-7 text-[#424245]">
-                This recording is a collaborative product review for tour recording, ridealong feedback, transcript review,
-                and rubric-based coaching. The strongest product direction is speaker-separated transcript evidence with
-                human comments beside AI-generated coaching.
-              </p>
             </section>
 
-            <section className="mt-4 rounded-[1.5rem] border border-black/10 p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-[#86868b]">Selected moment</p>
-                  <h3 className="mt-1 text-xl font-semibold tracking-normal">{activeInsight.title}</h3>
+            <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-4">
+                <div className="inline-flex items-center gap-2 text-base font-semibold text-[#4f46e5]">
+                  <Sparkles className="h-5 w-5" />
+                  AI note
                 </div>
-                <span className="shrink-0 rounded-full bg-[#f5f5f7] px-3 py-1 text-xs font-semibold capitalize text-[#6e6e73]">
-                  {activeInsight.scoreImpact}
-                </span>
-              </div>
-
-              <p className="mt-4 text-base leading-7 text-[#424245]">{activeInsight.whatHappened}</p>
-              <div className="mt-4 rounded-2xl bg-[#f5f5f7] p-4">
-                <p className="text-xs font-semibold uppercase tracking-normal text-[#86868b]">Why it matters</p>
-                <p className="mt-2 text-sm leading-6 text-[#424245]">{activeInsight.whyItMatters}</p>
-              </div>
-              {activeInsight.suggestedWording ? (
-                <div className="mt-4 rounded-2xl bg-[#eef5ff] p-4 text-sm leading-6 text-[#1d1d1f]">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-normal text-[#0071e3]">Suggested rewrite</p>
-                  {activeInsight.suggestedWording}
-                </div>
-              ) : null}
-            </section>
-
-            <button className="mt-5 inline-flex h-12 w-full items-center justify-center rounded-full bg-[#1d1d1f] text-sm font-semibold text-white">
-              <Send className="mr-2 h-4 w-4" />
-              Create follow-up from review
-            </button>
-          </section>
-
-          <aside className="rounded-[2rem] bg-white p-5 shadow-[0_28px_80px_rgba(0,0,0,0.08)] sm:p-6">
-            <div className="grid grid-cols-2 rounded-full bg-[#f5f5f7] p-1">
-              {(["comments", "rubric"] as const).map((tab) => (
-                <button
-                  className={`inline-flex h-10 items-center justify-center gap-2 rounded-full text-sm font-semibold capitalize transition ${
-                    rightPanelTab === tab ? "bg-white text-[#1d1d1f] shadow-sm" : "text-[#6e6e73] hover:text-[#1d1d1f]"
-                  }`}
-                  key={tab}
-                  onClick={() => setRightPanelTab(tab)}
-                  type="button"
-                >
-                  {tab === "comments" ? <MessageSquare className="h-4 w-4" /> : <ClipboardCheck className="h-4 w-4" />}
-                  {tab}
+                <button className="inline-flex items-center gap-2 text-sm font-semibold text-[#0071e3]" type="button">
+                  <RotateCw className="h-4 w-4" />
+                  Regenerate
                 </button>
-              ))}
-            </div>
-
-            {rightPanelTab === "comments" ? (
-              <section className="mt-5">
-                <div className="rounded-[1.5rem] border border-black/10 p-4">
-                  <label className="text-sm font-semibold text-[#1d1d1f]" htmlFor="review-comment">
-                    Add comment
-                  </label>
-                  <textarea
-                    className="mt-3 min-h-24 w-full resize-none rounded-2xl border border-black/10 bg-[#f5f5f7] p-3 text-sm leading-6 outline-none transition placeholder:text-[#86868b] focus:border-[#0071e3] focus:bg-white"
-                    id="review-comment"
-                    placeholder={`Comment on ${formatTime(activeSegment.start)}...`}
-                  />
-                  <button className="mt-3 inline-flex h-10 w-full items-center justify-center rounded-full bg-[#0071e3] text-sm font-semibold text-white" type="button">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add to review
-                  </button>
-                </div>
-
-                <div className="mt-5 space-y-3">
-                  {comments.map((comment) => (
-                    <article className="rounded-[1.35rem] bg-[#f5f5f7] p-4" key={comment.id}>
-                      <div className="flex items-center justify-between gap-3">
-                        <h3 className="text-sm font-semibold text-[#1d1d1f]">{comment.author}</h3>
-                        <span className="text-xs font-semibold text-[#86868b]">{comment.time}</span>
-                      </div>
-                      <p className="mt-2 text-sm leading-6 text-[#424245]">{comment.text}</p>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            ) : (
-              <section className="mt-5 space-y-3">
-                {tourRidealongDemo.rubric.map((item) => (
-                  <article className="rounded-[1.35rem] border border-black/10 p-4" key={item.id}>
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-sm font-semibold text-[#1d1d1f]">{item.label}</h3>
-                      <span className="rounded-full bg-[#f5f5f7] px-2.5 py-1 text-xs font-bold text-[#1d1d1f]">
-                        {item.score.toFixed(1)}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-[#6e6e73]">{item.summary}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {item.evidenceSegmentIds.map((segmentId) => (
-                        <button
-                          className="rounded-full bg-[#eef5ff] px-2.5 py-1 text-xs font-semibold text-[#0071e3]"
-                          key={segmentId}
-                          onClick={() => setActiveSegmentId(segmentId)}
-                          type="button"
-                        >
-                          {segmentId.replace("seg-", "#")}
-                        </button>
-                      ))}
-                    </div>
-                  </article>
+              </div>
+              <h3 className="mt-5 text-sm font-semibold text-[#101828]">Highlights</h3>
+              <div className="mt-3 space-y-3">
+                {highlights.map((highlight) => (
+                  <div className="flex gap-3 text-sm leading-6 text-[#344054]" key={highlight}>
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#667085]" />
+                    <span>{highlight}</span>
+                  </div>
                 ))}
-              </section>
-            )}
+              </div>
+              <h3 className="mt-6 text-sm font-semibold text-[#101828]">Topics</h3>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {topics.map((topic) => (
+                  <span className="rounded-lg border border-[#d7e7ff] bg-[#f5f9ff] px-3 py-1.5 text-xs font-semibold text-[#0071e3]" key={topic}>
+                    {topic}
+                  </span>
+                ))}
+              </div>
+              <div className="mt-5 rounded-xl bg-[#f8fafc] p-4">
+                <p className="text-xs font-semibold uppercase tracking-normal text-[#98a2b3]">Selected feedback</p>
+                <h3 className="mt-2 text-sm font-semibold text-[#101828]">{activeInsight.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-[#475467]">{activeInsight.whatHappened}</p>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="h-5 w-5 text-[#7c3aed]" />
+                <h2 className="text-lg font-semibold text-[#101828]">Questions</h2>
+                <span className="rounded-full bg-[#eef5ff] px-2 py-0.5 text-xs font-bold text-[#0071e3]">{questions.length}</span>
+              </div>
+              <div className="mt-4 divide-y divide-black/10">
+                {questions.map((question) => (
+                  <button className="flex w-full items-center gap-3 py-3 text-left text-sm font-medium text-[#344054]" key={question.label} type="button">
+                    <span className="min-w-0 flex-1">{question.label}</span>
+                    <span className="text-[#667085]">{question.time}</span>
+                    <ChevronRight className="h-4 w-4 text-[#667085]" />
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-2">
+                <ListChecks className="h-5 w-5 text-[#0071e3]" />
+                <h2 className="text-lg font-semibold text-[#101828]">Next steps</h2>
+                <span className="rounded-full bg-[#eef5ff] px-2 py-0.5 text-xs font-bold text-[#0071e3]">{nextSteps.length}</span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {nextSteps.map((step) => (
+                  <div className="flex items-center gap-3 text-sm" key={step.label}>
+                    {step.status === "Completed" ? (
+                      <CheckCircle2 className="h-5 w-5 shrink-0 text-[#16a34a]" />
+                    ) : (
+                      <Circle className="h-5 w-5 shrink-0 text-[#98a2b3]" />
+                    )}
+                    <span className="min-w-0 flex-1 font-medium text-[#344054]">{step.label}</span>
+                    <span className={step.status === "Completed" ? "text-[#16a34a]" : "text-[#667085]"}>{step.status}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <button className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#0071e3] text-base font-semibold text-white shadow-[0_12px_30px_rgba(0,113,227,0.24)]" type="button">
+              <Send className="h-5 w-5" />
+              Send recap
+            </button>
           </aside>
         </section>
       </section>

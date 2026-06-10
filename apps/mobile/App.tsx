@@ -1,203 +1,922 @@
 import { StatusBar } from "expo-status-bar";
-import { VideoView, useVideoPlayer } from "expo-video";
-import { useEffect } from "react";
-import { AppState, Image, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useMemo, useState } from "react";
+import {
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View
+} from "react-native";
 
-const loginBackground = require("./assets/videos/login-bg.mp4");
-const tourLogo = require("./assets/images/tour-logo.png");
+type Screen = "home" | "profile" | "tour";
+type TourStep = "contact" | "preferences" | "ready";
+
+const leasingAgent = {
+  name: "Alex Johnson",
+  title: "Leasing Consultant",
+  property: "Downtown Lofts",
+  email: "alex@downtownlofts.com",
+  phone: "(512) 555-0189",
+  profileUrl: "tour.video/alex-downtown"
+};
+
+const qrRows = [
+  "111111001011111",
+  "100001010110001",
+  "101101111010101",
+  "101101000010101",
+  "100001011110001",
+  "111111101011111",
+  "000000010000000",
+  "110101111001011",
+  "001110010111100",
+  "101001101000101",
+  "011111001111010",
+  "100010110010111",
+  "101110001011001",
+  "100000111101101",
+  "111111010011111"
+];
+
+const tourSteps: Array<{ id: TourStep; label: string }> = [
+  { id: "contact", label: "Contact" },
+  { id: "preferences", label: "Needs" },
+  { id: "ready", label: "Tour" }
+];
 
 export default function App() {
-  const player = useVideoPlayer(loginBackground, (videoPlayer) => {
-    videoPlayer.loop = true;
-    videoPlayer.muted = true;
-    videoPlayer.play();
+  const [screen, setScreen] = useState<Screen>("home");
+  const [tourStep, setTourStep] = useState<TourStep>("contact");
+  const [prospect, setProspect] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    moveIn: "",
+    bedrooms: "2 bed",
+    budget: "$2,200 - $2,600"
   });
 
-  useEffect(() => {
-    player.play();
+  const activeStepIndex = useMemo(() => tourSteps.findIndex((step) => step.id === tourStep), [tourStep]);
 
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        player.play();
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [player]);
+  const updateProspect = (key: keyof typeof prospect, value: string) => {
+    setProspect((current) => ({ ...current, [key]: value }));
+  };
 
   return (
     <View style={styles.screen}>
-      <StatusBar hidden />
-      <VideoView
-        player={player}
-        style={styles.backgroundVideo}
-        contentFit="cover"
-        nativeControls={false}
-        allowsFullscreen={false}
-        allowsPictureInPicture={false}
-        playsInline
-      />
-      <View style={styles.scrim} />
+      <StatusBar style="dark" />
+      <KeyboardAvoidingView behavior="padding" style={styles.keyboardView}>
+        <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {screen === "home" ? (
+            <HomeScreen onOpenProfile={() => setScreen("profile")} />
+          ) : null}
 
-      <KeyboardAvoidingView behavior="padding" style={styles.content}>
-        <View style={styles.brandLockup}>
-          <Image source={tourLogo} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.subtitle}>
-            Every great business deserves a great tour. Build yours today.
-          </Text>
+          {screen === "profile" ? (
+            <ProfileScreen
+              onBack={() => setScreen("home")}
+              onStartTour={() => {
+                setTourStep("contact");
+                setScreen("tour");
+              }}
+            />
+          ) : null}
+
+          {screen === "tour" ? (
+            <TourStepperScreen
+              activeStepIndex={activeStepIndex}
+              prospect={prospect}
+              tourStep={tourStep}
+              onBack={() => setScreen("profile")}
+              onChange={updateProspect}
+              onStepChange={setTourStep}
+            />
+          ) : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
+  );
+}
+
+function HomeScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
+  return (
+    <View style={styles.page}>
+      <Header eyebrow="Tour home" title="Start every tour with the right contact." />
+
+      <View style={styles.businessCard}>
+        <View style={styles.cardTopRow}>
+          <View style={styles.avatar}>
+            <Text selectable style={styles.avatarText}>
+              AJ
+            </Text>
+          </View>
+          <View style={styles.agentHeader}>
+            <Text selectable style={styles.agentName}>
+              {leasingAgent.name}
+            </Text>
+            <Text selectable style={styles.agentTitle}>
+              {leasingAgent.title} · {leasingAgent.property}
+            </Text>
+          </View>
+          <View style={styles.livePill}>
+            <View style={styles.liveDot} />
+            <Text style={styles.liveText}>Ready</Text>
+          </View>
         </View>
 
-        <View style={styles.form}>
-          <TextInput
-            autoCapitalize="none"
-            autoComplete="email"
-            keyboardType="email-address"
-            placeholder="Email"
-            placeholderTextColor="rgba(255,255,255,0.78)"
-            style={styles.input}
-          />
-          <TextInput
-            autoCapitalize="none"
-            placeholder="Password"
-            placeholderTextColor="rgba(255,255,255,0.78)"
-            secureTextEntry
-            style={styles.input}
-          />
-
-          <Pressable style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-            <Text style={styles.primaryButtonText}>Sign in</Text>
-          </Pressable>
-
-          <View style={styles.dividerRow}>
-            <View style={styles.divider} />
-            <Text style={styles.dividerText}>or</Text>
-            <View style={styles.divider} />
+        <View style={styles.cardBody}>
+          <View style={styles.contactBlock}>
+            <ContactLine label="Email" value={leasingAgent.email} />
+            <ContactLine label="Phone" value={leasingAgent.phone} />
+            <ContactLine label="Profile" value={leasingAgent.profileUrl} />
           </View>
 
-          <Pressable style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
-            <Text style={styles.secondaryButtonText}>Sign in with Google</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open contact exchange profile"
+            onPress={onOpenProfile}
+            style={({ pressed }) => [styles.qrCard, pressed && styles.pressed]}
+          >
+            <QrCode />
+            <Text style={styles.qrCaption}>Scan or tap</Text>
           </Pressable>
         </View>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>© 2024</Text>
-          <Text style={styles.footerText}>About Us</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onOpenProfile}
+          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.primaryButtonText}>Open digital business card</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.previewPanel}>
+        <Text style={styles.panelLabel}>Contact exchange</Text>
+        <Text style={styles.panelTitle}>Visitor enters their info, then starts the tour stepper.</Text>
+        <View style={styles.miniSteps}>
+          {["Card", "Contact", "Needs", "Tour"].map((label, index) => (
+            <View style={styles.miniStep} key={label}>
+              <View style={[styles.miniStepDot, index === 0 && styles.miniStepDotActive]} />
+              <Text style={styles.miniStepText}>{label}</Text>
+            </View>
+          ))}
         </View>
-      </KeyboardAvoidingView>
+      </View>
+    </View>
+  );
+}
+
+function ProfileScreen({ onBack, onStartTour }: { onBack: () => void; onStartTour: () => void }) {
+  return (
+    <View style={styles.page}>
+      <BackButton label="Card" onPress={onBack} />
+      <View style={styles.profileHero}>
+        <View style={styles.avatarLarge}>
+          <Text selectable style={styles.avatarLargeText}>
+            AJ
+          </Text>
+        </View>
+        <Text selectable style={styles.profileName}>
+          {leasingAgent.name}
+        </Text>
+        <Text selectable style={styles.profileTitle}>
+          {leasingAgent.title} at {leasingAgent.property}
+        </Text>
+
+        <View style={styles.profileContactCard}>
+          <ContactLine label="Email" value={leasingAgent.email} />
+          <ContactLine label="Phone" value={leasingAgent.phone} />
+        </View>
+
+        <Pressable
+          accessibilityRole="button"
+          onPress={onStartTour}
+          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.primaryButtonText}>Exchange contact and start tour</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.profileNote}>
+        <Text style={styles.panelLabel}>Link in bio profile</Text>
+        <Text style={styles.bodyText}>
+          This is the page the QR code points to. The visitor confirms the leasing rep, enters contact info, and starts the guided tour.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function TourStepperScreen({
+  activeStepIndex,
+  prospect,
+  tourStep,
+  onBack,
+  onChange,
+  onStepChange
+}: {
+  activeStepIndex: number;
+  prospect: {
+    name: string;
+    email: string;
+    phone: string;
+    moveIn: string;
+    bedrooms: string;
+    budget: string;
+  };
+  tourStep: TourStep;
+  onBack: () => void;
+  onChange: (key: keyof typeof prospect, value: string) => void;
+  onStepChange: (step: TourStep) => void;
+}) {
+  return (
+    <View style={styles.page}>
+      <BackButton label="Profile" onPress={onBack} />
+      <View style={styles.agentStrip}>
+        <View style={styles.avatarSmall}>
+          <Text selectable style={styles.avatarSmallText}>
+            AJ
+          </Text>
+        </View>
+        <View style={styles.agentStripText}>
+          <Text selectable style={styles.agentStripName}>
+            {leasingAgent.name}
+          </Text>
+          <Text selectable style={styles.agentStripContact}>
+            {leasingAgent.email} · {leasingAgent.phone}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.stepper}>
+        {tourSteps.map((step, index) => {
+          const isActive = index === activeStepIndex;
+          const isComplete = index < activeStepIndex;
+          return (
+            <View style={styles.stepItem} key={step.id}>
+              <View
+                style={[
+                  styles.stepDot,
+                  isComplete && styles.stepDotComplete,
+                  isActive && styles.stepDotActive
+                ]}
+              >
+                <Text style={[styles.stepDotText, (isActive || isComplete) && styles.stepDotTextActive]}>
+                  {index + 1}
+                </Text>
+              </View>
+              <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>{step.label}</Text>
+            </View>
+          );
+        })}
+      </View>
+
+      <View style={styles.formCard}>
+        {tourStep === "contact" ? (
+          <View style={styles.formSection}>
+            <Text style={styles.formTitle}>Your contact information</Text>
+            <TextInput
+              placeholder="Full name"
+              placeholderTextColor="#8a94a6"
+              value={prospect.name}
+              onChangeText={(value) => onChange("name", value)}
+              style={styles.input}
+            />
+            <TextInput
+              autoCapitalize="none"
+              autoComplete="email"
+              keyboardType="email-address"
+              placeholder="Email"
+              placeholderTextColor="#8a94a6"
+              value={prospect.email}
+              onChangeText={(value) => onChange("email", value)}
+              style={styles.input}
+            />
+            <TextInput
+              autoComplete="tel"
+              keyboardType="phone-pad"
+              placeholder="Phone"
+              placeholderTextColor="#8a94a6"
+              value={prospect.phone}
+              onChangeText={(value) => onChange("phone", value)}
+              style={styles.input}
+            />
+            <PrimaryAction label="Continue to preferences" onPress={() => onStepChange("preferences")} />
+          </View>
+        ) : null}
+
+        {tourStep === "preferences" ? (
+          <View style={styles.formSection}>
+            <Text style={styles.formTitle}>What should the tour focus on?</Text>
+            <TextInput
+              placeholder="Target move-in date"
+              placeholderTextColor="#8a94a6"
+              value={prospect.moveIn}
+              onChangeText={(value) => onChange("moveIn", value)}
+              style={styles.input}
+            />
+            <SegmentedChoices
+              label="Bedrooms"
+              options={["Studio", "1 bed", "2 bed", "3 bed"]}
+              value={prospect.bedrooms}
+              onChange={(value) => onChange("bedrooms", value)}
+            />
+            <SegmentedChoices
+              label="Budget"
+              options={["<$2,000", "$2,200 - $2,600", "$2,600+"]}
+              value={prospect.budget}
+              onChange={(value) => onChange("budget", value)}
+            />
+            <PrimaryAction label="Review and start tour" onPress={() => onStepChange("ready")} />
+          </View>
+        ) : null}
+
+        {tourStep === "ready" ? (
+          <View style={styles.formSection}>
+            <Text style={styles.formTitle}>Ready to start the guided tour</Text>
+            <View style={styles.summaryCard}>
+              <SummaryRow label="Prospect" value={prospect.name || "Guest visitor"} />
+              <SummaryRow label="Contact" value={prospect.email || prospect.phone || "Not provided"} />
+              <SummaryRow label="Tour focus" value={`${prospect.bedrooms} · ${prospect.budget}`} />
+              <SummaryRow label="Move-in" value={prospect.moveIn || "Flexible"} />
+            </View>
+            <Pressable style={({ pressed }) => [styles.startTourButton, pressed && styles.pressed]}>
+              <Text style={styles.startTourText}>Start tour</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function ContactLine({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.contactLine}>
+      <Text style={styles.contactLabel}>{label}</Text>
+      <Text selectable style={styles.contactValue}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function QrCode() {
+  return (
+    <View style={styles.qrGrid}>
+      {qrRows.map((row, rowIndex) =>
+        row.split("").map((cell, columnIndex) => (
+          <View
+            key={`${rowIndex}-${columnIndex}`}
+            style={[
+              styles.qrCell,
+              cell === "1" ? styles.qrCellDark : styles.qrCellLight
+            ]}
+          />
+        ))
+      )}
+    </View>
+  );
+}
+
+function BackButton({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+      <Text style={styles.backButtonText}>‹ {label}</Text>
+    </Pressable>
+  );
+}
+
+function PrimaryAction({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+      <Text style={styles.primaryButtonText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function SegmentedChoices({
+  label,
+  options,
+  value,
+  onChange
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <View style={styles.choiceGroup}>
+      <Text style={styles.choiceLabel}>{label}</Text>
+      <View style={styles.choiceRow}>
+        {options.map((option) => {
+          const selected = value === option;
+          return (
+            <Pressable
+              accessibilityRole="button"
+              key={option}
+              onPress={() => onChange(option)}
+              style={[styles.choicePill, selected && styles.choicePillActive]}
+            >
+              <Text style={[styles.choiceText, selected && styles.choiceTextActive]}>{option}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text selectable style={styles.summaryValue}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function Header({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <View style={styles.header}>
+      <Text style={styles.eyebrow}>{eyebrow}</Text>
+      <Text style={styles.title}>{title}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
-    backgroundColor: "#000000",
-    flex: 1,
-    height: "100%",
-    overflow: "hidden",
-    width: "100%"
+    backgroundColor: "#f4f7fb",
+    flex: 1
   },
-  backgroundVideo: {
-    ...StyleSheet.absoluteFillObject,
-    height: "100%",
-    width: "100%"
+  keyboardView: {
+    flex: 1
   },
-  scrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.55)"
+  scrollContent: {
+    gap: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 64
   },
-  content: {
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 22,
-    paddingVertical: 28
+  page: {
+    gap: 18
   },
-  brandLockup: {
-    gap: 14,
-    marginBottom: 28
+  header: {
+    gap: 8
   },
-  logo: {
-    alignSelf: "flex-start",
-    backgroundColor: "rgba(255,255,255,0.94)",
-    borderRadius: 8,
-    height: 74,
-    width: 184
+  eyebrow: {
+    color: "#006ce5",
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0,
+    textTransform: "uppercase"
   },
-  subtitle: {
-    color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "600",
-    lineHeight: 25,
-    maxWidth: 340
+  title: {
+    color: "#101828",
+    fontSize: 34,
+    fontWeight: "800",
+    letterSpacing: 0,
+    lineHeight: 38
   },
-  form: {
+  businessCard: {
+    backgroundColor: "#ffffff",
+    borderColor: "rgba(16, 24, 40, 0.08)",
+    borderCurve: "continuous",
+    borderRadius: 28,
+    borderWidth: 1,
+    gap: 22,
+    padding: 20
+  },
+  cardTopRow: {
+    alignItems: "center",
+    flexDirection: "row",
     gap: 12
   },
-  input: {
-    backgroundColor: "rgba(255,255,255,0.18)",
-    borderColor: "rgba(255,255,255,0.22)",
-    borderRadius: 8,
+  avatar: {
+    alignItems: "center",
+    backgroundColor: "#e9f2ff",
+    borderRadius: 18,
+    height: 54,
+    justifyContent: "center",
+    width: 54
+  },
+  avatarText: {
+    color: "#006ce5",
+    fontSize: 17,
+    fontWeight: "900"
+  },
+  agentHeader: {
+    flex: 1,
+    gap: 3
+  },
+  agentName: {
+    color: "#101828",
+    fontSize: 20,
+    fontWeight: "800"
+  },
+  agentTitle: {
+    color: "#667085",
+    fontSize: 13,
+    fontWeight: "600"
+  },
+  livePill: {
+    alignItems: "center",
+    backgroundColor: "#eefaf3",
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7
+  },
+  liveDot: {
+    backgroundColor: "#16a34a",
+    borderRadius: 999,
+    height: 7,
+    width: 7
+  },
+  liveText: {
+    color: "#0f7a3b",
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  cardBody: {
+    flexDirection: "row",
+    gap: 16
+  },
+  contactBlock: {
+    flex: 1,
+    gap: 12
+  },
+  contactLine: {
+    gap: 4
+  },
+  contactLabel: {
+    color: "#8a94a6",
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase"
+  },
+  contactValue: {
+    color: "#182230",
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  qrCard: {
+    alignItems: "center",
+    backgroundColor: "#f8fbff",
+    borderColor: "#d7e7ff",
+    borderCurve: "continuous",
+    borderRadius: 22,
     borderWidth: 1,
-    color: "#ffffff",
-    fontSize: 16,
-    minHeight: 52,
-    paddingHorizontal: 14
+    gap: 8,
+    justifyContent: "center",
+    padding: 12,
+    width: 132
+  },
+  qrGrid: {
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 2,
+    padding: 8,
+    width: 104
+  },
+  qrCell: {
+    borderRadius: 1,
+    height: 4,
+    width: 4
+  },
+  qrCellDark: {
+    backgroundColor: "#101828"
+  },
+  qrCellLight: {
+    backgroundColor: "#ffffff"
+  },
+  qrCaption: {
+    color: "#006ce5",
+    fontSize: 12,
+    fontWeight: "800"
   },
   primaryButton: {
     alignItems: "center",
-    backgroundColor: "#4d8ae5",
-    borderRadius: 8,
-    minHeight: 52,
-    justifyContent: "center"
+    backgroundColor: "#006ce5",
+    borderCurve: "continuous",
+    borderRadius: 18,
+    minHeight: 56,
+    justifyContent: "center",
+    paddingHorizontal: 16
   },
   primaryButtonText: {
     color: "#ffffff",
     fontSize: 16,
-    fontWeight: "800"
+    fontWeight: "900"
   },
   pressed: {
-    opacity: 0.82
+    opacity: 0.76,
+    transform: [{ scale: 0.99 }]
   },
-  dividerRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    paddingVertical: 2
-  },
-  divider: {
-    backgroundColor: "rgba(255,255,255,0.55)",
-    flex: 1,
-    height: StyleSheet.hairlineWidth
-  },
-  dividerText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "700"
-  },
-  secondaryButton: {
-    alignItems: "center",
+  previewPanel: {
     backgroundColor: "#ffffff",
-    borderRadius: 8,
-    minHeight: 52,
-    justifyContent: "center"
+    borderColor: "rgba(16, 24, 40, 0.08)",
+    borderCurve: "continuous",
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 12,
+    padding: 18
   },
-  secondaryButtonText: {
-    color: "#172033",
-    fontSize: 16,
+  panelLabel: {
+    color: "#006ce5",
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  panelTitle: {
+    color: "#101828",
+    fontSize: 19,
+    fontWeight: "800",
+    lineHeight: 25
+  },
+  miniSteps: {
+    flexDirection: "row",
+    gap: 10
+  },
+  miniStep: {
+    alignItems: "center",
+    flex: 1,
+    gap: 6
+  },
+  miniStepDot: {
+    backgroundColor: "#d5deea",
+    borderRadius: 999,
+    height: 8,
+    width: "100%"
+  },
+  miniStepDotActive: {
+    backgroundColor: "#006ce5"
+  },
+  miniStepText: {
+    color: "#667085",
+    fontSize: 11,
     fontWeight: "800"
   },
-  footer: {
-    bottom: 24,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    left: 22,
-    position: "absolute",
-    right: 22
+  backButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "#ffffff",
+    borderColor: "rgba(16, 24, 40, 0.08)",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 8
   },
-  footerText: {
-    color: "rgba(255,255,255,0.82)",
+  backButtonText: {
+    color: "#344054",
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  profileHero: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "rgba(16, 24, 40, 0.08)",
+    borderCurve: "continuous",
+    borderRadius: 32,
+    borderWidth: 1,
+    gap: 14,
+    padding: 22
+  },
+  avatarLarge: {
+    alignItems: "center",
+    backgroundColor: "#e9f2ff",
+    borderRadius: 30,
+    height: 84,
+    justifyContent: "center",
+    width: 84
+  },
+  avatarLargeText: {
+    color: "#006ce5",
+    fontSize: 26,
+    fontWeight: "900"
+  },
+  profileName: {
+    color: "#101828",
+    fontSize: 28,
+    fontWeight: "900"
+  },
+  profileTitle: {
+    color: "#667085",
+    fontSize: 15,
+    fontWeight: "700",
+    textAlign: "center"
+  },
+  profileContactCard: {
+    alignSelf: "stretch",
+    backgroundColor: "#f8fafc",
+    borderRadius: 20,
+    gap: 12,
+    padding: 16
+  },
+  profileNote: {
+    backgroundColor: "#eaf4ff",
+    borderCurve: "continuous",
+    borderRadius: 24,
+    gap: 8,
+    padding: 18
+  },
+  bodyText: {
+    color: "#344054",
+    fontSize: 15,
+    fontWeight: "600",
+    lineHeight: 23
+  },
+  agentStrip: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "rgba(16, 24, 40, 0.08)",
+    borderCurve: "continuous",
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 14
+  },
+  avatarSmall: {
+    alignItems: "center",
+    backgroundColor: "#e9f2ff",
+    borderRadius: 16,
+    height: 46,
+    justifyContent: "center",
+    width: 46
+  },
+  avatarSmallText: {
+    color: "#006ce5",
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  agentStripText: {
+    flex: 1,
+    gap: 3
+  },
+  agentStripName: {
+    color: "#101828",
+    fontSize: 17,
+    fontWeight: "900"
+  },
+  agentStripContact: {
+    color: "#667085",
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  stepper: {
+    backgroundColor: "#ffffff",
+    borderColor: "rgba(16, 24, 40, 0.08)",
+    borderCurve: "continuous",
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    padding: 14
+  },
+  stepItem: {
+    alignItems: "center",
+    flex: 1,
+    gap: 8
+  },
+  stepDot: {
+    alignItems: "center",
+    backgroundColor: "#eef2f7",
+    borderRadius: 999,
+    height: 34,
+    justifyContent: "center",
+    width: 34
+  },
+  stepDotActive: {
+    backgroundColor: "#006ce5"
+  },
+  stepDotComplete: {
+    backgroundColor: "#16a34a"
+  },
+  stepDotText: {
+    color: "#667085",
     fontSize: 13,
-    fontWeight: "600"
+    fontWeight: "900"
+  },
+  stepDotTextActive: {
+    color: "#ffffff"
+  },
+  stepLabel: {
+    color: "#667085",
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  stepLabelActive: {
+    color: "#101828"
+  },
+  formCard: {
+    backgroundColor: "#ffffff",
+    borderColor: "rgba(16, 24, 40, 0.08)",
+    borderCurve: "continuous",
+    borderRadius: 30,
+    borderWidth: 1,
+    padding: 18
+  },
+  formSection: {
+    gap: 14
+  },
+  formTitle: {
+    color: "#101828",
+    fontSize: 23,
+    fontWeight: "900",
+    lineHeight: 29
+  },
+  input: {
+    backgroundColor: "#f8fafc",
+    borderColor: "#d7dee8",
+    borderCurve: "continuous",
+    borderRadius: 16,
+    borderWidth: 1,
+    color: "#101828",
+    fontSize: 16,
+    minHeight: 54,
+    paddingHorizontal: 14
+  },
+  choiceGroup: {
+    gap: 10
+  },
+  choiceLabel: {
+    color: "#344054",
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  choiceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  choicePill: {
+    backgroundColor: "#f5f7fb",
+    borderColor: "#d7dee8",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 13,
+    paddingVertical: 9
+  },
+  choicePillActive: {
+    backgroundColor: "#eaf4ff",
+    borderColor: "#006ce5"
+  },
+  choiceText: {
+    color: "#667085",
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  choiceTextActive: {
+    color: "#006ce5"
+  },
+  summaryCard: {
+    backgroundColor: "#f8fafc",
+    borderCurve: "continuous",
+    borderRadius: 22,
+    gap: 12,
+    padding: 16
+  },
+  summaryRow: {
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between"
+  },
+  summaryLabel: {
+    color: "#667085",
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  summaryValue: {
+    color: "#101828",
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "right"
+  },
+  startTourButton: {
+    alignItems: "center",
+    backgroundColor: "#101828",
+    borderCurve: "continuous",
+    borderRadius: 18,
+    minHeight: 56,
+    justifyContent: "center"
+  },
+  startTourText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900"
   }
 });

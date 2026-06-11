@@ -1020,6 +1020,311 @@ button { border: 0; font: inherit; cursor: pointer; }
 }
 
 /* ── Transcript ── */
+.sa-transcript-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.vr-card {
+  background: white;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.vr-player {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(180px, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--slate-100);
+}
+
+.vr-play,
+.vr-skip,
+.vr-link {
+  display: grid;
+  place-items: center;
+  border: 0;
+  cursor: pointer;
+  transition: transform .15s ease, background .15s ease, color .15s ease;
+}
+
+.vr-play {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  background: var(--indigo-600);
+  color: white;
+  box-shadow: 0 12px 24px rgba(79, 70, 229, .22);
+}
+
+.vr-play:disabled,
+.vr-skip:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.vr-play:not(:disabled):hover,
+.vr-skip:not(:disabled):hover,
+.vr-link:hover {
+  transform: translateY(-1px);
+}
+
+.vr-skip,
+.vr-link {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--slate-50);
+  color: var(--slate-600);
+}
+
+.vr-time {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--slate-600);
+  font-variant-numeric: tabular-nums;
+  min-width: 42px;
+}
+
+.vr-wave {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 48px;
+}
+
+.vr-wave-bar {
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: var(--slate-200);
+  flex: 1 1 0;
+  max-width: 4px;
+}
+
+.vr-wave-bar--filled {
+  background: var(--indigo-500);
+}
+
+.vr-range {
+  grid-column: 4 / 5;
+  grid-row: 1;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.vr-speed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  min-width: 38px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--slate-600);
+  background: white;
+  cursor: pointer;
+}
+
+.vr-speed:hover {
+  border-color: var(--indigo-200);
+  color: var(--indigo-600);
+}
+
+.vr-volume {
+  color: var(--slate-400);
+}
+
+.vr-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--slate-100);
+  background: var(--slate-50);
+}
+
+.vr-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  background: white;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  color: var(--slate-400);
+}
+
+.vr-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: var(--slate-700);
+  font-size: 13px;
+  background: transparent;
+}
+
+.vr-speakers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vr-speaker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.vr-speaker-chip span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .68);
+  font-size: 10px;
+}
+
+.vr-speaker-chip small {
+  color: var(--slate-500);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.vr-summary {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--slate-100);
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.vr-summary-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--indigo-600);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.vr-summary p {
+  margin: 10px 0 0;
+  color: var(--slate-600);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.vr-transcript {
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.vr-entry {
+  display: grid;
+  grid-template-columns: 54px minmax(130px, 170px) minmax(0, 1fr) 32px;
+  align-items: start;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  border-left: 4px solid transparent;
+  border-bottom: 1px solid var(--slate-100);
+  background: white;
+  text-align: left;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+
+.vr-entry:hover {
+  background: #fbfcff;
+}
+
+.vr-entry--active {
+  border-left-color: var(--indigo-500);
+  background: #f3f7ff;
+}
+
+.vr-entry-time {
+  color: var(--indigo-500);
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.vr-entry-speaker {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.vr-entry-speaker > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vr-entry-avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.vr-entry-text {
+  min-width: 0;
+  color: var(--slate-700);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.vr-entry-jump {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background: var(--slate-100);
+  color: var(--slate-500);
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+
+.vr-entry:hover .vr-entry-jump,
+.vr-entry--active .vr-entry-jump {
+  opacity: 1;
+}
+
 .sa-transcript {
   background: white;
   border: 1px solid var(--slate-200);
@@ -1055,6 +1360,53 @@ button { border: 0; font: inherit; cursor: pointer; }
 .sa-t-text {
   color: var(--slate-700);
   line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .vr-player {
+    grid-template-columns: auto auto auto 1fr auto;
+  }
+
+  .vr-speed,
+  .vr-volume,
+  .vr-link {
+    display: none;
+  }
+
+  .vr-toolbar {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .vr-player {
+    grid-template-columns: auto auto 1fr auto;
+    gap: 8px;
+  }
+
+  .vr-play {
+    width: 42px;
+    height: 42px;
+  }
+
+  .vr-wave,
+  .vr-range {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .vr-entry {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 8px 12px;
+  }
+
+  .vr-entry-text {
+    grid-column: 2 / 3;
+  }
+
+  .vr-entry-jump {
+    display: none;
+  }
 }
 
 /* ── Actions / Next Steps ── */
@@ -1255,6 +1607,72 @@ button { border: 0; font: inherit; cursor: pointer; }
   transition: width 0.1s linear;
 }
 .sr-volume-icon { color: var(--slate-500); flex-shrink: 0; }
+
+.sr-video-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+  color: var(--slate-500);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-speed-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: white;
+  color: var(--slate-600);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.sr-speed-btn:hover {
+  border-color: var(--indigo-200);
+  color: var(--indigo-600);
+}
+
+.sr-speed-btn--dark {
+  height: 34px;
+  border-color: rgba(148, 163, 184, .24);
+  background: rgba(15, 23, 42, .72);
+  color: var(--slate-300);
+}
+
+.sr-speed-btn--dark:hover {
+  border-color: rgba(96, 165, 250, .7);
+  color: white;
+}
+
+.sr-audio-marker {
+  position: absolute;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  border: 2px solid var(--slate-900);
+  border-radius: var(--radius-full);
+  background: var(--amber-400);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .35);
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  z-index: 2;
+}
+
+.sr-audio-marker:hover,
+.sr-audio-marker--active {
+  background: white;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, .35);
+}
 
 /* ── Moment detail popover ───────────────────────────── */
 .sr-moment-detail {

@@ -12,6 +12,7 @@ import { ActionStatusButtons } from "./ActionStatusButtons";
 import { DetailTabs } from "./DetailTabs";
 import { EditSessionForm } from "./EditSessionForm";
 import { SessionReviewClient } from "./SessionReviewClient";
+import { TranscriptReader } from "./TranscriptReader";
 import { UploadAndProcess } from "./UploadAndProcess";
 
 type Props = { params: Promise<{ id: string }> };
@@ -103,7 +104,7 @@ export default async function SessionDetailPage({ params }: Props) {
               {
                 id: "transcript",
                 label: "Transcript",
-                content: <TranscriptTab transcript={transcript} />
+                content: <TranscriptTab transcript={transcript} recordingUrl={recordingUrl} summary={analysis.summary} />
               },
               {
                 id: "actions",
@@ -339,20 +340,32 @@ function FairHousingBanner({ flags }: { flags?: string[] }) {
 /* ════════════════════════════════════════════════════════════
    Transcript Tab
    ════════════════════════════════════════════════════════════ */
-function TranscriptTab({ transcript }: { transcript: Awaited<ReturnType<typeof getTranscriptForSession>> }) {
+function TranscriptTab({
+  transcript,
+  recordingUrl,
+  summary
+}: {
+  transcript: Awaited<ReturnType<typeof getTranscriptForSession>>;
+  recordingUrl: string | null;
+  summary: string | null;
+}) {
   if (transcript.length === 0) {
     return <div className="sa-empty">No transcript available.</div>;
   }
 
   return (
-    <div className="sa-transcript">
-      {transcript.map((seg) => (
-        <div key={seg.id} className="sa-t-line">
-          <span className="sa-t-time">{fmtSec(seg.startTime)}</span>
-          <span className="sa-t-speaker">{seg.speaker}</span>
-          <span className="sa-t-text">{seg.text}</span>
-        </div>
-      ))}
+    <div className="sa-transcript-stack">
+      <TranscriptReader transcript={transcript} recordingUrl={recordingUrl} summary={summary} />
+
+      <div className="sa-transcript">
+        {transcript.map((seg) => (
+          <div key={seg.id} className="sa-t-line">
+            <span className="sa-t-time">{fmtSec(seg.startTime)}</span>
+            <span className="sa-t-speaker">{seg.speaker}</span>
+            <span className="sa-t-text">{seg.text}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

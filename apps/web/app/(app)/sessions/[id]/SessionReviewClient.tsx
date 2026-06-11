@@ -82,6 +82,8 @@ type Moment = {
   sectionScore?: number;
 };
 
+const playbackRates = [0.75, 1, 1.25, 1.5, 2];
+
 export function SessionReviewClient({
   sessionId,
   videoUrl,
@@ -95,6 +97,7 @@ export function SessionReviewClient({
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [selectedMoment, setSelectedMoment] = useState<Moment | null>(null);
   const momentsListRef = useRef<HTMLDivElement>(null);
 
@@ -143,26 +146,41 @@ export function SessionReviewClient({
   const seekTo = useCallback((seconds: number) => {
     if (mediaRef.current) {
       mediaRef.current.currentTime = seconds;
+      mediaRef.current.playbackRate = playbackRate;
       void mediaRef.current.play().then(() => setIsPlaying(true)).catch(() => undefined);
     }
     setCurrentTime(seconds);
+  }, [playbackRate]);
+
+  const cyclePlaybackRate = useCallback(() => {
+    setPlaybackRate((current) => {
+      const index = playbackRates.indexOf(current);
+      return playbackRates[(index + 1) % playbackRates.length] ?? 1;
+    });
   }, []);
 
   const togglePlayback = useCallback(() => {
     const el = mediaRef.current;
     if (!el) return;
+    el.playbackRate = playbackRate;
     if (el.paused) {
       void el.play().then(() => setIsPlaying(true)).catch(() => undefined);
     } else {
       el.pause();
       setIsPlaying(false);
     }
-  }, []);
+  }, [playbackRate]);
 
   const handleMomentClick = useCallback((moment: Moment) => {
     setSelectedMoment((prev) => prev?.id === moment.id ? null : moment);
     seekTo(moment.timestamp);
   }, [seekTo]);
+
+  useEffect(() => {
+    if (mediaRef.current) {
+      mediaRef.current.playbackRate = playbackRate;
+    }
+  }, [playbackRate, src]);
 
   // Auto-scroll moments list to track current playback
   useEffect(() => {
@@ -183,24 +201,34 @@ export function SessionReviewClient({
       <div className="sr-player">
         <div className="video-preview-wrap">
           {isVideo ? (
-            <video
-              ref={mediaRef as React.RefObject<HTMLVideoElement>}
-              controls
-              playsInline
-              className="video-preview-player"
-              src={src}
-              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
-            >
-              <track kind="captions" />
-            </video>
+            <>
+              <video
+                ref={mediaRef as React.RefObject<HTMLVideoElement>}
+                controls
+                playsInline
+                className="video-preview-player"
+                src={src}
+                onLoadedMetadata={(e) => { e.currentTarget.playbackRate = playbackRate; }}
+                onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+              >
+                <track kind="captions" />
+              </video>
+              <div className="sr-video-tools">
+                <span>{formatTime(currentTime)} / {formatTime(duration)}</span>
+                <button type="button" className="sr-speed-btn" onClick={cyclePlaybackRate} aria-label="Change playback speed">
+                  {playbackRate}x
+                </button>
+              </div>
+            </>
           ) : (
             <div style={{ padding: "20px 16px", background: "var(--slate-900)", borderRadius: 12 }}>
               <audio
                 ref={mediaRef as React.RefObject<HTMLAudioElement>}
                 src={src}
                 preload="metadata"
+                onLoadedMetadata={(e) => { e.currentTarget.playbackRate = playbackRate; }}
                 onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
@@ -225,10 +253,27 @@ export function SessionReviewClient({
                   }}
                 >
                   <div style={{ position: "absolute", inset: 0, right: "auto", width: duration > 0 ? `${(currentTime / duration) * 100}%` : "0%", background: "#006ce5", borderRadius: 9999, transition: "width 0.1s linear" }} />
+                  {allMoments.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      aria-label={`Jump to ${formatTime(m.timestamp)}: ${m.label}`}
+                      title={`${formatTime(m.timestamp)} - ${m.label}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleMomentClick(m);
+                      }}
+                      className={`sr-audio-marker ${selectedMoment?.id === m.id ? "sr-audio-marker--active" : ""}`}
+                      style={{ left: `${clampPct(m.timestamp, duration)}%` }}
+                    />
+                  ))}
                 </div>
                 <span style={{ fontSize: 12, fontWeight: 600, color: "var(--slate-400)", fontVariantNumeric: "tabular-nums", minWidth: 36 }}>
                   {formatTime(duration)}
                 </span>
+                <button type="button" className="sr-speed-btn sr-speed-btn--dark" onClick={cyclePlaybackRate} aria-label="Change playback speed">
+                  {playbackRate}x
+                </button>
                 <Volume2 size={16} style={{ color: "var(--slate-500)", flexShrink: 0 }} />
               </div>
             </div>

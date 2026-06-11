@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SESSION_STATUS_LABELS } from "@tour/shared";
 import { listFollowUpActions, listSessions } from "@/lib/sessions";
+import { ContactCardPanel } from "./ContactCardPanel";
 
 export default async function DashboardPage() {
   const sessions = await listSessions();
@@ -52,6 +53,8 @@ export default async function DashboardPage() {
           </span>
         </div>
       </div>
+
+      <ContactCardPanel id="home-contact-card-heading" variant="home" />
 
       <div className="metrics-grid">
         <div className="metric-card">

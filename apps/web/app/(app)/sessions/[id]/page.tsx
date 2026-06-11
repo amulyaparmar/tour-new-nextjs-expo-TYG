@@ -11,6 +11,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase";
 import { ActionStatusButtons } from "./ActionStatusButtons";
 import { DetailTabs } from "./DetailTabs";
 import { EditSessionForm } from "./EditSessionForm";
+import { ReprocessButton } from "./ReprocessButton";
 import { SessionReviewClient } from "./SessionReviewClient";
 import { TranscriptReader } from "./TranscriptReader";
 import { UploadAndProcess } from "./UploadAndProcess";
@@ -99,7 +100,7 @@ export default async function SessionDetailPage({ params }: Props) {
               {
                 id: "rubric",
                 label: "Rubric Detail",
-                content: <RubricTab analysis={analysis} />
+                content: <RubricTab analysis={analysis} sessionId={id} />
               },
               {
                 id: "transcript",
@@ -257,9 +258,35 @@ function OverviewTab({
 /* ════════════════════════════════════════════════════════════
    Rubric Detail Tab — full question-level breakdown
    ════════════════════════════════════════════════════════════ */
-function RubricTab({ analysis }: { analysis: NonNullable<Awaited<ReturnType<typeof getAnalysisBySessionId>>> }) {
+function RubricTab({ analysis, sessionId }: { analysis: NonNullable<Awaited<ReturnType<typeof getAnalysisBySessionId>>>; sessionId: string }) {
+  const anyQuestions = analysis.sectionScores.some(s => s.questions && s.questions.length > 0);
+
   return (
     <div className="sa-rubric">
+      {!anyQuestions && (
+        <div style={{
+          padding: "16px 20px",
+          background: "var(--amber-50, #fffbeb)",
+          border: "1px solid var(--amber-200, #fde68a)",
+          borderRadius: 10,
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        }}>
+          <div>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--amber-800, #92400e)" }}>
+              Legacy analysis — question-level detail not available
+            </p>
+            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--amber-700, #b45309)" }}>
+              Re-process this session to generate the full rubric breakdown with per-question scoring.
+            </p>
+          </div>
+          <ReprocessButton sessionId={sessionId} />
+        </div>
+      )}
+
       {analysis.sectionScores.map((sec) => {
         const c = scoreColor(sec.score);
         const hasQuestions = sec.questions && sec.questions.length > 0;
@@ -283,7 +310,7 @@ function RubricTab({ analysis }: { analysis: NonNullable<Awaited<ReturnType<type
               </div>
             </summary>
 
-            {hasQuestions && (
+            {hasQuestions ? (
               <div className="sa-rubric-questions">
                 {sec.questions.map((q) => (
                   <div key={q.id} className={`sa-q ${q.passed ? "sa-q--pass" : "sa-q--fail"}`}>
@@ -302,6 +329,14 @@ function RubricTab({ analysis }: { analysis: NonNullable<Awaited<ReturnType<type
                     </div>
                   </div>
                 ))}
+              </div>
+            ) : (
+              <div style={{ padding: "12px 16px", fontSize: 13, color: "var(--slate-500)" }}>
+                <p style={{ margin: 0 }}>
+                  <strong>{sec.section}</strong> scored <strong>{sec.score}%</strong>
+                  {sec.pointsPossible > 0 && <> ({sec.pointsEarned}/{sec.pointsPossible} pts)</>}.
+                  Re-process to see individual question scores.
+                </p>
               </div>
             )}
           </details>

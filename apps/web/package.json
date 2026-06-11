@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "NEXT_IGNORE_INCORRECT_LOCKFILE=true next dev --turbopack",
     "build": "next build",
+    "build:web": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "web": "NEXT_IGNORE_INCORRECT_LOCKFILE=true next dev --turbopack",
     "clean": "rm -rf .next"
   },
   "dependencies": {

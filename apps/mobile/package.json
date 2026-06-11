@@ -10,6 +10,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build": "expo export",
+    "build:ios": "npx eas-cli@latest build --platform ios --profile production",
+    "submit:ios": "npx eas-cli@latest submit --platform ios --profile production",
+    "testflight": "npx testflight",
     "lint": "echo \"No mobile lint configured\"",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .expo dist"

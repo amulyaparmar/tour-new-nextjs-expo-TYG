@@ -1,19 +1,25 @@
 {
   "expo": {
-    "name": "Tour Hub",
-    "slug": "tour-hub",
+    "name": "Tour.new TYG / Tour.you TYG",
+    "owner": "tourtyg",
+    "slug": "tour-new-tour-you-tyg",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/tour-logo.png",
-    "scheme": "tourhub",
+    "scheme": "tournewtouryoutyg",
     "userInterfaceStyle": "light",
     "experiments": {
       "reactCompiler": true
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.leasemagnets.tournewtouryou.tyg",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.leasemagnets.tournewtouryou.tyg",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#087f8c"
@@ -24,6 +30,11 @@
     },
     "plugins": [
       "expo-video"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a30cd0f8-93f0-423b-979b-2c415aa6a5c4"
+      }
+    }
   }
 }

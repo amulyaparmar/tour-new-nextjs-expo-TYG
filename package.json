@@ -15,7 +15,10 @@
     "typecheck": "turbo typecheck",
     "typecheck:web": "turbo typecheck --filter=@tour/web",
     "web": "turbo dev --filter=@tour/web",
-    "mobile": "turbo dev --filter=@tour/mobile"
+    "mobile": "turbo dev --filter=@tour/mobile",
+    "mobile:build:ios": "npm --workspace @tour/mobile run build:ios",
+    "mobile:submit:ios": "npm --workspace @tour/mobile run submit:ios",
+    "mobile:testflight": "npm --workspace @tour/mobile run testflight"
   },
   "devDependencies": {
     "turbo": "^2.8.0",

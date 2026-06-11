@@ -4,6 +4,6 @@ export function getApiBaseUrl() {
     return raw.replace(/\/+$/, "");
   }
 
-  // iOS simulator localhost fallback
-  return "http://localhost:3002";
+  // iOS simulator uses localhost — port 3000 matches the Next.js dev server
+  return "http://localhost:3000";
 }

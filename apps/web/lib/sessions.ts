@@ -59,24 +59,80 @@ type FollowUpActionRow = {
   created_at: string;
 };
 
-export async function listSessions(): Promise<SessionSummary[]> {
+export type ListSessionsParams = {
+  page?: number;
+  limit?: number;
+  status?: SessionStatus;
+  search?: string;
+  sort?: "newest" | "oldest" | "score_desc" | "score_asc";
+};
+
+export type PaginatedSessions = {
+  sessions: SessionSummary[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+};
+
+export async function listSessions(params?: ListSessionsParams): Promise<SessionSummary[]> {
+  const result = await listSessionsPaginated(params);
+  return result.sessions;
+}
+
+export async function listSessionsPaginated(params?: ListSessionsParams): Promise<PaginatedSessions> {
+  const page = Math.max(1, params?.page ?? 1);
+  const limit = Math.min(100, Math.max(1, params?.limit ?? 20));
+  const offset = (page - 1) * limit;
+
   try {
     const supabase = getSupabaseServiceClient();
-    const { data, error } = await supabase
+    let query = supabase
       .from("sessions")
       .select(
-        "id,title,prospect_name,scheduled_at,location,status,overall_score,notes,video_url,audio_url,duration,created_at"
-      )
-      .order("scheduled_at", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: false });
+        "id,title,prospect_name,scheduled_at,location,status,overall_score,notes,video_url,audio_url,duration,created_at",
+        { count: "exact" }
+      );
+
+    if (params?.status) {
+      query = query.eq("status", params.status);
+    }
+
+    if (params?.search) {
+      const term = `%${params.search}%`;
+      query = query.or(`title.ilike.${term},prospect_name.ilike.${term},location.ilike.${term}`);
+    }
+
+    const sort = params?.sort ?? "newest";
+    switch (sort) {
+      case "oldest":
+        query = query.order("created_at", { ascending: true });
+        break;
+      case "score_desc":
+        query = query.order("overall_score", { ascending: false, nullsFirst: false });
+        break;
+      case "score_asc":
+        query = query.order("overall_score", { ascending: true, nullsFirst: false });
+        break;
+      default:
+        query = query.order("created_at", { ascending: false });
+    }
+
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, error, count } = await query;
 
     if (error) {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map(mapSessionRow);
+    const sessions = (data ?? []).map(mapSessionRow);
+    const total = count ?? sessions.length;
+
+    return { sessions, total, page, limit, hasMore: offset + sessions.length < total };
   } catch {
-    return listLocalSessions();
+    const all = await listLocalSessions();
+    return { sessions: all, total: all.length, page: 1, limit: all.length, hasMore: false };
   }
 }
 

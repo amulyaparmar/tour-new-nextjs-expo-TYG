@@ -9,6 +9,7 @@ import { getScreenshotsForSession, getTranscriptForSession, type SessionScreensh
 import { getAnalysisBySessionId, getSessionById, listFollowUpActions } from "@/lib/sessions";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 import { ActionStatusButtons } from "./ActionStatusButtons";
+import { CommentsSection } from "./CommentsSection";
 import { DetailTabs } from "./DetailTabs";
 import { EditSessionForm } from "./EditSessionForm";
 import { ReprocessButton } from "./ReprocessButton";
@@ -111,6 +112,11 @@ export default async function SessionDetailPage({ params }: Props) {
                 id: "actions",
                 label: `Next Steps${actions.length > 0 ? ` (${actions.filter(a => a.status === "open").length})` : ""}`,
                 content: <ActionsTab actions={actions} sessionId={id} prospectName={session.prospectName} />
+              },
+              {
+                id: "comments",
+                label: "Comments",
+                content: <CommentsSection sessionId={id} />
               },
             ]}
           />

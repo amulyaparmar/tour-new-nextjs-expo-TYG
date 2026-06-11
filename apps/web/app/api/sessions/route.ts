@@ -1,11 +1,31 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-import { createSession, listSessions } from "@/lib/sessions";
+import type { SessionStatus } from "@tour/shared";
+import { createSession, listSessionsPaginated } from "@/lib/sessions";
 
-export async function GET() {
+const VALID_STATUSES: SessionStatus[] = [
+  "scheduled", "uploaded", "transcribing", "extracting_screenshots",
+  "analyzing", "analysis_ready", "reviewed", "failed",
+];
+
+const VALID_SORTS = ["newest", "oldest", "score_desc", "score_asc"] as const;
+
+export async function GET(request: NextRequest) {
   try {
-    const sessions = await listSessions();
-    return NextResponse.json({ sessions });
+    const sp = request.nextUrl.searchParams;
+
+    const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(sp.get("limit") ?? "20", 10) || 20));
+    const search = sp.get("search")?.trim() || undefined;
+    const statusParam = sp.get("status") as SessionStatus | null;
+    const status = statusParam && VALID_STATUSES.includes(statusParam) ? statusParam : undefined;
+    const sortParam = sp.get("sort") as (typeof VALID_SORTS)[number] | null;
+    const sort = sortParam && (VALID_SORTS as readonly string[]).includes(sortParam)
+      ? sortParam as (typeof VALID_SORTS)[number]
+      : undefined;
+
+    const result = await listSessionsPaginated({ page, limit, search, status, sort });
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch sessions." },

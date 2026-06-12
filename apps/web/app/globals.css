@@ -58,7 +58,7 @@
 }
 
 /* ── Reset ────────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; }
 
 body {
   font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -2361,4 +2361,9 @@ button { border: 0; font: inherit; cursor: pointer; }
 
 @media (min-width: 1024px) {
   .main-content { max-width: 960px; }
+}
+
+/* Manager dashboards need more horizontal room than the default mobile-first app pages. */
+.main-content:has(.manager-page) {
+  max-width: 1120px;
 }

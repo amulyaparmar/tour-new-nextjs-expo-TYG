@@ -11,8 +11,8 @@ import { CommentsSection } from "./CommentsSection";
 import { DetailTabs } from "./DetailTabs";
 import { EditSessionForm } from "./EditSessionForm";
 import { ReprocessButton } from "./ReprocessButton";
+import { SessionNotesPanel } from "./SessionNotesPanel";
 import { SessionReviewClient } from "./SessionReviewClient";
-import { TranscriptReader } from "./TranscriptReader";
 import { UploadAndProcess } from "./UploadAndProcess";
 
 type Props = { params: Promise<{ id: string }> };
@@ -35,7 +35,8 @@ export default async function SessionDetailPage({ params }: Props) {
   const transcript = await getTranscriptForSession(id);
   const screenshots = await getScreenshotsForSession(id);
 
-  const hasRecording = session.status !== "scheduled";
+  const isScheduled = session.status === "scheduled" || session.status === "in_progress";
+  const hasRecording = !isScheduled;
   const hasAnalysis = !!analysis;
   const isProcessing = ["uploaded", "transcribing", "extracting_screenshots", "analyzing"].includes(session.status);
 
@@ -68,7 +69,11 @@ export default async function SessionDetailPage({ params }: Props) {
       </div>
 
       {/* ── Pre-analysis: Upload / Process ── */}
-      {!hasAnalysis && (
+      {!hasAnalysis && isScheduled && (
+        <UploadAndProcess sessionId={id} hasRecording={false} variant="new-session" />
+      )}
+
+      {!hasAnalysis && !isScheduled && (
         <UploadAndProcess sessionId={id} hasRecording={hasRecording} />
       )}
 
@@ -100,11 +105,6 @@ export default async function SessionDetailPage({ params }: Props) {
                 id: "rubric",
                 label: "Rubric Detail",
                 content: <RubricTab analysis={analysis} sessionId={id} />
-              },
-              {
-                id: "transcript",
-                label: "Transcript",
-                content: <TranscriptTab transcript={transcript} recordingUrl={recordingUrl} summary={analysis.summary} />
               },
               {
                 id: "actions",
@@ -214,44 +214,9 @@ function OverviewTab({
         analysis={analysis}
         transcript={transcript}
         screenshots={screenshots}
-        actions={actions}
       />
 
-      {/* Executive Summary */}
-      <div className="sa-card">
-        <h3 className="sa-card-title">Executive Summary</h3>
-        <p className="sa-card-body">{analysis.summary}</p>
-      </div>
-
-      {/* Strengths / Opportunities side by side */}
-      <div className="sa-two-col">
-        <div className="sa-card sa-card--green">
-          <h3 className="sa-card-title sa-card-title--green">Strengths</h3>
-          <ul className="sa-list">
-            {analysis.strengths.map((s, i) => (
-              <li key={i} className="sa-list-item sa-list-item--green">{s}</li>
-            ))}
-          </ul>
-        </div>
-        <div className="sa-card sa-card--amber">
-          <h3 className="sa-card-title sa-card-title--amber">Opportunities</h3>
-          <ul className="sa-list">
-            {analysis.opportunities.map((o, i) => (
-              <li key={i} className="sa-list-item sa-list-item--amber">{o}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {/* Coaching Rewrite */}
-      {analysis.suggestedRewrite && (
-        <div className="sa-card sa-card--blue">
-          <h3 className="sa-card-title sa-card-title--blue">Coaching: Suggested Script</h3>
-          <p className="sa-card-body" style={{ fontStyle: "italic" }}>
-            &ldquo;{analysis.suggestedRewrite}&rdquo;
-          </p>
-        </div>
-      )}
+      <SessionNotesPanel analysis={analysis} />
 
       {/* Fair Housing */}
       <FairHousingBanner flags={analysis.fairHousingFlags} />
@@ -371,39 +336,6 @@ function FairHousingBanner({ flags }: { flags?: string[] }) {
               {flags.map((f, i) => <li key={i}>{f}</li>)}
             </ul>
           )}
-      </div>
-    </div>
-  );
-}
-
-/* ════════════════════════════════════════════════════════════
-   Transcript Tab
-   ════════════════════════════════════════════════════════════ */
-function TranscriptTab({
-  transcript,
-  recordingUrl,
-  summary
-}: {
-  transcript: Awaited<ReturnType<typeof getTranscriptForSession>>;
-  recordingUrl: string | null;
-  summary: string | null;
-}) {
-  if (transcript.length === 0) {
-    return <div className="sa-empty">No transcript available.</div>;
-  }
-
-  return (
-    <div className="sa-transcript-stack">
-      <TranscriptReader transcript={transcript} recordingUrl={recordingUrl} summary={summary} />
-
-      <div className="sa-transcript">
-        {transcript.map((seg) => (
-          <div key={seg.id} className="sa-t-line">
-            <span className="sa-t-time">{fmtSec(seg.startTime)}</span>
-            <span className="sa-t-speaker">{seg.speaker}</span>
-            <span className="sa-t-text">{seg.text}</span>
-          </div>
-        ))}
       </div>
     </div>
   );

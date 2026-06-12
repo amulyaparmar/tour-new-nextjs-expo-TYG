@@ -1,14 +1,34 @@
 "use client";
 
 import { useRef, useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { Video, Upload, Square, ArrowLeft, Loader2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  ArrowLeft,
+  CalendarDays,
+  Camera,
+  FolderPlus,
+  Globe2,
+  Images,
+  Library,
+  Loader2,
+  Mic,
+  QrCode,
+  Square,
+  Upload
+} from "lucide-react";
 
-type Phase = "choose" | "recording" | "details" | "saving";
+import { SmartSessionForm } from "../SmartSessionForm";
+
+type Phase = "choose" | "lead" | "recording" | "details" | "saving";
+type CreateTab = "session" | "content";
+type RecordingMode = "audio" | "video";
+type DraftType = "session" | "content";
 
 export function NewSessionFlow() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
+  const contentInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -16,6 +36,9 @@ export function NewSessionFlow() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [phase, setPhase] = useState<Phase>("choose");
+  const [activeTab, setActiveTab] = useState<CreateTab>("session");
+  const [recordingMode, setRecordingMode] = useState<RecordingMode>("audio");
+  const [draftType, setDraftType] = useState<DraftType>("session");
   const [elapsed, setElapsed] = useState(0);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -27,25 +50,52 @@ export function NewSessionFlow() {
     };
   }, []);
 
+  useEffect(() => {
+    if (searchParams.get("mode") === "lead") {
+      setPhase("lead");
+    }
+  }, [searchParams]);
+
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60).toString().padStart(2, "0");
     const s = (secs % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   };
 
-  async function startRecording() {
+  const guessExtension = (mimeType: string) => {
+    if (mimeType.includes("mpeg")) return "mp3";
+    if (mimeType.includes("wav")) return "wav";
+    if (mimeType.includes("mp4")) return "mp4";
+    if (mimeType.includes("quicktime")) return "mov";
+    if (mimeType.includes("png")) return "png";
+    if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "jpg";
+    if (mimeType.includes("gif")) return "gif";
+    if (mimeType.includes("pdf")) return "pdf";
+    return "webm";
+  };
+
+  async function startRecording(mode: RecordingMode = "audio", draft: DraftType = "session") {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: mode === "video",
+        audio: true
+      });
       streamRef.current = stream;
-      if (videoRef.current) {
+      setRecordingMode(mode);
+      setDraftType(draft);
+      if (mode === "video" && videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.muted = true;
         videoRef.current.play();
       }
       chunksRef.current = [];
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-        ? "video/webm;codecs=vp9,opus"
-        : MediaRecorder.isTypeSupported("video/webm") ? "video/webm" : "video/mp4";
+      const mimeType = mode === "video"
+        ? MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+          ? "video/webm;codecs=vp9,opus"
+          : MediaRecorder.isTypeSupported("video/webm") ? "video/webm" : "video/mp4"
+        : MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4";
 
       const recorder = new MediaRecorder(stream, { mimeType });
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
@@ -59,7 +109,7 @@ export function NewSessionFlow() {
       setElapsed(0);
       timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
     } catch {
-      setErrorMsg("Camera/microphone access denied.");
+      setErrorMsg(mode === "video" ? "Camera/microphone access denied." : "Microphone access denied.");
     }
   }
 
@@ -76,7 +126,8 @@ export function NewSessionFlow() {
     recorder.stop();
   }
 
-  function handleFileSelect(file: File) {
+  function handleFileSelect(file: File, draft: DraftType = "session") {
+    setDraftType(draft);
     setRecordedBlob(file);
     setPhase("details");
   }
@@ -94,6 +145,24 @@ export function NewSessionFlow() {
       || `Tour ${now.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 
     try {
+      if (draftType === "content") {
+        const ext = guessExtension(recordedBlob.type);
+        const file = new File([recordedBlob], `content-${Date.now()}.${ext}`, { type: recordedBlob.type });
+        const uploadForm = new FormData();
+        uploadForm.append("file", file);
+        uploadForm.append("name", title);
+        uploadForm.append("description", [
+          String(fd.get("location") ?? "").trim(),
+          String(fd.get("notes") ?? "").trim()
+        ].filter(Boolean).join("\n\n"));
+
+        const uploadRes = await fetch("/api/materials/upload", { method: "POST", body: uploadForm });
+        if (!uploadRes.ok) throw new Error("Content upload failed");
+
+        router.push("/materials");
+        return;
+      }
+
       const createRes = await fetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -110,7 +179,7 @@ export function NewSessionFlow() {
       const { session } = await createRes.json() as { session: { id: string } };
       const sessionId = session.id;
 
-      const ext = recordedBlob.type.includes("mp4") ? "mp4" : "webm";
+      const ext = guessExtension(recordedBlob.type);
       const file = new File([recordedBlob], `recording-${sessionId}.${ext}`, { type: recordedBlob.type });
       const uploadForm = new FormData();
       uploadForm.append("file", file);
@@ -125,41 +194,185 @@ export function NewSessionFlow() {
       setErrorMsg(err instanceof Error ? err.message : "Something went wrong");
       setPhase("details");
     }
-  }, [recordedBlob, router]);
+  }, [draftType, recordedBlob, router]);
 
   // ── Choose: Record or Upload ──
   if (phase === "choose") {
     return (
       <>
         <button type="button" className="back-link" onClick={() => router.back()}>&larr; Back</button>
-        <div className="page-header">
-          <h1>New Session</h1>
-          <p>Record a tour or upload a file</p>
+        <div className="page-header create-page-header">
+          <h1>Add to Tour</h1>
+          <p>Start a tour session or create content for the tour library.</p>
         </div>
-        <div className="card">
-          <div className="card-body">
-            <div className="record-options">
-              <button type="button" className="record-option-btn primary" onClick={startRecording}>
-                <Video size={32} />
-                <span className="record-option-label">Record Video</span>
-                <span className="record-option-sub">Use camera &amp; microphone</span>
+
+        <div className="create-tabs" role="tablist" aria-label="Create type">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "session"}
+            className="create-tab"
+            onClick={() => setActiveTab("session")}
+          >
+            New Session
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "content"}
+            className="create-tab"
+            onClick={() => setActiveTab("content")}
+          >
+            New Content
+          </button>
+        </div>
+
+        {activeTab === "session" ? (
+          <div className="create-panel" role="tabpanel">
+            <div className="create-panel-heading">
+              <h2>New Session</h2>
+              <p>Capture a live tour conversation or add a recording from Fireflies, Zoom, or your device.</p>
+            </div>
+
+            <button type="button" className="create-primary-action" onClick={() => startRecording("audio", "session")}>
+              <span className="create-action-icon">
+                <Mic size={24} />
+              </span>
+              <span>
+                <span className="create-action-title">Start a Tour</span>
+                <span className="create-action-copy">Record audio for an in-person or virtual tour.</span>
+              </span>
+            </button>
+
+            <div className="create-action-grid">
+              <button type="button" className="create-action-card" onClick={() => inputRef.current?.click()}>
+                <Upload size={20} />
+                <span>
+                  <span className="create-action-title">Upload a Recording</span>
+                  <span className="create-action-copy">Add Fireflies audio, Zoom video, or a saved file.</span>
+                </span>
               </button>
-              <div className="record-option-divider">or</div>
-              <button type="button" className="record-option-btn" onClick={() => inputRef.current?.click()}>
-                <Upload size={28} />
-                <span className="record-option-label">Upload File</span>
-                <span className="record-option-sub">MP4, WebM, M4A, WAV</span>
+              <button type="button" className="create-action-card" onClick={() => router.push("/calendar")}>
+                <CalendarDays size={20} />
+                <span>
+                  <span className="create-action-title">Choose an Upcoming Tour</span>
+                  <span className="create-action-copy">Start from a scheduled tour and keep it connected.</span>
+                </span>
+              </button>
+              <button type="button" className="create-action-card" onClick={() => router.push("/calendar")}>
+                <QrCode size={20} />
+                <span>
+                  <span className="create-action-title">Create a Check-In Link</span>
+                  <span className="create-action-copy">Group everyone from the same tour session.</span>
+                </span>
               </button>
             </div>
-            <input
-              ref={inputRef}
-              type="file"
-              accept="video/*,audio/*"
-              style={{ display: "none" }}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); }}
-            />
-            {errorMsg && <p style={{ color: "var(--red-700)", fontSize: 13, marginTop: 12 }}>{errorMsg}</p>}
+
+            <div className="create-section-footer">
+              <span className="create-section-label">Upcoming Tours</span>
+              <span>No upcoming tours yet.</span>
+            </div>
           </div>
+        ) : (
+          <div className="create-panel" role="tabpanel">
+            <div className="create-panel-heading">
+              <h2>New Content</h2>
+              <p>Plan, record, upload, or collect content for a property tour.</p>
+            </div>
+
+            <button type="button" className="create-primary-action content" onClick={() => router.push("/materials")}>
+              <span className="create-action-icon">
+                <FolderPlus size={24} />
+              </span>
+              <span>
+                <span className="create-action-title">Start a Content Project</span>
+                <span className="create-action-copy">Plan what needs to be filmed, uploaded, or collected.</span>
+              </span>
+            </button>
+
+            <div className="create-action-grid">
+              <button type="button" className="create-action-card" onClick={() => startRecording("video", "content")}>
+                <Camera size={20} />
+                <span>
+                  <span className="create-action-title">Record Video</span>
+                  <span className="create-action-copy">Capture walkthroughs, amenities, or quick updates.</span>
+                </span>
+              </button>
+              <button type="button" className="create-action-card" onClick={() => contentInputRef.current?.click()}>
+                <Images size={20} />
+                <span>
+                  <span className="create-action-title">Upload Media</span>
+                  <span className="create-action-copy">Add photos, videos, floorplans, or other files.</span>
+                </span>
+              </button>
+              <button type="button" className="create-action-card" onClick={() => router.push("/tour-new")}>
+                <Globe2 size={20} />
+                <span>
+                  <span className="create-action-title">Collect From Website</span>
+                  <span className="create-action-copy">Pull property details, links, and source material.</span>
+                </span>
+              </button>
+              <button type="button" className="create-action-card" onClick={() => router.push("/materials")}>
+                <Library size={20} />
+                <span>
+                  <span className="create-action-title">Open Content Library</span>
+                  <span className="create-action-copy">Review and organize saved tour assets.</span>
+                </span>
+              </button>
+            </div>
+
+            <div className="create-section-footer">
+              <span className="create-section-label">Active Projects</span>
+              <span>No active content projects yet.</span>
+            </div>
+          </div>
+        )}
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept="video/*,audio/*"
+          style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f, "session"); }}
+        />
+        <input
+          ref={contentInputRef}
+          type="file"
+          accept="video/*,image/*,application/pdf"
+          style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f, "content"); }}
+        />
+        {errorMsg && <p className="create-error">{errorMsg}</p>}
+      </>
+    );
+  }
+
+  if (phase === "lead") {
+    return (
+      <>
+        <button
+          type="button"
+          className="back-link"
+          onClick={() => {
+            setPhase("choose");
+            router.replace("/new");
+          }}
+        >
+          <ArrowLeft size={14} style={{ marginRight: 4 }} /> Back
+        </button>
+        <div className="page-header create-page-header">
+          <h1>New tour lead</h1>
+          <p>Capture prospect contact details, source, budget, and tour intent.</p>
+        </div>
+
+        <div className="create-panel smart-session-page-panel">
+          <SmartSessionForm
+            mode="page"
+            onCancel={() => {
+              setPhase("choose");
+              router.replace("/new");
+            }}
+          />
         </div>
       </>
     );
@@ -167,6 +380,26 @@ export function NewSessionFlow() {
 
   // ── Full-screen recording ──
   if (phase === "recording") {
+    if (recordingMode === "audio") {
+      return (
+        <div className="audio-recorder">
+          <div className="audio-recorder-card">
+            <div className="audio-recorder-icon">
+              <Mic size={30} />
+            </div>
+            <div className="recording-indicator audio-recorder-status">
+              <span className="recording-dot" />
+              <span>Recording tour audio</span>
+            </div>
+            <span className="recorder-timer audio-recorder-timer">{formatTime(elapsed)}</span>
+            <button type="button" className="btn btn-danger" onClick={stopRecording}>
+              <Square size={16} fill="white" /> Stop Recording
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="fullscreen-recorder">
         <video ref={videoRef} className="recorder-preview" playsInline />
@@ -193,14 +426,14 @@ export function NewSessionFlow() {
   return (
     <>
       <button type="button" className="back-link" onClick={() => { setPhase("choose"); setRecordedBlob(null); }}>
-        <ArrowLeft size={14} style={{ marginRight: 4 }} /> Re-record
+        <ArrowLeft size={14} style={{ marginRight: 4 }} /> Back
       </button>
 
       <div className="page-header">
-        <h1>Session Details</h1>
+        <h1>{draftType === "content" ? "Content Details" : "Session Details"}</h1>
         <p>
           {recordedBlob
-            ? `Recording ready (${(recordedBlob.size / 1024 / 1024).toFixed(1)} MB)`
+            ? `${draftType === "content" ? "File" : "Recording"} ready (${(recordedBlob.size / 1024 / 1024).toFixed(1)} MB)`
             : "Fill in details and save"}
         </p>
       </div>
@@ -209,20 +442,22 @@ export function NewSessionFlow() {
         <div className="card-body">
           <form onSubmit={handleSubmit} className="form-grid">
             <div className="form-group">
-              <label htmlFor="title" className="form-label">Session title</label>
-              <input id="title" name="title" type="text" className="form-input" placeholder="Downtown Unit Tour" />
+              <label htmlFor="title" className="form-label">{draftType === "content" ? "Content title" : "Session title"}</label>
+              <input id="title" name="title" type="text" className="form-input" placeholder={draftType === "content" ? "Model unit walkthrough" : "Downtown Unit Tour"} />
             </div>
+            {draftType === "session" && (
+              <div className="form-group">
+                <label htmlFor="prospectName" className="form-label">Prospect name</label>
+                <input id="prospectName" name="prospectName" type="text" className="form-input" placeholder="Sarah Johnson" />
+              </div>
+            )}
             <div className="form-group">
-              <label htmlFor="prospectName" className="form-label">Prospect name</label>
-              <input id="prospectName" name="prospectName" type="text" className="form-input" placeholder="Sarah Johnson" />
-            </div>
-            <div className="form-group">
-              <label htmlFor="location" className="form-label">Location</label>
-              <input id="location" name="location" type="text" className="form-input" placeholder="Tower A - Unit 1204" />
+              <label htmlFor="location" className="form-label">{draftType === "content" ? "Property or project" : "Location"}</label>
+              <input id="location" name="location" type="text" className="form-input" placeholder={draftType === "content" ? "The Mason content library" : "Tower A - Unit 1204"} />
             </div>
             <div className="form-group">
               <label htmlFor="notes" className="form-label">Notes</label>
-              <textarea id="notes" name="notes" rows={2} className="form-textarea" placeholder="Key topics, focus areas..." />
+              <textarea id="notes" name="notes" rows={2} className="form-textarea" placeholder={draftType === "content" ? "What this asset shows or where it should be used..." : "Key topics, focus areas..."} />
             </div>
 
             {errorMsg && <p style={{ color: "var(--red-700)", fontSize: 13 }}>{errorMsg}</p>}
@@ -233,7 +468,7 @@ export function NewSessionFlow() {
                   <Loader2 size={16} className="spin" /> Saving &amp; uploading...
                 </span>
               ) : (
-                "Save & Process"
+                draftType === "content" ? "Save to Library" : "Save & Process"
               )}
             </button>
           </form>

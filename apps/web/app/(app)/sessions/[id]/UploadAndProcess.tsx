@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Video, Upload, Mic, Square, CheckCircle2, XCircle, Brain, Sparkles, Image as ImageIcon, FileText } from "lucide-react";
+import { CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle, Brain, Sparkles, Image as ImageIcon, Upload, Video } from "lucide-react";
 
 type Phase = "choose" | "recording" | "details" | "processing";
 type Step = "idle" | "uploading" | "uploaded" | "transcribing" | "extracting_screenshots" | "analyzing" | "generating_actions" | "done" | "error";
+type RecordingMode = "audio" | "video";
 
 const PIPELINE_STEPS: Array<{ key: Step; label: string; description: string; icon: "upload" | "mic" | "brain" | "image" | "sparkles" | "check" }> = [
   { key: "uploading", label: "Uploading", description: "Sending recording to server", icon: "upload" },
@@ -30,7 +31,15 @@ function stepIndex(step: Step): number {
   return idx >= 0 ? idx : -1;
 }
 
-export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: string; hasRecording: boolean }) {
+export function UploadAndProcess({
+  sessionId,
+  hasRecording,
+  variant = "record"
+}: {
+  sessionId: string;
+  hasRecording: boolean;
+  variant?: "record" | "new-session";
+}) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -45,6 +54,7 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [recordingMode, setRecordingMode] = useState<RecordingMode>("video");
   const [processingElapsed, setProcessingElapsed] = useState(0);
 
   useEffect(() => {
@@ -73,22 +83,40 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
     return `${m}:${s}`;
   };
 
-  async function startRecording() {
+  const guessExtension = (mimeType: string) => {
+    if (mimeType.includes("mpeg")) return "mp3";
+    if (mimeType.includes("wav")) return "wav";
+    if (mimeType.includes("mp4")) return "mp4";
+    if (mimeType.includes("quicktime")) return "mov";
+    return "webm";
+  };
+
+  async function startRecording(mode: RecordingMode = "video") {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: mode === "video",
+        audio: true
+      });
       streamRef.current = stream;
-      if (videoRef.current) {
+      setRecordingMode(mode);
+      if (mode === "video" && videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.muted = true;
         videoRef.current.play();
       }
       chunksRef.current = [];
 
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-        ? "video/webm;codecs=vp9,opus"
-        : MediaRecorder.isTypeSupported("video/webm")
-          ? "video/webm"
-          : "video/mp4";
+      const mimeType = mode === "video"
+        ? MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+          ? "video/webm;codecs=vp9,opus"
+          : MediaRecorder.isTypeSupported("video/webm")
+            ? "video/webm"
+            : "video/mp4"
+        : MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : MediaRecorder.isTypeSupported("audio/webm")
+            ? "audio/webm"
+            : "audio/mp4";
 
       const recorder = new MediaRecorder(stream, { mimeType });
       recorder.ondataavailable = (e) => {
@@ -104,8 +132,17 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
       setPhase("recording");
       setElapsed(0);
       timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+
+      // The tour is live now — move the session out of "scheduled".
+      void fetch(`/api/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "in_progress" })
+      }).catch(() => {});
     } catch {
-      setErrorMsg("Camera/microphone access denied. Please allow access and try again.");
+      setErrorMsg(mode === "video"
+        ? "Camera/microphone access denied. Please allow access and try again."
+        : "Microphone access denied. Please allow access and try again.");
       setStep("error");
     }
   }
@@ -186,7 +223,7 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
 
     const blob = recordedBlob;
     if (blob) {
-      const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+      const ext = guessExtension(blob.type);
       const file = new File([blob], `recording-${sessionId}.${ext}`, { type: blob.type });
       await processFile(file);
     }
@@ -226,12 +263,69 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
 
   // ── Choose: Record or Upload ──
   if (phase === "choose") {
+    if (variant === "new-session") {
+      return (
+        <div className="create-panel" role="region" aria-label="New session options">
+          <div className="create-panel-heading">
+            <h2>New Session</h2>
+            <p>Capture a live tour conversation or add a recording from Fireflies, Zoom, or your device.</p>
+          </div>
+
+          <button type="button" className="create-primary-action" onClick={() => startRecording("audio")}>
+            <span className="create-action-icon">
+              <Mic size={24} />
+            </span>
+            <span>
+              <span className="create-action-title">Start a Tour</span>
+              <span className="create-action-copy">Record audio for an in-person or virtual tour.</span>
+            </span>
+          </button>
+
+          <div className="create-action-grid">
+            <button type="button" className="create-action-card" onClick={() => inputRef.current?.click()}>
+              <Upload size={20} />
+              <span>
+                <span className="create-action-title">Upload a Recording</span>
+                <span className="create-action-copy">Add Fireflies audio, Zoom video, or a saved file.</span>
+              </span>
+            </button>
+            <button type="button" className="create-action-card" onClick={() => router.push("/calendar")}>
+              <CalendarDays size={20} />
+              <span>
+                <span className="create-action-title">Choose an Upcoming Tour</span>
+                <span className="create-action-copy">Start from a scheduled tour and keep it connected.</span>
+              </span>
+            </button>
+            <button type="button" className="create-action-card" onClick={() => router.push("/calendar")}>
+              <QrCode size={20} />
+              <span>
+                <span className="create-action-title">Create a Check-In Link</span>
+                <span className="create-action-copy">Group everyone from the same tour session.</span>
+              </span>
+            </button>
+          </div>
+
+          <input
+            ref={inputRef}
+            type="file"
+            accept="video/*,audio/*"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleFileUpload(file);
+            }}
+          />
+          {errorMsg && <p className="create-error">{errorMsg}</p>}
+        </div>
+      );
+    }
+
     return (
-      <div className="card">
+      <div className="card record-tour-card">
         <div className="card-header"><h2>Record Tour</h2></div>
         <div className="card-body">
           <div className="record-options">
-            <button type="button" className="record-option-btn primary" onClick={startRecording}>
+            <button type="button" className="record-option-btn primary" onClick={() => startRecording("video")}>
               <Video size={32} />
               <span className="record-option-label">Record Video</span>
               <span className="record-option-sub">Use camera &amp; microphone</span>
@@ -260,6 +354,26 @@ export function UploadAndProcess({ sessionId, hasRecording }: { sessionId: strin
 
   // ── Full-screen recording ──
   if (phase === "recording") {
+    if (recordingMode === "audio") {
+      return (
+        <div className="audio-recorder">
+          <div className="audio-recorder-card">
+            <div className="audio-recorder-icon">
+              <Mic size={30} />
+            </div>
+            <div className="recording-indicator audio-recorder-status">
+              <span className="recording-dot" />
+              <span>Recording tour audio</span>
+            </div>
+            <span className="recorder-timer audio-recorder-timer">{formatTime(elapsed)}</span>
+            <button type="button" className="btn btn-danger" onClick={stopRecording}>
+              <Square size={16} fill="white" /> Stop Recording
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="fullscreen-recorder">
         <video ref={videoRef} className="recorder-preview" playsInline />

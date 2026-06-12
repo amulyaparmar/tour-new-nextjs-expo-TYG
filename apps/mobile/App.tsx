@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   AppState,
   Dimensions,
   FlatList,
@@ -183,6 +184,182 @@ function showToast(msg: string, type?: "error" | "success" | "info") {
 // Root App
 // ═══════════════════════════════════════
 
+// ═══════════════════════════════════════
+// Global recording context (lives above all screens)
+// ═══════════════════════════════════════
+
+type RecordingCtx = {
+  isRecording: boolean;
+  elapsed: number;
+  start: () => Promise<void>;
+  stop: () => Promise<{ uri: string } | null>;
+};
+
+const RecordingContext = React.createContext<RecordingCtx>({
+  isRecording: false,
+  elapsed: 0,
+  start: async () => {},
+  stop: async () => null,
+});
+
+function RecordingProvider({ children }: { children: React.ReactNode }) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
+
+  const start = useCallback(async () => {
+    const { granted } = await Audio.requestPermissionsAsync();
+    if (!granted) { showToast("Microphone permission required", "error"); return; }
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: true,
+    });
+
+    const { recording } = await Audio.Recording.createAsync(
+      Audio.RecordingOptionsPresets.HIGH_QUALITY
+    );
+    recordingRef.current = recording;
+    setIsRecording(true);
+    setElapsed(0);
+    timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+  }, []);
+
+  const stop = useCallback(async (): Promise<{ uri: string } | null> => {
+    if (!recordingRef.current) return null;
+    if (timerRef.current) clearInterval(timerRef.current);
+    try {
+      await recordingRef.current.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      const uri = recordingRef.current.getURI();
+      recordingRef.current = null;
+      setIsRecording(false);
+      setElapsed(0);
+      return uri ? { uri } : null;
+    } catch {
+      recordingRef.current = null;
+      setIsRecording(false);
+      setElapsed(0);
+      return null;
+    }
+  }, []);
+
+  const ctx = useMemo(() => ({ isRecording, elapsed, start, stop }), [isRecording, elapsed, start, stop]);
+
+  return (
+    <RecordingContext.Provider value={ctx}>
+      {children}
+    </RecordingContext.Provider>
+  );
+}
+
+function useRecording() {
+  return React.useContext(RecordingContext);
+}
+
+// ═══════════════════════════════════════
+// Live Activity Banner
+// ═══════════════════════════════════════
+
+function LiveActivityBanner({ onTap }: { onTap?: () => void }) {
+  const { isRecording, elapsed, stop } = useRecording();
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [isRecording, pulseAnim]);
+
+  if (!isRecording) return null;
+
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  const ss = String(elapsed % 60).padStart(2, "0");
+
+  return (
+    <Pressable onPress={onTap} style={laSt.banner}>
+      <Animated.View style={[laSt.dot, { opacity: pulseAnim }]} />
+      <Ionicons name="mic" size={16} color="#fff" />
+      <Text style={laSt.label}>Recording</Text>
+      <Text style={laSt.timer}>{mm}:{ss}</Text>
+      <View style={laSt.spacer} />
+      <Pressable
+        onPress={async () => {
+          const result = await stop();
+          if (!result) showToast("Recording cancelled", "info");
+        }}
+        hitSlop={12}
+        style={({ pressed }) => [laSt.stopBtn, pressed && { opacity: 0.7 }]}
+      >
+        <View style={laSt.stopSquare} />
+        <Text style={laSt.stopLabel}>Stop</Text>
+      </Pressable>
+    </Pressable>
+  );
+}
+
+const laSt = StyleSheet.create({
+  banner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: C.red,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingTop: Platform.OS === "ios" ? 54 : 10,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#fff",
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#fff",
+  },
+  timer: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#fff",
+    fontVariant: ["tabular-nums"],
+  },
+  spacer: { flex: 1 },
+  stopBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  stopSquare: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+    backgroundColor: "#fff",
+  },
+  stopLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#fff",
+  },
+});
+
+// ═══════════════════════════════════════
+// Root App
+// ═══════════════════════════════════════
+
 export default function App() {
   const player = useVideoPlayer(onboardingBackground, (vp) => {
     vp.loop = true;
@@ -209,30 +386,35 @@ export default function App() {
   return (
     <View style={st.root}>
       <StatusBar style="dark" />
-      <ToastProvider>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={st.flex1}>
-          {screen.type === "onboarding" && (
-            <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-              <OnboardingScreen idx={obIdx} ob={ob} player={player} step={obStep} onChange={(k: keyof ObData, v: string) => setOb((c) => ({ ...c, [k]: v }))} onFinish={() => nav({ type: "main", tab: "home" })} onStep={setObStep} />
-            </ScrollView>
-          )}
-          {screen.type === "main" && (
-            <MainTabs tab={screen.tab} onTab={(t) => nav({ type: "main", tab: t })} onSession={(id) => nav({ type: "session-detail", sessionId: id })} onCreate={() => nav({ type: "create-session" })} onProfile={() => nav({ type: "profile" })} onResetOb={() => nav({ type: "onboarding" })} agentName={ob.name} property={ob.property} />
-          )}
-          {screen.type === "session-detail" && <SessionDetailScreen sessionId={screen.sessionId} onBack={() => nav({ type: "main", tab: "sessions" })} />}
-          {screen.type === "create-session" && <CreateSessionScreen onBack={() => nav({ type: "main", tab: "sessions" })} onCreated={(id) => nav({ type: "session-detail", sessionId: id })} />}
-          {screen.type === "profile" && (
-            <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-              <ProfileScreen onBack={() => nav({ type: "main", tab: "home" })} onStartTour={() => { setTourStep("contact"); nav({ type: "tour" }); }} />
-            </ScrollView>
-          )}
-          {screen.type === "tour" && (
-            <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-              <TourStepper idx={tourIdx} prospect={prospect} step={tourStep} onBack={() => nav({ type: "profile" })} onChange={(k, v) => setProspect((c) => ({ ...c, [k]: v }))} onStep={setTourStep} />
-            </ScrollView>
-          )}
-        </KeyboardAvoidingView>
-      </ToastProvider>
+      <RecordingProvider>
+        <ToastProvider>
+          <LiveActivityBanner onTap={() => {
+            if (screen.type !== "create-session") nav({ type: "create-session" });
+          }} />
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={st.flex1}>
+            {screen.type === "onboarding" && (
+              <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
+                <OnboardingScreen idx={obIdx} ob={ob} player={player} step={obStep} onChange={(k: keyof ObData, v: string) => setOb((c) => ({ ...c, [k]: v }))} onFinish={() => nav({ type: "main", tab: "home" })} onStep={setObStep} />
+              </ScrollView>
+            )}
+            {screen.type === "main" && (
+              <MainTabs tab={screen.tab} onTab={(t) => nav({ type: "main", tab: t })} onSession={(id) => nav({ type: "session-detail", sessionId: id })} onCreate={() => nav({ type: "create-session" })} onProfile={() => nav({ type: "profile" })} onResetOb={() => nav({ type: "onboarding" })} agentName={ob.name} property={ob.property} />
+            )}
+            {screen.type === "session-detail" && <SessionDetailScreen sessionId={screen.sessionId} onBack={() => nav({ type: "main", tab: "sessions" })} />}
+            {screen.type === "create-session" && <CreateSessionScreen onBack={() => nav({ type: "main", tab: "sessions" })} onCreated={(id) => nav({ type: "session-detail", sessionId: id })} />}
+            {screen.type === "profile" && (
+              <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
+                <ProfileScreen onBack={() => nav({ type: "main", tab: "home" })} onStartTour={() => { setTourStep("contact"); nav({ type: "tour" }); }} />
+              </ScrollView>
+            )}
+            {screen.type === "tour" && (
+              <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
+                <TourStepper idx={tourIdx} prospect={prospect} step={tourStep} onBack={() => nav({ type: "profile" })} onChange={(k, v) => setProspect((c) => ({ ...c, [k]: v }))} onStep={setTourStep} />
+              </ScrollView>
+            )}
+          </KeyboardAvoidingView>
+        </ToastProvider>
+      </RecordingProvider>
     </View>
   );
 }
@@ -757,6 +939,8 @@ function MaterialsScreen({ materials, loading }: { materials: Material[]; loadin
 // ═══════════════════════════════════════
 
 function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCreated: (id: string) => void }) {
+  const rec = useRecording();
+
   const [phase, setPhase] = useState<"choose" | "recording" | "uploading" | "details">("choose");
   const [progress, setProgress] = useState(0);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -769,52 +953,20 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
 
-  // Audio recording
-  const recordingRef = useRef<Audio.Recording | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
-
   async function startRecording() {
     try {
-      const { granted } = await Audio.requestPermissionsAsync();
-      if (!granted) { showToast("Microphone permission required", "error"); return; }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-      });
-
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      recordingRef.current = recording;
-      setIsRecording(true);
-      setElapsed(0);
+      await rec.start();
       setPhase("recording");
-      timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
     } catch {
       showToast("Could not start recording", "error");
     }
   }
 
   async function stopRecording() {
-    if (!recordingRef.current) return;
-    if (timerRef.current) clearInterval(timerRef.current);
-    try {
-      await recordingRef.current.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-      const uri = recordingRef.current.getURI();
-      recordingRef.current = null;
-      setIsRecording(false);
-      if (uri) {
-        await uploadFile(uri, "audio/m4a", `tour-${Date.now()}.m4a`);
-      } else {
-        setPhase("choose");
-      }
-    } catch {
-      setIsRecording(false);
+    const result = await rec.stop();
+    if (result?.uri) {
+      await uploadFile(result.uri, "audio/m4a", `tour-${Date.now()}.m4a`);
+    } else {
       showToast("Failed to save recording", "error");
       setPhase("choose");
     }
@@ -879,7 +1031,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
     onCreated(sessionId);
   }
 
-  const fmtElapsed = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
+  const fmtElapsed = `${String(Math.floor(rec.elapsed / 60)).padStart(2, "0")}:${String(rec.elapsed % 60).padStart(2, "0")}`;
 
   // ── Choose: Record or Upload ──
   if (phase === "choose") {
@@ -922,7 +1074,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
     return (
       <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
         <View style={st.page}>
-          <BackBtn label="Cancel" onPress={async () => { if (recordingRef.current) { try { await recordingRef.current.stopAndUnloadAsync(); } catch {} recordingRef.current = null; } if (timerRef.current) clearInterval(timerRef.current); setIsRecording(false); setPhase("choose"); }} />
+          <BackBtn label="Cancel" onPress={async () => { await rec.stop(); setPhase("choose"); }} />
           <Text style={st.pageTitle}>Recording</Text>
 
           <View style={[st.card, { padding: 28, alignItems: "center", gap: 20 }]}>
@@ -1101,7 +1253,7 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
               ))}
             </ScrollView>
 
-            {tab === "overview" && <OverviewTab analysis={analysis} transcript={transcript} sessionId={sessionId} audioUrl={session.audioUrl || session.videoUrl} />}
+            {tab === "overview" && <OverviewTab analysis={analysis} transcript={transcript} sessionId={sessionId} hasRecording={session.status !== "scheduled"} />}
             {tab === "rubric" && <RubricTab analysis={analysis} />}
             {tab === "transcript" && <TranscriptTab transcript={transcript} />}
             {tab === "actions" && <ActionsTab actions={actions} sessionId={sessionId} onUpdate={load} />}
@@ -1377,10 +1529,10 @@ function ScoreHero({ analysis }: { analysis: AnalysisResult }) {
 // Overview Tab + Audio Player
 // ═══════════════════════════════════════
 
-function OverviewTab({ analysis, transcript, sessionId, audioUrl }: { analysis: AnalysisResult; transcript: any[]; sessionId: string; audioUrl?: string | null }) {
+function OverviewTab({ analysis, transcript, sessionId, hasRecording }: { analysis: AnalysisResult; transcript: any[]; sessionId: string; hasRecording: boolean }) {
   return (
     <View style={{ gap: 12 }}>
-      {audioUrl && <AudioPlayer url={audioUrl} transcript={transcript} />}
+      {hasRecording && <AudioPlayer sessionId={sessionId} transcript={transcript} />}
 
       <InfoCard title="Executive Summary" icon="document-text-outline">{analysis.summary}</InfoCard>
 
@@ -1431,30 +1583,34 @@ function OverviewTab({ analysis, transcript, sessionId, audioUrl }: { analysis: 
   );
 }
 
-function resolveMediaUrl(url: string): string {
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  const base = getApiBaseUrl();
-  return `${base}${url.startsWith("/") ? "" : "/"}${url}`;
+function getRecordingPlaybackUrl(sessionId: string): string {
+  return `${getApiBaseUrl()}/api/sessions/${sessionId}/recording`;
 }
 
-function AudioPlayer({ url, transcript }: { url: string; transcript: any[] }) {
+function AudioPlayer({ sessionId, transcript }: { sessionId: string; transcript: any[] }) {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [playing, setPlaying] = useState(false);
   const [pos, setPos] = useState(0);
   const [dur, setDur] = useState(0);
   const [loadError, setLoadError] = useState(false);
-  const posInterval = useRef<ReturnType<typeof setInterval>>(undefined);
 
-  const fullUrl = resolveMediaUrl(url);
+  const playbackUrl = getRecordingPlaybackUrl(sessionId);
 
-  // Preload audio to get duration immediately
   useEffect(() => {
     let mounted = true;
     let s: Audio.Sound | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const resolvedUrl = playbackUrl;
+
     (async () => {
       try {
         await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-        const { sound: loaded } = await Audio.Sound.createAsync({ uri: fullUrl }, { shouldPlay: false });
+
+        const loadPromise = Audio.Sound.createAsync({ uri: resolvedUrl }, { shouldPlay: false });
+        timer = setTimeout(() => { if (mounted) setLoadError(true); }, 15_000);
+
+        const { sound: loaded } = await loadPromise;
+        clearTimeout(timer);
         if (!mounted) { loaded.unloadAsync(); return; }
         s = loaded;
         setSound(loaded);
@@ -1469,11 +1625,12 @@ function AudioPlayer({ url, transcript }: { url: string; transcript: any[] }) {
           }
         });
       } catch {
+        clearTimeout(timer);
         if (mounted) setLoadError(true);
       }
     })();
-    return () => { mounted = false; s?.unloadAsync(); if (posInterval.current) clearInterval(posInterval.current); };
-  }, [fullUrl]);
+    return () => { mounted = false; clearTimeout(timer); s?.unloadAsync(); };
+  }, [playbackUrl]);
 
   async function togglePlay() {
     if (!sound) return;

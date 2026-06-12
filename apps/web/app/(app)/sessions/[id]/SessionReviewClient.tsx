@@ -101,8 +101,11 @@ export function SessionReviewClient({
   const [selectedMoment, setSelectedMoment] = useState<Moment | null>(null);
   const momentsListRef = useRef<HTMLDivElement>(null);
 
-  const src = videoUrl || audioUrl || recordingUrl || `/api/local-uploads/${sessionId}.webm`;
-  const isVideo = !!videoUrl || (!audioUrl && !recordingUrl && /\.(mp4|webm|mov)$/i.test(src));
+  const src = recordingUrl || audioUrl || videoUrl || "";
+  const isVideo =
+    /\.(mp4|webm|mov)(\?|$)/i.test(src) ||
+    (!!videoUrl && !audioUrl && !recordingUrl?.includes("/recording"));
+  const [mediaError, setMediaError] = useState(false);
 
   const allMoments = useMemo(() => {
     const moments: Moment[] = [];
@@ -195,6 +198,26 @@ export function SessionReviewClient({
     }
   }, [currentTime, allMoments]);
 
+  if (!src) {
+    return (
+      <div className="sr-client">
+        <div className="sa-card" style={{ padding: 20, textAlign: "center", color: "var(--slate-500)", fontSize: 13, fontWeight: 600 }}>
+          No recording available for this session.
+        </div>
+      </div>
+    );
+  }
+
+  if (mediaError) {
+    return (
+      <div className="sr-client">
+        <div className="sa-card" style={{ padding: 20, textAlign: "center", color: "var(--red-700)", fontSize: 13, fontWeight: 600 }}>
+          Could not load recording. Try refreshing the page.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="sr-client">
       {/* Player */}
@@ -212,6 +235,7 @@ export function SessionReviewClient({
                 onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
+                onError={() => setMediaError(true)}
               >
                 <track kind="captions" />
               </video>
@@ -232,6 +256,7 @@ export function SessionReviewClient({
                 onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
+                onError={() => setMediaError(true)}
               />
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <button

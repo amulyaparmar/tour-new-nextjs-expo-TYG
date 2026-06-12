@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
 import Link from "next/link";
 import { Download, CheckCircle2, XCircle, ShieldCheck, ShieldAlert } from "lucide-react";
 
@@ -7,7 +5,7 @@ import { SESSION_STATUS_LABELS } from "@tour/shared";
 
 import { getScreenshotsForSession, getTranscriptForSession, type SessionScreenshot } from "@/lib/evidence";
 import { getAnalysisBySessionId, getSessionById, listFollowUpActions } from "@/lib/sessions";
-import { getSupabaseServiceClient } from "@/lib/supabase";
+import { getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
 import { ActionStatusButtons } from "./ActionStatusButtons";
 import { CommentsSection } from "./CommentsSection";
 import { DetailTabs } from "./DetailTabs";
@@ -41,7 +39,7 @@ export default async function SessionDetailPage({ params }: Props) {
   const hasAnalysis = !!analysis;
   const isProcessing = ["uploaded", "transcribing", "extracting_screenshots", "analyzing"].includes(session.status);
 
-  const recordingUrl = session.videoUrl || session.audioUrl || await discoverRecordingUrl(id);
+  const recordingUrl = await resolveRecordingUrl(id, session.videoUrl, session.audioUrl);
 
   return (
     <>
@@ -475,22 +473,14 @@ function fmtSec(v: number) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-async function discoverRecordingUrl(sessionId: string): Promise<string | null> {
-  const exts = ["webm", "mp4", "m4a", "wav", "mp3", "ogg", "bin"];
-  const dir = path.join(process.cwd(), ".local-uploads");
-  for (const ext of exts) {
-    if (existsSync(path.join(dir, `${sessionId}.${ext}`))) {
-      return `/api/local-uploads/${sessionId}.${ext}`;
-    }
+async function resolveRecordingUrl(
+  sessionId: string,
+  videoUrl: string | null,
+  audioUrl: string | null
+): Promise<string | null> {
+  const stored = videoUrl || audioUrl;
+  if (stored && !isLegacyLocalUrl(stored)) {
+    if (stored.startsWith("http") || stored.startsWith("/api/sessions/")) return stored;
   }
-  try {
-    const supabase = getSupabaseServiceClient();
-    for (const ext of exts) {
-      const { data } = await supabase.storage
-        .from("recordings")
-        .createSignedUrl(`${sessionId}.${ext}`, 3600);
-      if (data?.signedUrl) return data.signedUrl;
-    }
-  } catch { /* ignore */ }
-  return null;
+  return getRecordingUrl(sessionId);
 }

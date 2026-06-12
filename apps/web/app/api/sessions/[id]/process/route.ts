@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 
 import { generateAnalysis, generateFollowUpActions } from "@/lib/analysis";
 import { createMaterial, findMaterialBySessionId } from "@/lib/materials";
 import { extractScreenshots } from "@/lib/screenshots";
 import { getSessionById, replaceFollowUpActions, saveTranscript, setSessionStatus, upsertAnalysis } from "@/lib/sessions";
 import { transcribeAudio } from "@/lib/transcribe";
-import { getSupabaseServiceClient } from "@/lib/supabase";
+import { fetchRecordingFile } from "@/lib/storage";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -96,51 +94,10 @@ export async function POST(_request: Request, context: Context) {
   }
 }
 
-const EXT_MIME: Record<string, string> = {
-  mp4: "video/mp4",
-  webm: "audio/webm",
-  m4a: "audio/m4a",
-  wav: "audio/wav",
-  mp3: "audio/mpeg",
-  ogg: "audio/ogg",
-  oga: "audio/ogg",
-  flac: "audio/flac",
-  mpga: "audio/mpeg",
-  bin: "audio/webm",
-};
-
 async function fetchRecordingBuffer(sessionId: string): Promise<{ buffer: Buffer; mimeType: string }> {
-  // Try Supabase storage first
-  try {
-    const supabase = getSupabaseServiceClient();
-    const extensions = ["mp4", "webm", "m4a", "wav", "mp3"];
-
-    for (const ext of extensions) {
-      const { data } = await supabase.storage
-        .from("recordings")
-        .download(`${sessionId}.${ext}`);
-
-      if (data) {
-        return { buffer: Buffer.from(await data.arrayBuffer()), mimeType: EXT_MIME[ext] ?? "audio/mpeg" };
-      }
-    }
-  } catch {
-    // Fall through to local
-  }
-
-  // Try local uploads
-  const localDir = path.join(process.cwd(), ".local-uploads");
-  const extensions = ["mp4", "webm", "m4a", "wav", "mp3", "ogg", "flac", "bin"];
-  for (const ext of extensions) {
-    try {
-      const buffer = await readFile(path.join(localDir, `${sessionId}.${ext}`));
-      return { buffer, mimeType: EXT_MIME[ext] ?? "audio/mpeg" };
-    } catch {
-      continue;
-    }
-  }
-
-  return { buffer: Buffer.alloc(0), mimeType: "audio/mpeg" };
+  const file = await fetchRecordingFile(sessionId);
+  if (!file) throw new Error("No recording found in storage for this session.");
+  return { buffer: file.buffer, mimeType: file.mimeType };
 }
 
 function parseTimestamp(ts: string): number {

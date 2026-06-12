@@ -1,12 +1,35 @@
 import { NextResponse } from "next/server";
 
 import { getSessionById, updateSession } from "@/lib/sessions";
+import { getRecordingPlaybackPath, getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
 
 type Context = {
   params: Promise<{
     id: string;
   }>;
 };
+
+async function attachPlaybackUrls(session: NonNullable<Awaited<ReturnType<typeof getSessionById>>>) {
+  const playbackPath = await getRecordingUrl(session.id);
+  if (!playbackPath) return session;
+
+  const isVideo = Boolean(session.videoUrl && !session.audioUrl);
+  const needsUpdate =
+    isLegacyLocalUrl(session.audioUrl) ||
+    isLegacyLocalUrl(session.videoUrl) ||
+    !session.audioUrl && !session.videoUrl;
+
+  if (needsUpdate || session.audioUrl?.includes("supabase") || session.videoUrl?.includes("supabase")) {
+    const path = getRecordingPlaybackPath(session.id);
+    if (isVideo) {
+      session.videoUrl = path;
+    } else {
+      session.audioUrl = path;
+    }
+  }
+
+  return session;
+}
 
 export async function GET(_request: Request, context: Context) {
   const { id } = await context.params;
@@ -16,6 +39,9 @@ export async function GET(_request: Request, context: Context) {
     if (!session) {
       return NextResponse.json({ error: "Session not found." }, { status: 404 });
     }
+
+    await attachPlaybackUrls(session);
+
     return NextResponse.json({ session });
   } catch (error) {
     return NextResponse.json(

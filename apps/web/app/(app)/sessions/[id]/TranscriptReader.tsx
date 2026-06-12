@@ -37,6 +37,7 @@ export function TranscriptReader({ transcript, recordingUrl, summary }: Props) {
   const [query, setQuery] = useState("");
   const [showSummary, setShowSummary] = useState(Boolean(summary));
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [mediaError, setMediaError] = useState(false);
 
   const transcriptEnd = useMemo(() => {
     return transcript.reduce((max, seg) => Math.max(max, seg.endTime || seg.startTime), 0);
@@ -135,9 +136,10 @@ export function TranscriptReader({ transcript, recordingUrl, summary }: Props) {
 
   return (
     <section className="vr-card" aria-label="Voice AI transcript reader">
-      {recordingUrl && (
+      {recordingUrl && !mediaError && (
         <audio
           onEnded={() => setIsPlaying(false)}
+          onError={() => setMediaError(true)}
           onLoadedMetadata={(event) => {
             event.currentTarget.playbackRate = playbackRate;
             setDuration(event.currentTarget.duration || 0);
@@ -149,6 +151,11 @@ export function TranscriptReader({ transcript, recordingUrl, summary }: Props) {
           ref={audioRef}
           src={recordingUrl}
         />
+      )}
+      {mediaError && (
+        <p style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "var(--red-700)" }}>
+          Could not load recording audio.
+        </p>
       )}
 
       <div className="vr-player">

@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { SESSION_STATUS_LABELS, type SessionStatus, type SessionSummary } from "@tour/shared";
 
 type SortOption = "newest" | "oldest" | "score_desc" | "score_asc";
+type StatusFilter = SessionStatus | "all" | "completed";
+
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "newest", label: "Newest" },
   { value: "oldest", label: "Oldest" },
@@ -12,9 +14,11 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "score_asc", label: "Score \u2191" },
 ];
 
-const STATUS_FILTERS: { value: SessionStatus | "all"; label: string }[] = [
+const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
+  { value: "completed", label: "Completed" },
   { value: "all", label: "All" },
   { value: "scheduled", label: "Scheduled" },
+  { value: "in_progress", label: "In progress" },
   { value: "uploaded", label: "Uploaded" },
   { value: "analysis_ready", label: "Analyzed" },
   { value: "reviewed", label: "Reviewed" },
@@ -32,7 +36,7 @@ export default function SessionsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
 
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<SessionStatus | "all">("all");
+  const [status, setStatus] = useState<StatusFilter>("completed");
   const [sort, setSort] = useState<SortOption>("newest");
 
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -166,12 +170,16 @@ export default function SessionsPage() {
                 <div className="session-row-info">
                   <div className="session-row-title">{s.title}</div>
                   <div className="session-row-meta">
-                    {s.prospectName ?? "No prospect"}
+                    {s.leads?.length
+                      ? s.leads.map((l) => l.name).join(", ")
+                      : s.prospectName ?? "No prospect"}
                     {s.scheduledAt ? ` \u00b7 ${new Date(s.scheduledAt).toLocaleDateString()}` : ""}
                     {s.location ? ` \u00b7 ${s.location}` : ""}
                   </div>
                 </div>
+                {s.source === "qr" && <span className="badge badge-source-qr">QR</span>}
                 <span className={`badge badge-${s.status}`}>
+                  {s.status === "in_progress" && <span className="live-dot live-dot-sm" aria-hidden="true" />}
                   {SESSION_STATUS_LABELS[s.status]}
                 </span>
                 {s.overallScore !== null && (

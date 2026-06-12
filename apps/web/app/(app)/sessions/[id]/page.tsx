@@ -399,12 +399,6 @@ function parseTimestampToSeconds(ts: string): number {
   return -1;
 }
 
-function fmtSec(v: number) {
-  const m = Math.floor(v / 60);
-  const s = v % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
 async function resolveRecordingUrl(
   sessionId: string,
   videoUrl: string | null,

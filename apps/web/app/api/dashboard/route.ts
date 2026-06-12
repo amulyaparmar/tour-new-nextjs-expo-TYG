@@ -7,6 +7,7 @@ export async function GET() {
     const sessions = await listSessions();
     const now = Date.now();
     const oneDayMs = 24 * 60 * 60 * 1000;
+    const inProgressStatuses = ["uploaded", "transcribing", "extracting_screenshots", "analyzing"];
 
     const todaySessions = sessions.filter((session) => {
       if (!session.scheduledAt) {
@@ -17,14 +18,14 @@ export async function GET() {
     }).length;
 
     const upcomingSessions = sessions.filter((session) => {
-      if (!session.scheduledAt) {
-        return false;
-      }
-      return new Date(session.scheduledAt).getTime() > now;
+      return (
+        (session.scheduledAt && new Date(session.scheduledAt).getTime() > now) ||
+        inProgressStatuses.includes(session.status)
+      );
     }).length;
 
     const processingSessions = sessions.filter((session) =>
-      ["uploaded", "transcribing", "extracting_screenshots", "analyzing"].includes(session.status)
+      inProgressStatuses.includes(session.status)
     ).length;
 
     const scoredSessions = sessions.filter((session) => typeof session.overallScore === "number");

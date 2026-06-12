@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { getSessionById, updateSession } from "@/lib/sessions";
+import type { SessionStatus } from "@tour/shared";
+import { deleteSession, getSessionById, setSessionStatus, updateSession } from "@/lib/sessions";
 import { getRecordingPlaybackPath, getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
+
+const VALID_STATUSES: SessionStatus[] = [
+  "scheduled", "in_progress", "uploaded", "transcribing", "extracting_screenshots",
+  "analyzing", "analysis_ready", "reviewed", "failed",
+];
 
 type Context = {
   params: Promise<{
@@ -55,17 +61,41 @@ export async function PATCH(request: Request, context: Context) {
   const { id } = await context.params;
   try {
     const body = await request.json() as Record<string, unknown>;
-    await updateSession(id, {
+
+    if (typeof body.status === "string") {
+      if (!VALID_STATUSES.includes(body.status as SessionStatus)) {
+        return NextResponse.json({ error: "Invalid status." }, { status: 400 });
+      }
+      await setSessionStatus(id, body.status as SessionStatus);
+    }
+
+    const fields = {
       title: typeof body.title === "string" ? body.title : undefined,
       scheduledAt: typeof body.scheduledAt === "string" ? body.scheduledAt : undefined,
       prospectName: typeof body.prospectName === "string" ? body.prospectName : undefined,
       location: typeof body.location === "string" ? body.location : undefined,
       notes: typeof body.notes === "string" ? body.notes : undefined,
-    });
+    };
+    if (Object.values(fields).some((value) => value !== undefined)) {
+      await updateSession(id, fields);
+    }
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Update failed." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(_request: Request, context: Context) {
+  const { id } = await context.params;
+  try {
+    await deleteSession(id);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Delete failed." },
       { status: 500 }
     );
   }

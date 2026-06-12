@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AnalysisResult, FollowUpAction, SessionDetail, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, FollowUpAction, SessionDetail, SessionLead, SessionSource, SessionSummary } from "@tour/shared";
 
 type TranscriptSegment = {
   id: string;
@@ -29,7 +29,12 @@ async function loadStore(): Promise<StoreShape> {
     const raw = await readFile(STORE_PATH, "utf8");
     const parsed = JSON.parse(raw) as StoreShape;
     return {
-      sessions: parsed.sessions ?? [],
+      // Sessions saved before source/leads existed are normalized on load.
+      sessions: (parsed.sessions ?? []).map((session) => ({
+        ...session,
+        source: session.source ?? "manual",
+        leads: session.leads ?? []
+      })),
       analyses: parsed.analyses ?? {},
       actions: parsed.actions ?? [],
       transcripts: parsed.transcripts ?? {}
@@ -64,6 +69,8 @@ export async function createLocalSession(input: {
   location?: string | null;
   prospectName?: string | null;
   notes?: string | null;
+  source?: SessionSource;
+  leads?: SessionLead[];
 }): Promise<SessionSummary> {
   const store = await loadStore();
   const session: SessionDetail = {
@@ -73,6 +80,8 @@ export async function createLocalSession(input: {
     scheduledAt: input.scheduledAt ?? null,
     location: input.location ?? null,
     status: "scheduled",
+    source: input.source ?? "manual",
+    leads: input.leads ?? [],
     overallScore: null,
     createdAt: new Date().toISOString(),
     notes: input.notes ?? null,
@@ -106,6 +115,15 @@ export async function updateLocalSession(
   await saveStore(store);
 }
 
+export async function deleteLocalSession(sessionId: string) {
+  const store = await loadStore();
+  store.sessions = store.sessions.filter((item) => item.id !== sessionId);
+  delete store.analyses[sessionId];
+  delete store.transcripts[sessionId];
+  store.actions = store.actions.filter((action) => action.sessionId !== sessionId);
+  await saveStore(store);
+}
+
 export async function setLocalSessionStatus(
   sessionId: string,
   status: SessionDetail["status"],
@@ -120,6 +138,28 @@ export async function setLocalSessionStatus(
   if (typeof overallScore === "number") {
     session.overallScore = overallScore;
   }
+  await saveStore(store);
+}
+
+export async function findOpenLocalQrSession(cutoffIso: string): Promise<SessionSummary | null> {
+  const store = await loadStore();
+  return (
+    store.sessions
+      .filter(
+        (session) =>
+          session.source === "qr" &&
+          session.status === "scheduled" &&
+          session.createdAt >= cutoffIso
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+  );
+}
+
+export async function addLocalSessionLead(sessionId: string, lead: SessionLead) {
+  const store = await loadStore();
+  const session = store.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  session.leads = [...(session.leads ?? []), lead];
   await saveStore(store);
 }
 

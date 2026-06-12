@@ -17,10 +17,14 @@ const EXT_MIME: Record<string, string> = {
   mp3: "audio/mpeg",
   ogg: "audio/ogg",
   flac: "audio/flac",
+  jpg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  pdf: "application/pdf",
   bin: "application/octet-stream",
 };
 
-const RECORDING_EXTENSIONS = ["m4a", "mp4", "webm", "wav", "mp3", "ogg", "flac", "bin"] as const;
+const RECORDING_EXTENSIONS = ["m4a", "mp4", "webm", "wav", "mp3", "ogg", "flac", "jpg", "png", "gif", "pdf", "bin"] as const;
 
 export type RecordingFile = {
   buffer: Buffer;
@@ -161,10 +165,15 @@ async function findRecordingFileName(sessionId: string): Promise<string | null> 
 function guessExtension(mimeType: string): string {
   if (mimeType.includes("mp4") && mimeType.includes("audio")) return "m4a";
   if (mimeType.includes("mp4")) return "mp4";
+  if (mimeType.includes("quicktime")) return "mov";
   if (mimeType.includes("webm")) return "webm";
   if (mimeType.includes("m4a") || mimeType.includes("mp4a")) return "m4a";
   if (mimeType.includes("wav")) return "wav";
   if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
   if (mimeType.includes("ogg")) return "ogg";
-  return "m4a";
+  if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "jpg";
+  if (mimeType.includes("png")) return "png";
+  if (mimeType.includes("gif")) return "gif";
+  if (mimeType.includes("pdf")) return "pdf";
+  return "bin";
 }

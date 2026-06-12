@@ -1,44 +1,18 @@
+"use client";
+
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Download, Globe2, Mail, Phone, Plus, QrCode, Send, UserRound } from "lucide-react";
+import {
+  contactCard,
+  contactCardDownloadUrl,
+  contactCardShareUrl,
+  offlineContactCardQrUrl,
+  propertyTour,
+  tourRequestQrUrl
+} from "./contact-card-data";
 
-export const contactCard = {
-  name: "Alex Johnson",
-  initials: "A",
-  title: "Sales Agent",
-  company: "Tour.video",
-  phoneDisplay: "(313) 555-0148",
-  phoneValue: "+13135550148",
-  email: "alex@tour.video",
-  websiteDisplay: "tour.you/p/alex",
-  website: "https://tour.you/p/alex"
-};
-
-const propertyTour = {
-  name: "27 North",
-  mediaUrl:
-    "https://storage.googleapis.com/leasemagnets---dummy-db.appspot.com/community/44/intro_revamp_intro/27_North_intro_2024_mp4_1.mp4#t=8"
-};
-
-const contactVcard = [
-  "BEGIN:VCARD",
-  "VERSION:3.0",
-  "N:Johnson;Alex;;;",
-  `FN:${contactCard.name}`,
-  `ORG:${contactCard.company}`,
-  `TITLE:${contactCard.title}`,
-  `TEL;TYPE=CELL:${contactCard.phoneValue}`,
-  `EMAIL:${contactCard.email}`,
-  `URL:${contactCard.website}`,
-  "END:VCARD"
-].join("\n");
-
-const encodedContactCard = encodeURIComponent(contactVcard);
-const contactCardDownloadUrl = `data:text/vcard;charset=utf-8,${encodedContactCard}`;
-const contactCardQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=196x196&margin=12&format=svg&data=${encodedContactCard}`;
-const contactCardShareUrl = `mailto:?subject=${encodeURIComponent(`${contactCard.name} contact card`)}&body=${encodeURIComponent(
-  `${contactCard.name}\n${contactCard.title}, ${contactCard.company}\n${contactCard.phoneDisplay}\n${contactCard.email}\n${contactCard.website}`
-)}`;
+type QrMode = "tour" | "offline";
 
 type ContactCardPanelProps = {
   id: string;
@@ -46,7 +20,23 @@ type ContactCardPanelProps = {
 };
 
 export function ContactCardPanel({ id, variant = "profile" }: ContactCardPanelProps) {
+  const [qrMode, setQrMode] = useState<QrMode>("tour");
   const isHome = variant === "home";
+  const qr = useMemo(() => {
+    if (qrMode === "offline") {
+      return {
+        alt: `QR code for ${contactCard.name}'s offline contact card`,
+        caption: "Offline contact card",
+        src: offlineContactCardQrUrl
+      };
+    }
+
+    return {
+      alt: `QR code for ${contactCard.name}'s tour request form`,
+      caption: "Tour request form",
+      src: tourRequestQrUrl
+    };
+  }, [qrMode]);
 
   return (
     <section className="card" aria-labelledby={id} style={{ marginBottom: isHome ? 20 : 12 }}>
@@ -194,30 +184,85 @@ export function ContactCardPanel({ id, variant = "profile" }: ContactCardPanelPr
           </a>
         </div>
 
-        <div
-          style={{
-            width: isHome ? 172 : 156,
-            height: isHome ? 172 : 156,
-            maxWidth: "100%",
-            display: "grid",
-            placeItems: "center",
-            border: "1px solid var(--slate-200)",
-            borderRadius: "var(--radius-md)",
-            background: "white",
-            padding: 8,
-            flex: "0 0 auto"
-          }}
-        >
-          <img
-            src={contactCardQrUrl}
-            alt={`QR code for ${contactCard.name}'s contact card`}
-            width="196"
-            height="196"
-            style={{ width: isHome ? 156 : 140, height: isHome ? 156 : 140 }}
-          />
+        <div style={{ flex: "0 0 auto", maxWidth: "100%" }}>
+          <div
+            role="group"
+            aria-label="QR code mode"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 4,
+              borderRadius: "var(--radius-md)",
+              background: "var(--slate-100)",
+              padding: 4,
+              marginBottom: 8
+            }}
+          >
+            <QrToggleButton active={qrMode === "tour"} onClick={() => setQrMode("tour")}>
+              Tour request
+            </QrToggleButton>
+            <QrToggleButton active={qrMode === "offline"} onClick={() => setQrMode("offline")}>
+              Offline card
+            </QrToggleButton>
+          </div>
+
+          <div
+            style={{
+              width: isHome ? 172 : 156,
+              height: isHome ? 172 : 156,
+              maxWidth: "100%",
+              display: "grid",
+              placeItems: "center",
+              border: "1px solid var(--slate-200)",
+              borderRadius: "var(--radius-md)",
+              background: "white",
+              padding: 8
+            }}
+          >
+            <img
+              src={qr.src}
+              alt={qr.alt}
+              width="196"
+              height="196"
+              style={{ width: isHome ? 156 : 140, height: isHome ? 156 : 140 }}
+            />
+          </div>
+          <div style={{ fontSize: 11, color: "var(--slate-400)", fontWeight: 600, marginTop: 6, textAlign: "center" }}>
+            {qr.caption}
+          </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function QrToggleButton({
+  active,
+  children,
+  onClick
+}: {
+  active: boolean;
+  children: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      style={{
+        borderRadius: "var(--radius-sm)",
+        background: active ? "white" : "transparent",
+        color: active ? "var(--indigo-600)" : "var(--slate-500)",
+        boxShadow: active ? "0 1px 2px rgba(15,23,42,.08)" : "none",
+        fontSize: 11,
+        fontWeight: 700,
+        padding: "6px 8px",
+        whiteSpace: "nowrap"
+      }}
+    >
+      {children}
+    </button>
   );
 }
 

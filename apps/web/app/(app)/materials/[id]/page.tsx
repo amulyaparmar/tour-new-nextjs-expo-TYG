@@ -45,6 +45,17 @@ export default async function MaterialDetailPage({ params }: Props) {
         </div>
       )}
 
+      {material.fileUrl && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="card-header"><h2>File</h2></div>
+          <div className="card-body">
+            <Link href={material.fileUrl} className="btn btn-outline btn-sm" target="_blank">
+              Open file <ArrowRight size={14} />
+            </Link>
+          </div>
+        </div>
+      )}
+
       {material.type === "recording" && material.sessionId && (
         <div className="card" style={{ marginBottom: 12 }}>
           <div className="card-header"><h2>Session</h2></div>

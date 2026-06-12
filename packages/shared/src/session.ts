@@ -1,5 +1,6 @@
 export type SessionStatus =
   | "scheduled"
+  | "in_progress"
   | "uploaded"
   | "transcribing"
   | "extracting_screenshots"
@@ -8,6 +9,16 @@ export type SessionStatus =
   | "reviewed"
   | "failed";
 
+export type SessionSource = "manual" | "qr";
+
+export type SessionLead = {
+  name: string;
+  email: string | null;
+  phone: string | null;
+  wantsSummary: boolean;
+  createdAt: string;
+};
+
 export type SessionSummary = {
   id: string;
   title: string;
@@ -15,6 +26,8 @@ export type SessionSummary = {
   scheduledAt: string | null;
   location: string | null;
   status: SessionStatus;
+  source: SessionSource;
+  leads: SessionLead[];
   overallScore: number | null;
   createdAt: string;
 };
@@ -32,6 +45,8 @@ export type CreateSessionInput = {
   location?: string | null;
   prospectName?: string | null;
   notes?: string | null;
+  source?: SessionSource;
+  leads?: SessionLead[];
 };
 
 export type QuestionScore = {
@@ -80,6 +95,7 @@ export type FollowUpAction = {
 
 export const SESSION_STATUS_LABELS: Record<SessionStatus, string> = {
   scheduled: "Scheduled",
+  in_progress: "In progress",
   uploaded: "Uploaded",
   transcribing: "Transcribing",
   extracting_screenshots: "Extracting screenshots",

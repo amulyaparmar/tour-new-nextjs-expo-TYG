@@ -10,6 +10,7 @@ export type DashboardMetrics = {
 export function computeDashboardMetrics(sessions: SessionSummary[]): DashboardMetrics {
   const now = Date.now();
   const oneDay = 24 * 60 * 60 * 1000;
+  const inProgressStatuses = ["uploaded", "transcribing", "extracting_screenshots", "analyzing"];
 
   const todaySessions = sessions.filter((session) => {
     if (!session.scheduledAt) {
@@ -20,14 +21,14 @@ export function computeDashboardMetrics(sessions: SessionSummary[]): DashboardMe
   }).length;
 
   const upcomingSessions = sessions.filter((session) => {
-    if (!session.scheduledAt) {
-      return false;
-    }
-    return new Date(session.scheduledAt).getTime() > now;
+    return (
+      (session.scheduledAt && new Date(session.scheduledAt).getTime() > now) ||
+      inProgressStatuses.includes(session.status)
+    );
   }).length;
 
   const processingSessions = sessions.filter((session) =>
-    ["uploaded", "transcribing", "extracting_screenshots", "analyzing"].includes(session.status)
+    inProgressStatuses.includes(session.status)
   ).length;
 
   const scored = sessions.filter((session) => typeof session.overallScore === "number");

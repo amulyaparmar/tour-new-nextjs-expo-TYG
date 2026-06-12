@@ -5,12 +5,17 @@ import type {
   CreateSessionInput,
   FollowUpAction,
   SessionDetail,
+  SessionLead,
+  SessionSource,
   SessionStatus,
   SessionSummary
 } from "@tour/shared";
 
 import {
+  addLocalSessionLead,
   createLocalSession,
+  deleteLocalSession,
+  findOpenLocalQrSession,
   getLocalAnalysis,
   getLocalSessionById,
   getLocalTranscript,
@@ -32,6 +37,8 @@ type SessionRow = {
   scheduled_at: string | null;
   location: string | null;
   status: SessionStatus;
+  source: SessionSource | null;
+  leads: SessionLead[] | null;
   overall_score: number | null;
   notes: string | null;
   video_url: string | null;
@@ -63,6 +70,7 @@ export type ListSessionsParams = {
   page?: number;
   limit?: number;
   status?: SessionStatus;
+  statuses?: SessionStatus[];
   search?: string;
   sort?: "newest" | "oldest" | "score_desc" | "score_asc";
 };
@@ -90,12 +98,14 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
     let query = supabase
       .from("sessions")
       .select(
-        "id,title,prospect_name,scheduled_at,location,status,overall_score,notes,video_url,audio_url,duration,created_at",
+        "id,title,prospect_name,scheduled_at,location,status,source,leads,overall_score,notes,video_url,audio_url,duration,created_at",
         { count: "exact" }
       );
 
     if (params?.status) {
       query = query.eq("status", params.status);
+    } else if (params?.statuses?.length) {
+      query = query.in("status", params.statuses);
     }
 
     if (params?.search) {
@@ -149,7 +159,9 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     location: input.location?.trim() ? input.location.trim() : null,
     prospect_name: input.prospectName?.trim() ? input.prospectName.trim() : null,
     notes: input.notes?.trim() ? input.notes.trim() : null,
-    status: "scheduled" as const
+    status: "scheduled" as const,
+    source: input.source ?? "manual",
+    leads: input.leads ?? []
   };
 
   try {
@@ -158,7 +170,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       .from("sessions")
       .insert(payload as never)
       .select(
-        "id,title,prospect_name,scheduled_at,location,status,overall_score,notes,video_url,audio_url,duration,created_at"
+        "id,title,prospect_name,scheduled_at,location,status,source,leads,overall_score,notes,video_url,audio_url,duration,created_at"
       )
       .single<SessionRow>();
 
@@ -173,8 +185,63 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       scheduledAt: input.scheduledAt ?? null,
       location: input.location ?? null,
       prospectName: input.prospectName ?? null,
-      notes: input.notes ?? null
+      notes: input.notes ?? null,
+      source: input.source ?? "manual",
+      leads: input.leads ?? []
     });
+  }
+}
+
+const QR_GROUP_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Most recent QR-created session still in `scheduled` within the grouping
+ * window — additional prospects scanning the same QR join this session group
+ * instead of creating duplicates.
+ */
+export async function findOpenQrSession(): Promise<SessionSummary | null> {
+  const cutoff = new Date(Date.now() - QR_GROUP_WINDOW_MS).toISOString();
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("sessions")
+      .select(
+        "id,title,prospect_name,scheduled_at,location,status,source,leads,overall_score,notes,video_url,audio_url,duration,created_at"
+      )
+      .eq("source", "qr")
+      .eq("status", "scheduled")
+      .gte("created_at", cutoff)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<SessionRow>();
+
+    if (error) throw new Error(error.message);
+    return data ? mapSessionRow(data) : null;
+  } catch {
+    return findOpenLocalQrSession(cutoff);
+  }
+}
+
+export async function addSessionLead(sessionId: string, lead: SessionLead): Promise<void> {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("sessions")
+      .select("leads")
+      .eq("id", sessionId)
+      .single<{ leads: SessionLead[] | null }>();
+
+    if (error) throw new Error(error.message);
+
+    const leads = [...(data?.leads ?? []), lead];
+    const { error: updateError } = await supabase
+      .from("sessions")
+      .update({ leads } as never)
+      .eq("id", sessionId);
+
+    if (updateError) throw new Error(updateError.message);
+  } catch {
+    await addLocalSessionLead(sessionId, lead);
   }
 }
 
@@ -200,13 +267,25 @@ export async function updateSession(
   }
 }
 
+export async function deleteSession(sessionId: string): Promise<void> {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { error } = await supabase.from("sessions").delete().eq("id", sessionId);
+    if (error) {
+      throw new Error(`Failed to delete session: ${error.message}`);
+    }
+  } catch {
+    await deleteLocalSession(sessionId);
+  }
+}
+
 export async function getSessionById(sessionId: string): Promise<SessionDetail | null> {
   try {
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
       .from("sessions")
       .select(
-        "id,title,prospect_name,scheduled_at,location,status,overall_score,notes,video_url,audio_url,duration,created_at"
+        "id,title,prospect_name,scheduled_at,location,status,source,leads,overall_score,notes,video_url,audio_url,duration,created_at"
       )
       .eq("id", sessionId)
       .maybeSingle<SessionRow>();
@@ -455,6 +534,8 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     scheduledAt: row.scheduled_at,
     location: row.location,
     status: row.status,
+    source: row.source ?? "manual",
+    leads: row.leads ?? [],
     overallScore: row.overall_score,
     createdAt: row.created_at
   };

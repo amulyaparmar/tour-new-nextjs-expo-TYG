@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ContactCardPanel, contactCard } from "../ContactCardPanel";
+import { ContactCardPanel } from "../ContactCardPanel";
+import { contactCard } from "../contact-card-data";
 
 export default function ProfilePage() {
   return (

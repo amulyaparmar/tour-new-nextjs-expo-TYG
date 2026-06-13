@@ -4,6 +4,8 @@ import { listSessions } from "@/lib/sessions";
 import { ContactCardPanel } from "./ContactCardPanel";
 import { SmartSessionModalButton } from "./SmartSessionForm";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardPage() {
   const sessions = await listSessions({ limit: 100 });
   const now = Date.now();

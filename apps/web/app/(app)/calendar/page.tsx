@@ -2,6 +2,8 @@ import { listSessions } from "@/lib/sessions";
 import { SmartSessionForm } from "../SmartSessionForm";
 import { CalendarView } from "./CalendarView";
 
+export const dynamic = "force-dynamic";
+
 export default async function CalendarPage() {
   const sessions = await listSessions();
 

@@ -322,6 +322,8 @@ function statusLabel(status: ReviewSession["status"]) {
   return SESSION_STATUS_LABELS[status];
 }
 
+export const dynamic = "force-dynamic";
+
 export default async function ManagerPage() {
   const [realSessions, materials] = await Promise.all([
     listSessions({ limit: 100, sort: "newest" }),

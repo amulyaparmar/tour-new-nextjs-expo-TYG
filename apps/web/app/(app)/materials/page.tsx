@@ -4,6 +4,8 @@ import { ClipboardList, BookOpen, Mic, Paperclip, Plus } from "lucide-react";
 import { createMaterial, listMaterials } from "@/lib/materials";
 import type { Material, MaterialType } from "@/lib/materials";
 
+export const dynamic = "force-dynamic";
+
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   rubric: <ClipboardList size={20} />,
   training: <BookOpen size={20} />,

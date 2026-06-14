@@ -1,6 +1,6 @@
 import "server-only";
 
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { getSupabaseServiceClient } from "./supabase";
@@ -11,6 +11,7 @@ const LOCAL_UPLOADS_DIR = path.join(process.cwd(), ".local-uploads");
 
 const EXT_MIME: Record<string, string> = {
   mp4: "video/mp4",
+  mov: "video/quicktime",
   webm: "audio/webm",
   m4a: "audio/mp4",
   wav: "audio/wav",
@@ -24,7 +25,7 @@ const EXT_MIME: Record<string, string> = {
   bin: "application/octet-stream",
 };
 
-const RECORDING_EXTENSIONS = ["m4a", "mp4", "webm", "wav", "mp3", "ogg", "flac", "jpg", "png", "gif", "pdf", "bin"] as const;
+const RECORDING_EXTENSIONS = ["m4a", "mp4", "mov", "webm", "wav", "mp3", "ogg", "flac", "jpg", "png", "gif", "pdf", "bin"] as const;
 
 export type RecordingFile = {
   buffer: Buffer;
@@ -95,8 +96,8 @@ export async function getRecordingSignedUrl(sessionId: string): Promise<string |
 }
 
 export async function getRecordingUrl(sessionId: string): Promise<string | null> {
-  const file = await fetchRecordingFile(sessionId);
-  if (!file) return null;
+  const fileName = await findRecordingFileName(sessionId);
+  if (!fileName) return null;
   return getRecordingPlaybackPath(sessionId);
 }
 
@@ -152,7 +153,8 @@ async function findRecordingFileName(sessionId: string): Promise<string | null> 
   for (const ext of RECORDING_EXTENSIONS) {
     const fileName = `${sessionId}.${ext}`;
     try {
-      await readFile(path.join(LOCAL_UPLOADS_DIR, fileName));
+      const fileStat = await stat(path.join(LOCAL_UPLOADS_DIR, fileName));
+      if (!fileStat.isFile() || fileStat.size === 0) continue;
       return fileName;
     } catch {
       continue;

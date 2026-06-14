@@ -405,8 +405,11 @@ async function resolveRecordingUrl(
   audioUrl: string | null
 ): Promise<string | null> {
   const stored = videoUrl || audioUrl;
+  const proxied = await getRecordingUrl(sessionId);
+  if (proxied) return proxied;
+
   if (stored && !isLegacyLocalUrl(stored)) {
     if (stored.startsWith("http") || stored.startsWith("/api/sessions/")) return stored;
   }
-  return getRecordingUrl(sessionId);
+  return null;
 }

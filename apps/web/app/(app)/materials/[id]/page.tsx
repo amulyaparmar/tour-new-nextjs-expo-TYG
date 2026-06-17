@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, BookOpen, ClipboardList, ExternalLink, Link2, Paperclip, Video } from "lucide-react";
 import { getMaterial } from "@/lib/materials";
+import { DeleteMaterialButton } from "./DeleteMaterialButton";
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   rubric: <ClipboardList size={22} />,
@@ -28,12 +29,17 @@ export default async function MaterialDetailPage({ params }: Props) {
     <>
       <Link href="/materials" className="back-link">← Back to Materials</Link>
 
-      <div className="page-header" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ color: "var(--indigo-500)" }}>{material.media ? <Video size={22} /> : TYPE_ICONS[material.type] ?? <Paperclip size={22} />}</span>
-        <div>
-          <h1>{material.name}</h1>
-          <p>{material.media ? "Tour.video asset" : material.type} &middot; Added {new Date(material.createdAt).toLocaleDateString()}</p>
+      <div className="page-header page-header-row">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <span style={{ color: "var(--indigo-500)" }}>{material.media ? <Video size={22} /> : TYPE_ICONS[material.type] ?? <Paperclip size={22} />}</span>
+          <div style={{ minWidth: 0 }}>
+            <h1>{material.name}</h1>
+            <p>{material.media ? "Tour.video asset" : material.type} &middot; Added {new Date(material.createdAt).toLocaleDateString()}</p>
+          </div>
         </div>
+        {!material.media && (
+          <DeleteMaterialButton materialId={material.id} materialName={material.name} />
+        )}
       </div>
 
       {material.media && (

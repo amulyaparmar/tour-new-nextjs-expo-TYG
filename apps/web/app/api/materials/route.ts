@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { createMaterial, listMaterials } from "@/lib/materials";
+import { createMaterial, listVisibleMaterials } from "@/lib/materials";
 
 export async function GET() {
   try {
-    const materials = await listMaterials();
+    const materials = await listVisibleMaterials();
     return NextResponse.json({ materials });
   } catch (error) {
     return NextResponse.json(

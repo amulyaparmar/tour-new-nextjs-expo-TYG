@@ -8,6 +8,14 @@ import { getSupabaseServiceClient } from "./supabase";
 
 export type MaterialType = "rubric" | "training" | "recording" | "other";
 
+export type TourMaterialMedia = {
+  sourceKey: string;
+  videoUrl: string | null;
+  imageUrl: string | null;
+  gifUrl: string | null;
+  iframeUrl: string | null;
+};
+
 export type Material = {
   id: string;
   name: string;
@@ -17,6 +25,7 @@ export type Material = {
   parsedText: string | null;
   sessionId: string | null;
   createdAt: string;
+  media?: TourMaterialMedia;
 };
 
 type MaterialRow = {
@@ -32,6 +41,17 @@ type MaterialRow = {
 
 // ── Local fallback ──────────────────────────────────────
 const STORE_PATH = path.join(process.cwd(), ".codex", "materials-store.json");
+const TOUR_PROPERTY_ID = "@quad-at-york";
+const TOUR_API_URL = `https://tour.video/api/list?id=${encodeURIComponent(TOUR_PROPERTY_ID)}`;
+const TOUR_MATERIAL_CREATED_AT = "2026-05-22T00:00:00.000Z";
+
+type TourApiAsset = {
+  title?: unknown;
+  video?: unknown;
+  img?: unknown;
+  gif?: unknown;
+  iframe?: unknown;
+};
 
 async function readLocalStore(): Promise<Material[]> {
   try {
@@ -93,7 +113,24 @@ export async function listMaterials(): Promise<Material[]> {
   }
 }
 
+export async function listVisibleMaterials(): Promise<Material[]> {
+  const [materials, tourMaterials] = await Promise.all([
+    listMaterials(),
+    listTourMaterials()
+  ]);
+
+  return [
+    ...tourMaterials,
+    ...materials.filter((material) => material.type !== "recording")
+  ];
+}
+
 export async function getMaterial(id: string): Promise<Material | null> {
+  if (id.startsWith("tour-api-")) {
+    const tourMaterials = await listTourMaterials();
+    return tourMaterials.find((material) => material.id === id) ?? null;
+  }
+
   try {
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
@@ -108,6 +145,68 @@ export async function getMaterial(id: string): Promise<Material | null> {
     const materials = await readLocalStore();
     return materials.find((m) => m.id === id) ?? null;
   }
+}
+
+async function listTourMaterials(): Promise<Material[]> {
+  try {
+    const response = await fetch(TOUR_API_URL, {
+      next: { revalidate: 300 }
+    });
+
+    if (!response.ok) throw new Error(`Tour API returned ${response.status}`);
+
+    const payload = (await response.json()) as Record<string, TourApiAsset>;
+    return Object.entries(payload)
+      .map(([sourceKey, asset]) => mapTourAsset(sourceKey, asset))
+      .filter((asset): asset is Material => asset !== null);
+  } catch {
+    return [];
+  }
+}
+
+function mapTourAsset(sourceKey: string, asset: TourApiAsset): Material | null {
+  const videoUrl = stringOrNull(asset.video);
+  const imageUrl = stringOrNull(asset.img);
+  const gifUrl = stringOrNull(asset.gif);
+  const iframeUrl = stringOrNull(asset.iframe);
+
+  if (!videoUrl && !iframeUrl) return null;
+
+  const title = stringOrNull(asset.title) ?? formatTourSourceKey(sourceKey);
+  const includes = [
+    videoUrl ? "video" : null,
+    iframeUrl ? "embed link" : null
+  ].filter(Boolean).join(" and ");
+
+  return {
+    id: `tour-api-${Buffer.from(sourceKey).toString("base64url")}`,
+    name: title,
+    type: "other",
+    description: `Tour.video ${includes} from ${TOUR_PROPERTY_ID}.`,
+    fileUrl: videoUrl ?? iframeUrl,
+    parsedText: iframeUrl ? `Embed link: ${iframeUrl}` : null,
+    sessionId: null,
+    createdAt: TOUR_MATERIAL_CREATED_AT,
+    media: {
+      sourceKey,
+      videoUrl,
+      imageUrl,
+      gifUrl,
+      iframeUrl
+    }
+  };
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function formatTourSourceKey(sourceKey: string): string {
+  return sourceKey
+    .split(".")
+    .map((part) => part.replace(/_/g, " "))
+    .join(" - ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 export async function createMaterial(input: {

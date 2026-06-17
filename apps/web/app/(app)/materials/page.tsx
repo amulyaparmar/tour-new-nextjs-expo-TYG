@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ClipboardList, BookOpen, Mic, Paperclip, Plus } from "lucide-react";
-import { createMaterial, listMaterials } from "@/lib/materials";
+import { BookOpen, ClipboardList, ExternalLink, Link2, Paperclip, Play, Plus, Video } from "lucide-react";
+import { createMaterial, listVisibleMaterials } from "@/lib/materials";
 import type { Material, MaterialType } from "@/lib/materials";
 
 export const dynamic = "force-dynamic";
@@ -9,22 +9,22 @@ export const dynamic = "force-dynamic";
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   rubric: <ClipboardList size={20} />,
   training: <BookOpen size={20} />,
-  recording: <Mic size={20} />,
+  recording: <Video size={20} />,
   other: <Paperclip size={20} />
 };
 
 export default async function MaterialsPage() {
-  const materials = await listMaterials();
-  const recordings = materials.filter((m) => m.type === "recording");
+  const materials = await listVisibleMaterials();
+  const tourAssets = materials.filter((m) => m.media);
   const rubrics = materials.filter((m) => m.type === "rubric");
   const training = materials.filter((m) => m.type === "training");
-  const other = materials.filter((m) => m.type === "other");
+  const other = materials.filter((m) => m.type === "other" && !m.media);
 
   return (
     <>
       <div className="page-header">
         <h1>Materials</h1>
-        <p>Rubrics, recordings, training docs, and sales resources</p>
+        <p>Rubrics, training docs, Tour.video assets, and sales resources</p>
       </div>
 
       <details className="card" style={{ marginBottom: 16 }}>
@@ -55,8 +55,8 @@ export default async function MaterialsPage() {
         </div>
       </details>
 
-      {recordings.length > 0 && (
-        <MaterialSection title="Recordings" materials={recordings} />
+      {tourAssets.length > 0 && (
+        <MaterialSection title="Tour Videos & Links" materials={tourAssets} />
       )}
       {rubrics.length > 0 && (
         <MaterialSection title="Rubrics" materials={rubrics} />
@@ -69,7 +69,7 @@ export default async function MaterialsPage() {
       )}
 
       {materials.length === 0 && (
-        <div className="empty-state">No materials yet. Add a rubric or training doc above, or record a session to see it here.</div>
+        <div className="empty-state">No materials yet. Add a rubric or training doc above.</div>
       )}
     </>
   );
@@ -93,17 +93,32 @@ function MaterialCard({ material }: { material: Material }) {
 
   return (
     <Link href={href} className="material-card">
-      <div className={`material-card-icon ${material.type}`}>
-        {TYPE_ICONS[material.type] ?? <Paperclip size={20} />}
-      </div>
+      {material.media?.imageUrl ? (
+        <img src={material.media.imageUrl} alt="" className="material-card-thumb" />
+      ) : (
+        <div className={`material-card-icon ${material.type}`}>
+          {material.media ? <Video size={20} /> : TYPE_ICONS[material.type] ?? <Paperclip size={20} />}
+        </div>
+      )}
       <div className="material-card-info">
         <div className="material-card-name">{material.name}</div>
         <div className="material-card-meta">
-          {material.type} &middot; {new Date(material.createdAt).toLocaleDateString()}
+          {material.media ? "Tour.video asset" : material.type} &middot; {new Date(material.createdAt).toLocaleDateString()}
         </div>
         {material.description && (
           <div style={{ fontSize: 12, color: "var(--slate-500)", marginTop: 2 }}>
             {material.description.length > 80 ? material.description.slice(0, 80) + "\u2026" : material.description}
+          </div>
+        )}
+        {material.media && (
+          <div className="material-card-badges">
+            {material.media.videoUrl && (
+              <span><Play size={11} /> Video</span>
+            )}
+            {material.media.iframeUrl && (
+              <span><Link2 size={11} /> Embed link</span>
+            )}
+            <span><ExternalLink size={11} /> Open</span>
           </div>
         )}
         {material.type === "recording" && material.sessionId && (

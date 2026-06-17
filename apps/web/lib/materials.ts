@@ -45,11 +45,19 @@ const TOUR_PROPERTY_ID = "@27north";
 const TOUR_API_URL = `https://tour.video/api/list?id=${encodeURIComponent(TOUR_PROPERTY_ID)}`;
 const TOUR_MATERIAL_CREATED_AT = "2026-05-22T00:00:00.000Z";
 const EXCLUDED_TOUR_SOURCE_KEYS = new Set([
+  "floor_plans.floor_plans_video_5",
   "floor_plans.form_screen",
   "floor_plans.matterport",
+  "floor_plans.new",
   "thank_you.contact_us",
   "thank_you.scheduler"
 ]);
+const EXCLUDED_TOUR_TEXT_PATTERNS = [
+  "floor plan form submission",
+  "floor plans video 5",
+  "form_screen",
+  "sample_640x360"
+];
 
 type TourApiAsset = {
   title?: unknown;
@@ -175,11 +183,11 @@ function mapTourAsset(sourceKey: string, asset: TourApiAsset): Material | null {
   const imageUrl = stringOrNull(asset.img);
   const gifUrl = stringOrNull(asset.gif);
   const iframeUrl = stringOrNull(asset.iframe);
+  const title = stringOrNull(asset.title) ?? formatTourSourceKey(sourceKey);
 
   if (!videoUrl && !iframeUrl) return null;
-  if (shouldHideTourAsset(sourceKey, videoUrl, iframeUrl)) return null;
+  if (shouldHideTourAsset(sourceKey, title, videoUrl, imageUrl, iframeUrl)) return null;
 
-  const title = stringOrNull(asset.title) ?? formatTourSourceKey(sourceKey);
   const includes = [
     videoUrl ? "video" : null,
     iframeUrl ? "embed link" : null
@@ -204,11 +212,24 @@ function mapTourAsset(sourceKey: string, asset: TourApiAsset): Material | null {
   };
 }
 
-function shouldHideTourAsset(sourceKey: string, videoUrl: string | null, iframeUrl: string | null): boolean {
+function shouldHideTourAsset(
+  sourceKey: string,
+  title: string,
+  videoUrl: string | null,
+  imageUrl: string | null,
+  iframeUrl: string | null
+): boolean {
   if (EXCLUDED_TOUR_SOURCE_KEYS.has(sourceKey)) return true;
   if (sourceKey.startsWith("communications.")) return true;
   if (videoUrl?.includes("/black-TYG.mp4")) return true;
   if (iframeUrl && isUtilityIframeUrl(iframeUrl)) return true;
+  if (!imageUrl && !isMatterportIframeUrl(iframeUrl)) return true;
+
+  const searchableText = [sourceKey, title, videoUrl, imageUrl, iframeUrl]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (EXCLUDED_TOUR_TEXT_PATTERNS.some((pattern) => searchableText.includes(pattern))) return true;
 
   return false;
 }
@@ -220,6 +241,10 @@ function isUtilityIframeUrl(url: string): boolean {
     "tour.video/referrers/",
     "tour.video/scheduler"
   ].some((pattern) => url.includes(pattern));
+}
+
+function isMatterportIframeUrl(url: string | null): boolean {
+  return Boolean(url?.includes("my.matterport.com/show/"));
 }
 
 function stringOrNull(value: unknown): string | null {

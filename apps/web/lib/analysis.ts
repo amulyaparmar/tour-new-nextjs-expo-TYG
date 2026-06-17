@@ -2,8 +2,7 @@ import "server-only";
 
 import type { AnalysisResult } from "@tour/shared";
 import type { TranscriptSegment } from "./transcribe";
-
-const DEFAULT_MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+import { invokeClaudeTool, type ClaudeTool } from "./bedrock";
 
 export async function generateAnalysis(params: {
   title: string;
@@ -12,9 +11,6 @@ export async function generateAnalysis(params: {
   notes: string | null;
   transcript?: TranscriptSegment[];
 }): Promise<AnalysisResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
-
   const transcriptText = params.transcript && params.transcript.length > 0
     ? params.transcript
         .map((s) => `[${formatTime(s.startTime)}] ${s.speaker}: ${s.text}`)
@@ -135,45 +131,95 @@ export async function generateAnalysis(params: {
     transcriptText
   ].join("\n");
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ]
-    })
+  const raw = await invokeClaudeTool<Record<string, unknown>>({
+    system: systemPrompt,
+    messages: [{ role: "user", content: userPrompt }],
+    tool: ANALYSIS_TOOL,
+    maxTokens: 8192,
+    temperature: 0.3
   });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Analysis API error ${response.status}: ${errText}`);
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{ message: { content: string } }>;
-  };
-
-  const raw = payload.choices?.[0]?.message?.content ?? "";
   const parsed = safeParseAnalysis(raw);
   if (!parsed) throw new Error("Failed to parse analysis response");
   return parsed;
 }
 
+const ANALYSIS_TOOL: ClaudeTool = {
+  name: "submit_analysis",
+  description:
+    "Submit the complete RBG rubric analysis of the apartment tour. Every rubric question in every section must be included.",
+  input_schema: {
+    type: "object",
+    properties: {
+      overallScore: { type: "number", description: "0-100 percentage of 200 total points" },
+      totalPointsEarned: { type: "number" },
+      totalPointsPossible: { type: "number", description: "200" },
+      summary: { type: "string", description: "Executive summary of the leasing professional's performance" },
+      strengths: { type: "array", items: { type: "string" } },
+      opportunities: { type: "array", items: { type: "string" } },
+      suggestedRewrite: { type: "string", description: "The weakest line, rewritten as a model script line" },
+      sectionScores: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            section: { type: "string" },
+            score: { type: "number", description: "0-100 percentage for this section" },
+            pointsEarned: { type: "number" },
+            pointsPossible: { type: "number" },
+            questions: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string", description: "e.g. Q110" },
+                  question: { type: "string" },
+                  maxPoints: { type: "number" },
+                  earnedPoints: { type: "number" },
+                  passed: { type: "boolean" },
+                  evidence: { type: "string", description: "Brief transcript evidence or 'Not observed in transcript'" }
+                },
+                required: ["id", "question", "maxPoints", "earnedPoints", "passed", "evidence"]
+              }
+            }
+          },
+          required: ["section", "score", "pointsEarned", "pointsPossible", "questions"]
+        }
+      },
+      fairHousingFlags: { type: "array", items: { type: "string" } },
+      exactMoments: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            timestamp: { type: "string", description: "MM:SS from transcript" },
+            transcriptQuote: { type: "string" },
+            explanation: { type: "string" },
+            suggestedImprovement: { type: "string" }
+          },
+          required: ["timestamp", "transcriptQuote", "explanation", "suggestedImprovement"]
+        }
+      }
+    },
+    required: [
+      "overallScore",
+      "totalPointsEarned",
+      "totalPointsPossible",
+      "summary",
+      "strengths",
+      "opportunities",
+      "suggestedRewrite",
+      "sectionScores",
+      "fairHousingFlags",
+      "exactMoments"
+    ]
+  }
+};
+
 export async function generateFollowUpActions(
   analysis: AnalysisResult,
   params: { title: string; prospectName: string | null }
 ): Promise<Array<{ title: string; description: string; priority: "low" | "medium" | "high"; status: "open"; suggestedMessage: string | null }>> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
-
   const systemPrompt = [
     "You are a leasing sales manager creating follow-up actions for a SPECIFIC PROSPECT after their apartment tour.",
     "These are next steps to move THIS customer toward signing a lease — NOT generic self-improvement tips.",
@@ -223,40 +269,15 @@ export async function generateFollowUpActions(
       .join("\n")
   ].join("\n");
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ]
-    })
+  const result = await invokeClaudeTool<{ actions?: unknown[] }>({
+    system: systemPrompt,
+    messages: [{ role: "user", content: userPrompt }],
+    tool: ACTIONS_TOOL,
+    maxTokens: 4096,
+    temperature: 0.3
   });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Follow-up actions API error ${response.status}: ${errText}`);
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{ message: { content: string } }>;
-  };
-
-  const text = payload.choices?.[0]?.message?.content ?? "";
-  const parsed = JSON.parse(text) as { actions?: unknown[] } | unknown[];
-  const actions = Array.isArray(parsed)
-    ? parsed
-    : Array.isArray((parsed as { actions?: unknown[] }).actions)
-      ? (parsed as { actions: unknown[] }).actions
-      : null;
-
+  const actions = Array.isArray(result.actions) ? result.actions : null;
   if (!actions) throw new Error("Failed to parse follow-up actions");
 
   return actions.map((raw) => {
@@ -271,18 +292,44 @@ export async function generateFollowUpActions(
   });
 }
 
+const ACTIONS_TOOL: ClaudeTool = {
+  name: "submit_actions",
+  description: "Submit prospect-specific follow-up actions that move this customer toward signing a lease.",
+  input_schema: {
+    type: "object",
+    properties: {
+      actions: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            priority: { type: "string", enum: ["low", "medium", "high"] },
+            status: { type: "string", enum: ["open"] },
+            suggestedMessage: { type: "string", description: "A ready-to-send text or email the agent can copy" }
+          },
+          required: ["title", "description", "priority", "status", "suggestedMessage"]
+        }
+      }
+    },
+    required: ["actions"]
+  }
+};
+
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-function safeParseAnalysis(raw: string): AnalysisResult | null {
+/**
+ * Defensive normalizer. With Bedrock tool-use the input already matches the
+ * schema, but this guards against missing/typed-wrong fields and fills derived
+ * values (e.g. totalPointsEarned).
+ */
+function safeParseAnalysis(parsed: Record<string, unknown>): AnalysisResult | null {
   try {
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
-    if (start === -1 || end === -1) return null;
-    const parsed = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
     if (
       typeof parsed.overallScore !== "number" ||
       !Array.isArray(parsed.strengths) ||

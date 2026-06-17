@@ -7,22 +7,36 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       name?: string;
+      firstName?: string | null;
+      lastName?: string | null;
       email?: string | null;
       phone?: string | null;
       wantsSummary?: boolean;
       propertyName?: string | null;
+      jobTitle?: string | null;
+      reason?: string | null;
+      questionAnswers?: Record<string, string>;
+      repSlug?: string | null;
     };
 
-    const name = body.name?.trim();
+    const firstName = body.firstName?.trim() || null;
+    const lastName = body.lastName?.trim() || null;
+    const name = body.name?.trim() || [firstName, lastName].filter(Boolean).join(" ").trim();
     if (!name) {
       return NextResponse.json({ error: "name is required." }, { status: 400 });
     }
 
     const lead: SessionLead = {
       name,
+      firstName,
+      lastName,
       email: body.email?.trim() || null,
       phone: body.phone?.trim() || null,
       wantsSummary: body.wantsSummary ?? false,
+      jobTitle: body.jobTitle?.trim() || null,
+      reason: body.reason?.trim() || null,
+      questionAnswers: body.questionAnswers && Object.keys(body.questionAnswers).length ? body.questionAnswers : undefined,
+      repSlug: body.repSlug?.trim() || null,
       createdAt: new Date().toISOString()
     };
 

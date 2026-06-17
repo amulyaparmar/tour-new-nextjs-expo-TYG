@@ -7,6 +7,11 @@ import { getSessionById, replaceFollowUpActions, saveTranscript, setSessionStatu
 import { transcribeAudio } from "@/lib/transcribe";
 import { fetchRecordingFile } from "@/lib/storage";
 
+// The pipeline runs Whisper + 2 LLM calls + ffmpeg serially, which can take many
+// minutes on a full-length tour. Vercel Pro with Fluid Compute allows up to 800s
+// (the default is 60s) — without this the request is killed mid-processing.
+export const maxDuration = 800;
+
 type Context = { params: Promise<{ id: string }> };
 
 export async function POST(_request: Request, context: Context) {

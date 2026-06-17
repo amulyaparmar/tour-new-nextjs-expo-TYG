@@ -17,6 +17,17 @@ export type SessionLead = {
   phone: string | null;
   wantsSummary: boolean;
   createdAt: string;
+  // Richer fields captured by the /p/[slug] check-in card. All optional so
+  // existing leads (which only carry name/email/phone) remain valid.
+  firstName?: string | null;
+  lastName?: string | null;
+  jobTitle?: string | null;
+  /** Free-text reason for the visit, e.g. "Tour TYG Apartments". */
+  reason?: string | null;
+  /** Answers to the per-property qualifying questions, keyed by question id. */
+  questionAnswers?: Record<string, string>;
+  /** Slug of the rep whose card captured this lead. */
+  repSlug?: string | null;
 };
 
 export type SessionSummary = {

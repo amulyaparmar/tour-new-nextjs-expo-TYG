@@ -41,7 +41,7 @@ type MaterialRow = {
 
 // ── Local fallback ──────────────────────────────────────
 const STORE_PATH = path.join(process.cwd(), ".codex", "materials-store.json");
-const TOUR_PROPERTY_ID = "@quad-at-york";
+const TOUR_PROPERTY_ID = "@27north";
 const TOUR_API_URL = `https://tour.video/api/list?id=${encodeURIComponent(TOUR_PROPERTY_ID)}`;
 const TOUR_MATERIAL_CREATED_AT = "2026-05-22T00:00:00.000Z";
 

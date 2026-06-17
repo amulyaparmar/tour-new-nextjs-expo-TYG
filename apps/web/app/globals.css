@@ -2835,6 +2835,63 @@ button { border: 0; font: inherit; cursor: pointer; }
 .material-card-name { font-size: 13px; font-weight: 600; color: var(--slate-800); }
 .material-card-meta { font-size: 11px; color: var(--slate-400); margin-top: 1px; }
 
+.material-card-thumb {
+  width: 56px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+  object-fit: cover;
+  background: var(--slate-100);
+  border: 1px solid var(--slate-200);
+}
+
+.material-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.material-card-badges span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  color: var(--slate-500);
+  background: var(--slate-50);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.material-video-preview,
+.material-iframe-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--slate-200);
+  background: var(--slate-900);
+}
+
+.material-video-preview {
+  object-fit: contain;
+}
+
+.material-iframe-preview {
+  min-height: 320px;
+  background: white;
+}
+
+.material-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 /* ── Comments ─────────────────────────────────────────── */
 .sa-comments { margin-top: 4px; }
 .sa-comments-header {

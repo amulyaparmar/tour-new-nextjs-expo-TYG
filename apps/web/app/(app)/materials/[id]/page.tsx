@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { ClipboardList, BookOpen, Mic, Paperclip, ArrowRight } from "lucide-react";
+import { ArrowRight, BookOpen, ClipboardList, ExternalLink, Link2, Paperclip, Video } from "lucide-react";
 import { getMaterial } from "@/lib/materials";
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   rubric: <ClipboardList size={22} />,
   training: <BookOpen size={22} />,
-  recording: <Mic size={22} />,
+  recording: <Video size={22} />,
   other: <Paperclip size={22} />
 };
 
@@ -29,12 +29,55 @@ export default async function MaterialDetailPage({ params }: Props) {
       <Link href="/materials" className="back-link">← Back to Materials</Link>
 
       <div className="page-header" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ color: "var(--indigo-500)" }}>{TYPE_ICONS[material.type] ?? <Paperclip size={22} />}</span>
+        <span style={{ color: "var(--indigo-500)" }}>{material.media ? <Video size={22} /> : TYPE_ICONS[material.type] ?? <Paperclip size={22} />}</span>
         <div>
           <h1>{material.name}</h1>
-          <p>{material.type} &middot; Added {new Date(material.createdAt).toLocaleDateString()}</p>
+          <p>{material.media ? "Tour.video asset" : material.type} &middot; Added {new Date(material.createdAt).toLocaleDateString()}</p>
         </div>
       </div>
+
+      {material.media && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="card-header"><h2>Tour Media</h2></div>
+          <div className="card-body">
+            {material.media.videoUrl && (
+              <video
+                src={material.media.videoUrl}
+                poster={material.media.imageUrl ?? material.media.gifUrl ?? undefined}
+                controls
+                playsInline
+                className="material-video-preview"
+              />
+            )}
+            <div className="material-action-row">
+              {material.media.videoUrl && (
+                <Link href={material.media.videoUrl} className="btn btn-outline btn-sm" target="_blank">
+                  Open video <ExternalLink size={14} />
+                </Link>
+              )}
+              {material.media.iframeUrl && (
+                <Link href={material.media.iframeUrl} className="btn btn-outline btn-sm" target="_blank">
+                  Open embed link <Link2 size={14} />
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {material.media?.iframeUrl && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="card-header"><h2>Embed Preview</h2></div>
+          <div className="card-body">
+            <iframe
+              src={material.media.iframeUrl}
+              title={`${material.name} embed`}
+              className="material-iframe-preview"
+              allow="fullscreen; clipboard-write; geolocation; microphone; camera"
+            />
+          </div>
+        </div>
+      )}
 
       {material.description && (
         <div className="card" style={{ marginBottom: 12 }}>
@@ -45,7 +88,7 @@ export default async function MaterialDetailPage({ params }: Props) {
         </div>
       )}
 
-      {material.fileUrl && (
+      {material.fileUrl && !material.media && (
         <div className="card" style={{ marginBottom: 12 }}>
           <div className="card-header"><h2>File</h2></div>
           <div className="card-body">
@@ -67,7 +110,7 @@ export default async function MaterialDetailPage({ params }: Props) {
         </div>
       )}
 
-      {material.parsedText && (
+      {material.parsedText && !material.media && (
         <div className="card">
           <div className="card-header">
             <h2>{material.type === "recording" ? "Transcript Preview" : "Content"}</h2>

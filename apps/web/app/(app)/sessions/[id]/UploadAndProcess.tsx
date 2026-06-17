@@ -2,11 +2,24 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle, Brain, Sparkles, Image as ImageIcon, Upload, Video } from "lucide-react";
+import { BookmarkPlus, CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle, Brain, Sparkles, Image as ImageIcon, Upload, Video } from "lucide-react";
 
 type Phase = "choose" | "recording" | "details" | "processing";
 type Step = "idle" | "uploading" | "uploaded" | "transcribing" | "extracting_screenshots" | "analyzing" | "generating_actions" | "done" | "error";
 type RecordingMode = "audio" | "video";
+
+export type SessionDetailDefaults = {
+  title: string;
+  prospectName: string;
+  location: string;
+};
+
+export type NoteAsset = {
+  id: string;
+  name: string;
+  description: string | null;
+  url: string | null;
+};
 
 const PIPELINE_STEPS: Array<{ key: Step; label: string; description: string; icon: "upload" | "mic" | "brain" | "image" | "sparkles" | "check" }> = [
   { key: "uploading", label: "Uploading", description: "Sending recording to server", icon: "upload" },
@@ -34,11 +47,15 @@ function stepIndex(step: Step): number {
 export function UploadAndProcess({
   sessionId,
   hasRecording,
-  variant = "record"
+  variant = "record",
+  defaults,
+  noteAssets = []
 }: {
   sessionId: string;
   hasRecording: boolean;
   variant?: "record" | "new-session";
+  defaults?: SessionDetailDefaults;
+  noteAssets?: NoteAsset[];
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -56,6 +73,8 @@ export function UploadAndProcess({
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordingMode, setRecordingMode] = useState<RecordingMode>("video");
   const [processingElapsed, setProcessingElapsed] = useState(0);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [insertedAssetIds, setInsertedAssetIds] = useState<string[]>([]);
 
   useEffect(() => {
     return () => {
@@ -90,6 +109,19 @@ export function UploadAndProcess({
     if (mimeType.includes("quicktime")) return "mov";
     return "webm";
   };
+
+  function appendAssetNote(asset: NoteAsset) {
+    setNotesDraft((current) => {
+      const lines = [
+        `Important follow-up asset: ${asset.name}`,
+        asset.description ? `Context: ${asset.description}` : null,
+        asset.url ? `Link: ${asset.url}` : null
+      ].filter(Boolean);
+      const snippet = lines.join("\n");
+      return current.trim() ? `${current.trim()}\n\n${snippet}` : snippet;
+    });
+    setInsertedAssetIds((current) => current.includes(asset.id) ? current : [...current, asset.id]);
+  }
 
   async function startRecording(mode: RecordingMode = "video") {
     try {
@@ -357,18 +389,27 @@ export function UploadAndProcess({
     if (recordingMode === "audio") {
       return (
         <div className="audio-recorder">
-          <div className="audio-recorder-card">
-            <div className="audio-recorder-icon">
-              <Mic size={30} />
+          <div className="recording-workspace">
+            <div className="audio-recorder-card">
+              <div className="audio-recorder-icon">
+                <Mic size={30} />
+              </div>
+              <div className="recording-indicator audio-recorder-status">
+                <span className="recording-dot" />
+                <span>Recording tour audio</span>
+              </div>
+              <span className="recorder-timer audio-recorder-timer">{formatTime(elapsed)}</span>
+              <button type="button" className="btn btn-danger" onClick={stopRecording}>
+                <Square size={16} fill="white" /> Stop Recording
+              </button>
             </div>
-            <div className="recording-indicator audio-recorder-status">
-              <span className="recording-dot" />
-              <span>Recording tour audio</span>
-            </div>
-            <span className="recorder-timer audio-recorder-timer">{formatTime(elapsed)}</span>
-            <button type="button" className="btn btn-danger" onClick={stopRecording}>
-              <Square size={16} fill="white" /> Stop Recording
-            </button>
+            <AssetNotesPanel
+              assets={noteAssets}
+              insertedIds={insertedAssetIds}
+              notes={notesDraft}
+              onAdd={appendAssetNote}
+              onNotesChange={setNotesDraft}
+            />
           </div>
         </div>
       );
@@ -384,6 +425,16 @@ export function UploadAndProcess({
               <span>REC</span>
             </div>
             <span className="recorder-timer">{formatTime(elapsed)}</span>
+          </div>
+          <div className="recorder-notes-dock">
+            <AssetNotesPanel
+              assets={noteAssets}
+              insertedIds={insertedAssetIds}
+              notes={notesDraft}
+              onAdd={appendAssetNote}
+              onNotesChange={setNotesDraft}
+              compact
+            />
           </div>
           <div className="recorder-controls">
             <button type="button" className="recorder-stop-btn" onClick={stopRecording}>
@@ -410,19 +461,34 @@ export function UploadAndProcess({
           <form onSubmit={handleDetailsSubmit} className="form-grid">
             <div className="form-group">
               <label htmlFor="title" className="form-label">Session title</label>
-              <input id="title" name="title" type="text" className="form-input" placeholder="Downtown Unit Tour" />
+              <input id="title" name="title" type="text" className="form-input" defaultValue={defaults?.title ?? ""} placeholder="Downtown Unit Tour" />
             </div>
             <div className="form-group">
               <label htmlFor="prospectName" className="form-label">Prospect name</label>
-              <input id="prospectName" name="prospectName" type="text" className="form-input" placeholder="Sarah Johnson" />
+              <input id="prospectName" name="prospectName" type="text" className="form-input" defaultValue={defaults?.prospectName ?? ""} placeholder="Sarah Johnson" />
             </div>
             <div className="form-group">
               <label htmlFor="location" className="form-label">Location</label>
-              <input id="location" name="location" type="text" className="form-input" placeholder="Tower A - Unit 1204" />
+              <input id="location" name="location" type="text" className="form-input" defaultValue={defaults?.location ?? ""} placeholder="Tower A - Unit 1204" />
             </div>
+            <AssetNotesPanel
+              assets={noteAssets}
+              insertedIds={insertedAssetIds}
+              notes={notesDraft}
+              onAdd={appendAssetNote}
+              onNotesChange={setNotesDraft}
+            />
             <div className="form-group">
               <label htmlFor="notes" className="form-label">Notes</label>
-              <textarea id="notes" name="notes" rows={2} className="form-textarea" placeholder="Key topics, focus areas..." />
+              <textarea
+                id="notes"
+                name="notes"
+                rows={4}
+                className="form-textarea"
+                value={notesDraft}
+                onChange={(event) => setNotesDraft(event.target.value)}
+                placeholder="Key topics, requested links, assets to send..."
+              />
             </div>
             <button type="submit" className="btn btn-primary btn-block">
               Process Recording
@@ -576,6 +642,64 @@ export function UploadAndProcess({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function AssetNotesPanel({
+  assets,
+  insertedIds,
+  notes,
+  onAdd,
+  onNotesChange,
+  compact = false
+}: {
+  assets: NoteAsset[];
+  insertedIds: string[];
+  notes: string;
+  onAdd: (asset: NoteAsset) => void;
+  onNotesChange: (notes: string) => void;
+  compact?: boolean;
+}) {
+  if (assets.length === 0 && compact) return null;
+
+  return (
+    <div className={`recording-assets ${compact ? "recording-assets-compact" : ""}`}>
+      <div className="recording-assets-head">
+        <span><BookmarkPlus size={15} /> Important assets</span>
+        <small>{insertedIds.length ? `${insertedIds.length} added` : "Add to notes"}</small>
+      </div>
+
+      {assets.length > 0 ? (
+        <div className="recording-asset-list">
+          {assets.map((asset) => {
+            const inserted = insertedIds.includes(asset.id);
+            return (
+              <button
+                key={asset.id}
+                type="button"
+                className={`recording-asset-chip ${inserted ? "recording-asset-chip-added" : ""}`}
+                onClick={() => onAdd(asset)}
+              >
+                <span>{asset.name}</span>
+                <small>{inserted ? "Added" : "Insert"}</small>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="recording-assets-empty">Add assets in Materials to insert them here.</p>
+      )}
+
+      {compact ? (
+        <textarea
+          className="recording-assets-notes"
+          value={notes}
+          onChange={(event) => onNotesChange(event.target.value)}
+          rows={3}
+          placeholder="Follow-up notes and assets..."
+        />
+      ) : null}
     </div>
   );
 }

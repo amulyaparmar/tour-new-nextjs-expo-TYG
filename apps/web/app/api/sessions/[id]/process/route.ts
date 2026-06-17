@@ -60,7 +60,8 @@ export async function POST(_request: Request, context: Context) {
     // Step 4: Generate follow-up actions
     const actions = await generateFollowUpActions(analysis, {
       title: session.title,
-      prospectName: session.prospectName
+      prospectName: session.prospectName,
+      notes: session.notes
     });
     await replaceFollowUpActions(id, actions);
 

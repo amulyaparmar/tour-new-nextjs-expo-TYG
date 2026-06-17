@@ -4,16 +4,18 @@ import { Download, CheckCircle2, XCircle, ShieldCheck, ShieldAlert } from "lucid
 import { SESSION_STATUS_LABELS } from "@tour/shared";
 
 import { getScreenshotsForSession, getTranscriptForSession, type SessionScreenshot } from "@/lib/evidence";
+import { listVisibleMaterials } from "@/lib/materials";
 import { getAnalysisBySessionId, getSessionById, listFollowUpActions } from "@/lib/sessions";
 import { getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
 import { ActionStatusButtons } from "./ActionStatusButtons";
 import { CommentsSection } from "./CommentsSection";
+import { DeleteSessionButton } from "./DeleteSessionButton";
 import { DetailTabs } from "./DetailTabs";
 import { EditSessionForm } from "./EditSessionForm";
 import { ReprocessButton } from "./ReprocessButton";
 import { SessionNotesPanel } from "./SessionNotesPanel";
 import { SessionReviewClient } from "./SessionReviewClient";
-import { UploadAndProcess } from "./UploadAndProcess";
+import { UploadAndProcess, type NoteAsset, type SessionDetailDefaults } from "./UploadAndProcess";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -34,6 +36,8 @@ export default async function SessionDetailPage({ params }: Props) {
   const actions = await listFollowUpActions(id);
   const transcript = await getTranscriptForSession(id);
   const screenshots = await getScreenshotsForSession(id);
+  const noteAssets = await getNoteAssets();
+  const defaults = getSessionDetailDefaults(session);
 
   const isScheduled = session.status === "scheduled" || session.status === "in_progress";
   const hasRecording = !isScheduled;
@@ -65,16 +69,17 @@ export default async function SessionDetailPage({ params }: Props) {
               <Download size={14} /> Export
             </button>
           )}
+          <DeleteSessionButton sessionId={id} />
         </div>
       </div>
 
       {/* ── Pre-analysis: Upload / Process ── */}
       {!hasAnalysis && isScheduled && (
-        <UploadAndProcess sessionId={id} hasRecording={false} variant="new-session" />
+        <UploadAndProcess sessionId={id} hasRecording={false} variant="new-session" defaults={defaults} noteAssets={noteAssets} />
       )}
 
       {!hasAnalysis && !isScheduled && (
-        <UploadAndProcess sessionId={id} hasRecording={hasRecording} />
+        <UploadAndProcess sessionId={id} hasRecording={hasRecording} defaults={defaults} noteAssets={noteAssets} />
       )}
 
       {/* ── Analysis Results ── */}
@@ -131,6 +136,38 @@ export default async function SessionDetailPage({ params }: Props) {
       )}
     </>
   );
+}
+
+async function getNoteAssets(): Promise<NoteAsset[]> {
+  const materials = await listVisibleMaterials();
+  return materials
+    .map((material): NoteAsset | null => {
+      const url = material.media?.videoUrl ?? material.media?.iframeUrl ?? material.fileUrl ?? null;
+      if (!url) return null;
+      return {
+        id: material.id,
+        name: material.name,
+        description: material.description,
+        url
+      };
+    })
+    .filter((asset): asset is NoteAsset => asset !== null)
+    .slice(0, 10);
+}
+
+function getSessionDetailDefaults(
+  session: NonNullable<Awaited<ReturnType<typeof getSessionById>>>
+): SessionDetailDefaults {
+  const lead = session.leads?.[0];
+  const prospectName = session.prospectName || lead?.name || "";
+  const location = session.location || lead?.reason?.replace(/^Tour\s+/i, "") || "";
+  const title = session.title || [location || "Tour", prospectName].filter(Boolean).join(" - ");
+
+  return {
+    title,
+    prospectName,
+    location
+  };
 }
 
 /* ════════════════════════════════════════════════════════════

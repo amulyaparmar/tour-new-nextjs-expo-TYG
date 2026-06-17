@@ -653,6 +653,13 @@ button { border: 0; font: inherit; cursor: pointer; }
   align-items: center;
   gap: 5px;
 }
+.sd-delete-btn {
+  color: var(--red-700);
+  border-color: var(--red-200);
+}
+.sd-delete-btn:hover:not(:disabled) {
+  background: var(--red-50);
+}
 @media (max-width: 480px) {
   .sd-header { flex-direction: column; }
   .sd-header-right { justify-content: flex-start; }
@@ -2303,8 +2310,16 @@ button { border: 0; font: inherit; cursor: pointer; }
   place-items: center;
 }
 
+.recording-workspace {
+  width: min(100%, 780px);
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(260px, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
 .audio-recorder-card {
-  width: min(100%, 360px);
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2369,6 +2384,12 @@ button { border: 0; font: inherit; cursor: pointer; }
   justify-content: space-between;
   pointer-events: none;
 }
+.recorder-notes-dock {
+  align-self: flex-end;
+  width: min(360px, calc(100% - 32px));
+  margin: 0 16px 16px;
+  pointer-events: auto;
+}
 .recorder-top-bar {
   display: flex;
   align-items: center;
@@ -2425,6 +2446,108 @@ button { border: 0; font: inherit; cursor: pointer; }
 }
 .recorder-stop-btn:hover { transform: scale(1.1); }
 .recorder-stop-label { color: white; font-size: 13px; font-weight: 600; }
+
+.recording-assets {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: white;
+  box-shadow: var(--shadow-card);
+  padding: 12px;
+  min-width: 0;
+}
+.recording-assets-compact {
+  background: rgba(255,255,255,.94);
+  backdrop-filter: blur(12px);
+}
+.recording-assets-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.recording-assets-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--slate-800);
+}
+.recording-assets-head small {
+  color: var(--slate-400);
+  font-size: 11px;
+  font-weight: 700;
+}
+.recording-asset-list {
+  display: grid;
+  gap: 6px;
+  max-height: 210px;
+  overflow: auto;
+}
+.recording-asset-chip {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--slate-50);
+  color: var(--slate-700);
+  text-align: left;
+}
+.recording-asset-chip:hover {
+  background: var(--indigo-50);
+  border-color: var(--indigo-200);
+}
+.recording-asset-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+}
+.recording-asset-chip small {
+  color: var(--indigo-600);
+  font-size: 11px;
+  font-weight: 800;
+}
+.recording-asset-chip-added {
+  background: var(--green-50);
+  border-color: #bbf7d0;
+}
+.recording-asset-chip-added small {
+  color: var(--green-600);
+}
+.recording-assets-empty {
+  margin: 0;
+  color: var(--slate-400);
+  font-size: 12px;
+}
+.recording-assets-notes {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+.recording-assets-notes:focus {
+  outline: none;
+  border-color: var(--indigo-400);
+  box-shadow: 0 0 0 3px rgba(99,102,241,.1);
+}
+
+@media (max-width: 760px) {
+  .recording-workspace {
+    grid-template-columns: 1fr;
+  }
+}
 
 /* ── Spin animation for loader ───────────────────────── */
 .spin { animation: spin 1s linear infinite; }

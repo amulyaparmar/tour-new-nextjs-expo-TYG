@@ -218,7 +218,7 @@ const ANALYSIS_TOOL: ClaudeTool = {
 
 export async function generateFollowUpActions(
   analysis: AnalysisResult,
-  params: { title: string; prospectName: string | null }
+  params: { title: string; prospectName: string | null; notes?: string | null }
 ): Promise<Array<{ title: string; description: string; priority: "low" | "medium" | "high"; status: "open"; suggestedMessage: string | null }>> {
   const systemPrompt = [
     "You are a leasing sales manager creating follow-up actions for a SPECIFIC PROSPECT after their apartment tour.",
@@ -239,6 +239,7 @@ export async function generateFollowUpActions(
     "",
     "For every action, include a suggestedMessage: a ready-to-send text or email the agent can copy and use.",
     "Personalize messages with the prospect's name, specific details from their tour, and any concerns they raised.",
+    "If Agent Notes mention important follow-up assets, links, floor plans, videos, or resources, use them in the relevant suggestedMessage.",
     "",
     'Return JSON: {"actions": [{"title":"...","description":"...","priority":"high|medium|low","status":"open","suggestedMessage":"..."}]}'
   ].join("\n");
@@ -246,6 +247,7 @@ export async function generateFollowUpActions(
   const userPrompt = [
     `Session: ${params.title}`,
     `Prospect: ${params.prospectName ?? "Unknown"}`,
+    `Agent Notes: ${params.notes?.trim() || "None provided"}`,
     `Overall Score: ${analysis.overallScore}%`,
     `Summary: ${analysis.summary}`,
     "",

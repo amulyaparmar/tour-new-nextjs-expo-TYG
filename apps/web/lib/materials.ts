@@ -44,6 +44,12 @@ const STORE_PATH = path.join(process.cwd(), ".codex", "materials-store.json");
 const TOUR_PROPERTY_ID = "@27north";
 const TOUR_API_URL = `https://tour.video/api/list?id=${encodeURIComponent(TOUR_PROPERTY_ID)}`;
 const TOUR_MATERIAL_CREATED_AT = "2026-05-22T00:00:00.000Z";
+const EXCLUDED_TOUR_SOURCE_KEYS = new Set([
+  "floor_plans.form_screen",
+  "floor_plans.matterport",
+  "thank_you.contact_us",
+  "thank_you.scheduler"
+]);
 
 type TourApiAsset = {
   title?: unknown;
@@ -171,6 +177,7 @@ function mapTourAsset(sourceKey: string, asset: TourApiAsset): Material | null {
   const iframeUrl = stringOrNull(asset.iframe);
 
   if (!videoUrl && !iframeUrl) return null;
+  if (shouldHideTourAsset(sourceKey, videoUrl, iframeUrl)) return null;
 
   const title = stringOrNull(asset.title) ?? formatTourSourceKey(sourceKey);
   const includes = [
@@ -195,6 +202,24 @@ function mapTourAsset(sourceKey: string, asset: TourApiAsset): Material | null {
       iframeUrl
     }
   };
+}
+
+function shouldHideTourAsset(sourceKey: string, videoUrl: string | null, iframeUrl: string | null): boolean {
+  if (EXCLUDED_TOUR_SOURCE_KEYS.has(sourceKey)) return true;
+  if (sourceKey.startsWith("communications.")) return true;
+  if (videoUrl?.includes("/black-TYG.mp4")) return true;
+  if (iframeUrl && isUtilityIframeUrl(iframeUrl)) return true;
+
+  return false;
+}
+
+function isUtilityIframeUrl(url: string): boolean {
+  return [
+    "app.usetour.com/cta/",
+    "livechat.boldchat.com/",
+    "tour.video/referrers/",
+    "tour.video/scheduler"
+  ].some((pattern) => url.includes(pattern));
 }
 
 function stringOrNull(value: unknown): string | null {

@@ -39,6 +39,7 @@ type SessionRow = {
   status: SessionStatus;
   source: SessionSource | null;
   leads: SessionLead[] | null;
+  rubric_id: string | null;
   overall_score: number | null;
   notes: string | null;
   video_url: string | null;
@@ -46,6 +47,9 @@ type SessionRow = {
   duration: number | null;
   created_at: string;
 };
+
+const SESSION_COLUMNS =
+  "id,title,prospect_name,scheduled_at,location,status,source,leads,rubric_id,overall_score,notes,video_url,audio_url,duration,created_at";
 
 type AnalysisRow = {
   id: string;
@@ -97,10 +101,7 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
     const supabase = getSupabaseServiceClient();
     let query = supabase
       .from("sessions")
-      .select(
-        "id,title,prospect_name,scheduled_at,location,status,source,leads,overall_score,notes,video_url,audio_url,duration,created_at",
-        { count: "exact" }
-      );
+      .select(SESSION_COLUMNS, { count: "exact" });
 
     if (params?.status) {
       query = query.eq("status", params.status);
@@ -161,7 +162,8 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     notes: input.notes?.trim() ? input.notes.trim() : null,
     status: "scheduled" as const,
     source: input.source ?? "manual",
-    leads: input.leads ?? []
+    leads: input.leads ?? [],
+    rubric_id: input.rubricId ?? null
   };
 
   try {
@@ -169,9 +171,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     const { data, error } = await supabase
       .from("sessions")
       .insert(payload as never)
-      .select(
-        "id,title,prospect_name,scheduled_at,location,status,source,leads,overall_score,notes,video_url,audio_url,duration,created_at"
-      )
+      .select(SESSION_COLUMNS)
       .single<SessionRow>();
 
     if (error || !data) {
@@ -187,7 +187,8 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       prospectName: input.prospectName ?? null,
       notes: input.notes ?? null,
       source: input.source ?? "manual",
-      leads: input.leads ?? []
+      leads: input.leads ?? [],
+      rubricId: input.rubricId ?? null
     });
   }
 }
@@ -205,9 +206,7 @@ export async function findOpenQrSession(): Promise<SessionSummary | null> {
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
       .from("sessions")
-      .select(
-        "id,title,prospect_name,scheduled_at,location,status,source,leads,overall_score,notes,video_url,audio_url,duration,created_at"
-      )
+      .select(SESSION_COLUMNS)
       .eq("source", "qr")
       .eq("status", "scheduled")
       .gte("created_at", cutoff)
@@ -247,7 +246,16 @@ export async function addSessionLead(sessionId: string, lead: SessionLead): Prom
 
 export async function updateSession(
   sessionId: string,
-  fields: { title?: string; scheduledAt?: string | null; prospectName?: string | null; location?: string | null; notes?: string | null; videoUrl?: string | null; audioUrl?: string | null }
+  fields: {
+    title?: string;
+    scheduledAt?: string | null;
+    prospectName?: string | null;
+    location?: string | null;
+    notes?: string | null;
+    videoUrl?: string | null;
+    audioUrl?: string | null;
+    rubricId?: string | null;
+  }
 ) {
   try {
     const supabase = getSupabaseServiceClient();
@@ -259,6 +267,7 @@ export async function updateSession(
     if (fields.notes !== undefined) row.notes = fields.notes;
     if (fields.videoUrl !== undefined) row.video_url = fields.videoUrl;
     if (fields.audioUrl !== undefined) row.audio_url = fields.audioUrl;
+    if (fields.rubricId !== undefined) row.rubric_id = fields.rubricId;
 
     const { error } = await supabase.from("sessions").update(row as never).eq("id", sessionId);
     if (error) throw error;
@@ -284,9 +293,7 @@ export async function getSessionById(sessionId: string): Promise<SessionDetail |
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
       .from("sessions")
-      .select(
-        "id,title,prospect_name,scheduled_at,location,status,source,leads,overall_score,notes,video_url,audio_url,duration,created_at"
-      )
+      .select(SESSION_COLUMNS)
       .eq("id", sessionId)
       .maybeSingle<SessionRow>();
 
@@ -536,6 +543,7 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     status: row.status,
     source: row.source ?? "manual",
     leads: row.leads ?? [],
+    rubricId: row.rubric_id ?? null,
     overallScore: row.overall_score,
     createdAt: row.created_at
   };

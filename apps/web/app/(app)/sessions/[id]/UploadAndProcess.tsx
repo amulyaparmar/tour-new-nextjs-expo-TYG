@@ -313,14 +313,17 @@ export function UploadAndProcess({
             </span>
           </button>
 
+          <button type="button" className="create-primary-action" onClick={() => inputRef.current?.click()} style={{ marginBottom: 12, background: "white", color: "var(--slate-700)", borderColor: "var(--slate-200)" }}>
+            <span className="create-action-icon">
+              <Upload size={24} />
+            </span>
+            <span>
+              <span className="create-action-title">Upload a Recording</span>
+              <span className="create-action-copy">Add Fireflies audio, Zoom video, or a saved file.</span>
+            </span>
+          </button>
+
           <div className="create-action-grid">
-            <button type="button" className="create-action-card" onClick={() => inputRef.current?.click()}>
-              <Upload size={20} />
-              <span>
-                <span className="create-action-title">Upload a Recording</span>
-                <span className="create-action-copy">Add Fireflies audio, Zoom video, or a saved file.</span>
-              </span>
-            </button>
             <button type="button" className="create-action-card" onClick={() => router.push("/calendar")}>
               <CalendarDays size={20} />
               <span>

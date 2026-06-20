@@ -1,8 +1,9 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { BookOpen, ClipboardList, ExternalLink, Link2, Paperclip, Play, Plus, Video } from "lucide-react";
-import { createMaterial, listVisibleMaterials } from "@/lib/materials";
-import type { Material, MaterialType } from "@/lib/materials";
+import { listVisibleMaterials } from "@/lib/materials";
+import type { Material } from "@/lib/materials";
+
+import { AddMaterialForm } from "./AddMaterialForm";
 
 export const dynamic = "force-dynamic";
 
@@ -25,33 +26,18 @@ export default async function MaterialsPage() {
       <div className="page-header">
         <h1>Materials</h1>
         <p>Rubrics, training docs, Tour.video assets, and sales resources</p>
+        <Link href="/rubrics" style={{ fontSize: 13, fontWeight: 600, color: "var(--indigo-600)", marginTop: 4, display: "inline-block" }}>
+          Manage evaluation rubrics →
+        </Link>
       </div>
 
-      <details className="card" style={{ marginBottom: 16 }}>
+      <details className="card" style={{ marginBottom: 16 }} open>
         <summary className="card-header" style={{ cursor: "pointer", userSelect: "none", display: "flex", alignItems: "center", gap: 6 }}>
           <Plus size={16} />
-          <h2>Add Material</h2>
+          <h2>Add Material or Rubric</h2>
         </summary>
         <div className="card-body">
-          <form action={createMaterialAction} className="form-grid">
-            <div className="form-group">
-              <label htmlFor="name" className="form-label">Name</label>
-              <input id="name" name="name" type="text" className="form-input" placeholder="Closing Playbook" required />
-            </div>
-            <div className="form-group">
-              <label htmlFor="type" className="form-label">Type</label>
-              <select id="type" name="type" className="form-select" defaultValue="rubric">
-                <option value="rubric">Rubric</option>
-                <option value="training">Training</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label htmlFor="description" className="form-label">Description</label>
-              <textarea id="description" name="description" rows={3} className="form-textarea" placeholder="What this material covers..." />
-            </div>
-            <button type="submit" className="btn btn-primary">Add Material</button>
-          </form>
+          <AddMaterialForm />
         </div>
       </details>
 
@@ -129,17 +115,4 @@ function MaterialCard({ material }: { material: Material }) {
       </div>
     </Link>
   );
-}
-
-async function createMaterialAction(formData: FormData) {
-  "use server";
-
-  const name = String(formData.get("name") ?? "").trim();
-  if (!name) return;
-
-  const type = (formData.get("type") as MaterialType) ?? "other";
-  const description = String(formData.get("description") ?? "").trim();
-
-  await createMaterial({ name, type, description });
-  redirect("/materials");
 }

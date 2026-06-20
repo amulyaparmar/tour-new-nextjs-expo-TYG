@@ -1,4 +1,4 @@
-import type { AnalysisResult, FollowUpAction, SessionDetail, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, FollowUpAction, RubricSummary, SessionDetail, SessionSummary } from "@tour/shared";
 
 import { getApiBaseUrl } from "./config";
 
@@ -41,6 +41,7 @@ export async function createSession(payload: {
   prospectName?: string | null;
   location?: string | null;
   notes?: string | null;
+  rubricId?: string | null;
 }) {
   const res = await fetch(`${BASE_URL}/api/sessions`, {
     method: "POST",
@@ -59,6 +60,14 @@ export async function fetchSession(sessionId: string) {
     throw new Error("Failed to fetch session detail.");
   }
   return (await res.json()) as { session: SessionDetail };
+}
+
+export async function fetchRubrics() {
+  const res = await fetch(`${BASE_URL}/api/rubrics`);
+  if (!res.ok) {
+    throw new Error("Failed to fetch rubrics.");
+  }
+  return (await res.json()) as { rubrics: RubricSummary[] };
 }
 
 export async function generateAnalysis(sessionId: string) {

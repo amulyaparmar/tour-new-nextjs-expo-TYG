@@ -75,6 +75,7 @@ export async function PATCH(request: Request, context: Context) {
       prospectName: typeof body.prospectName === "string" ? body.prospectName : undefined,
       location: typeof body.location === "string" ? body.location : undefined,
       notes: typeof body.notes === "string" ? body.notes : undefined,
+      rubricId: body.rubricId === null || typeof body.rubricId === "string" ? body.rubricId as string | null : undefined,
     };
     if (Object.values(fields).some((value) => value !== undefined)) {
       await updateSession(id, fields);

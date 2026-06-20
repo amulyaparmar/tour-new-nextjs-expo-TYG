@@ -21,7 +21,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import type { AnalysisResult, FollowUpAction, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, FollowUpAction, RubricSummary, SessionSummary } from "@tour/shared";
 import {
   type Material,
   type PaginatedSessions,
@@ -32,6 +32,7 @@ import {
   fetchAnalysis,
   fetchComments,
   fetchMaterials,
+  fetchRubrics,
   fetchSession,
   fetchSessions,
   fetchTranscript,
@@ -952,6 +953,21 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
   const [prospect, setProspect] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
+  const [rubrics, setRubrics] = useState<RubricSummary[]>([]);
+  const [rubricId, setRubricId] = useState<string | null>(null);
+  const [rubricOpen, setRubricOpen] = useState(false);
+
+  useEffect(() => {
+    fetchRubrics()
+      .then(({ rubrics: list }) => {
+        setRubrics(list);
+        if (list.length > 0) {
+          const defaultRubric = list.find((r) => r.isDefault) ?? list[0];
+          setRubricId(defaultRubric.id);
+        }
+      })
+      .catch(() => { /* rubric picker optional */ });
+  }, []);
 
   async function startRecording() {
     try {
@@ -1017,6 +1033,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
     if (prospect.trim()) patchBody.prospectName = prospect.trim();
     if (location.trim()) patchBody.location = location.trim();
     if (notes.trim()) patchBody.notes = notes.trim();
+    if (rubricId) patchBody.rubricId = rubricId;
 
     if (Object.keys(patchBody).length > 0) {
       try {
@@ -1147,6 +1164,32 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
             <Input placeholder="Session title" value={title} onChangeText={setTitle} icon="text-outline" />
             <Input placeholder="Prospect name" value={prospect} onChangeText={setProspect} icon="person-outline" />
             <Input placeholder="Location / unit" value={location} onChangeText={setLocation} icon="location-outline" />
+            {rubrics.length > 0 && (
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: "800", color: C.textSec, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Evaluation rubric</Text>
+                <Pressable onPress={() => setRubricOpen((o) => !o)} style={({ pressed }) => [st.inputWrap, pressed && st.pressed]}>
+                  <Ionicons name="clipboard-outline" size={18} color={C.textMuted} />
+                  <Text style={[st.inputField, { flex: 1, paddingVertical: 0 }]} numberOfLines={1}>
+                    {rubrics.find((r) => r.id === rubricId)?.name ?? "Select rubric"}
+                  </Text>
+                  <Ionicons name={rubricOpen ? "chevron-up" : "chevron-down"} size={18} color={C.textMuted} />
+                </Pressable>
+                {rubricOpen && (
+                  <View style={{ marginTop: 8, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, overflow: "hidden" }}>
+                    {rubrics.map((rubric, i) => (
+                      <Pressable
+                        key={rubric.id}
+                        onPress={() => { setRubricId(rubric.id); setRubricOpen(false); }}
+                        style={({ pressed }) => [{ padding: 14, backgroundColor: rubricId === rubric.id ? C.brand + "10" : "#fff", borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "#e2e8f0" }, pressed && st.pressed]}
+                      >
+                        <Text style={{ fontSize: 14, fontWeight: "800", color: C.text }}>{rubric.name}{rubric.isDefault ? " (default)" : ""}</Text>
+                        <Text style={{ fontSize: 12, fontWeight: "600", color: C.textSec, marginTop: 2 }}>{rubric.totalPoints} pts · {rubric.questionCount} questions</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
             <Input placeholder="Notes or focus areas" value={notes} onChangeText={setNotes} icon="document-text-outline" multiline />
             <PrimaryBtn label={submitting ? "Saving..." : "Save & Analyze"} onPress={submitAndProcess} disabled={submitting} icon="analytics-outline" />
             <Pressable onPress={() => { if (sessionId) onCreated(sessionId); }} style={({ pressed }) => [pressed && st.pressed]}>

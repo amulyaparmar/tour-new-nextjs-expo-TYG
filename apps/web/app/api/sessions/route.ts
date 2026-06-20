@@ -46,6 +46,7 @@ export async function POST(request: Request) {
       location?: string | null;
       prospectName?: string | null;
       notes?: string | null;
+      rubricId?: string | null;
     };
 
     if (!body.title?.trim()) {
@@ -57,7 +58,8 @@ export async function POST(request: Request) {
       scheduledAt: body.scheduledAt ?? null,
       location: body.location ?? null,
       prospectName: body.prospectName ?? null,
-      notes: body.notes ?? null
+      notes: body.notes ?? null,
+      rubricId: body.rubricId ?? null
     });
 
     return NextResponse.json({ session }, { status: 201 });

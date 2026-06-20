@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { generateAnalysis, generateFollowUpActions } from "@/lib/analysis";
+import { getRubricForSession } from "@/lib/rubrics";
 import {
   getAnalysisBySessionId,
   getSessionById,
+  getTranscript,
   replaceFollowUpActions,
   upsertAnalysis
 } from "@/lib/sessions";
@@ -31,11 +33,16 @@ export async function POST(_request: Request, context: Context) {
       return NextResponse.json({ error: "Session not found." }, { status: 404 });
     }
 
+    const rubric = await getRubricForSession(session.rubricId);
+    const transcript = await getTranscript(id);
+
     const analysis = await generateAnalysis({
       title: session.title,
       prospectName: session.prospectName,
       location: session.location,
-      notes: session.notes
+      notes: session.notes,
+      transcript: transcript.length > 0 ? transcript : undefined,
+      rubricDefinition: rubric.definition
     });
 
     await upsertAnalysis(id, analysis);

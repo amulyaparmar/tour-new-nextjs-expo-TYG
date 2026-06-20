@@ -6,18 +6,20 @@ import {
   ArrowLeft,
   CalendarDays,
   Camera,
+  ClipboardList,
   FolderPlus,
   Globe2,
-  Images,
   Library,
   Loader2,
   Mic,
   QrCode,
   Square,
-  Upload
+  Upload,
+  UserRound
 } from "lucide-react";
 
 import { SmartSessionForm } from "../SmartSessionForm";
+import { RubricSelector } from "../RubricSelector";
 
 type Phase = "choose" | "lead" | "recording" | "details" | "saving";
 type CreateTab = "session" | "content";
@@ -29,6 +31,7 @@ export function NewSessionFlow() {
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
   const contentInputRef = useRef<HTMLInputElement>(null);
+  const rubricInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -42,6 +45,7 @@ export function NewSessionFlow() {
   const [elapsed, setElapsed] = useState(0);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [contentUploading, setContentUploading] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -132,6 +136,23 @@ export function NewSessionFlow() {
     setPhase("details");
   }
 
+  async function handleRubricTemplateSelect(file: File) {
+    setContentUploading(true);
+    setErrorMsg(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/rubrics/upload", { method: "POST", body: formData });
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      if (!res.ok) throw new Error(body?.error ?? "Rubric upload failed");
+      router.push("/rubrics");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Rubric upload failed");
+    } finally {
+      setContentUploading(false);
+    }
+  }
+
   const handleSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!recordedBlob) return;
@@ -171,7 +192,8 @@ export function NewSessionFlow() {
           scheduledAt: now.toISOString(),
           prospectName: String(fd.get("prospectName") ?? "").trim() || null,
           location: String(fd.get("location") ?? "").trim() || null,
-          notes: String(fd.get("notes") ?? "").trim() || null
+          notes: String(fd.get("notes") ?? "").trim() || null,
+          rubricId: String(fd.get("rubricId") ?? "").trim() || null
         })
       });
 
@@ -244,12 +266,22 @@ export function NewSessionFlow() {
               </span>
             </button>
 
+            <button type="button" className="create-primary-action" onClick={() => inputRef.current?.click()} style={{ marginBottom: 12, background: "white", color: "var(--slate-700)", borderColor: "var(--slate-200)" }}>
+              <span className="create-action-icon">
+                <Upload size={24} />
+              </span>
+              <span>
+                <span className="create-action-title">Upload a Recording</span>
+                <span className="create-action-copy">Add Fireflies audio, Zoom video, or a saved file.</span>
+              </span>
+            </button>
+
             <div className="create-action-grid">
-              <button type="button" className="create-action-card" onClick={() => inputRef.current?.click()}>
-                <Upload size={20} />
+              <button type="button" className="create-action-card" onClick={() => setPhase("lead")}>
+                <UserRound size={20} />
                 <span>
-                  <span className="create-action-title">Upload a Recording</span>
-                  <span className="create-action-copy">Add Fireflies audio, Zoom video, or a saved file.</span>
+                  <span className="create-action-title">Capture Tour Lead</span>
+                  <span className="create-action-copy">Log prospect details, then record or upload after.</span>
                 </span>
               </button>
               <button type="button" className="create-action-card" onClick={() => router.push("/calendar")}>
@@ -277,16 +309,39 @@ export function NewSessionFlow() {
           <div className="create-panel" role="tabpanel">
             <div className="create-panel-heading">
               <h2>New Content</h2>
-              <p>Plan, record, upload, or collect content for a property tour.</p>
+              <p>Upload rubric templates, media, or training files for your property tour library.</p>
             </div>
 
-            <button type="button" className="create-primary-action content" onClick={() => router.push("/materials")}>
+            <button
+              type="button"
+              className="create-primary-action content"
+              disabled={contentUploading}
+              onClick={() => rubricInputRef.current?.click()}
+            >
               <span className="create-action-icon">
-                <FolderPlus size={24} />
+                <ClipboardList size={24} />
               </span>
               <span>
-                <span className="create-action-title">Start a Content Project</span>
-                <span className="create-action-copy">Plan what needs to be filmed, uploaded, or collected.</span>
+                <span className="create-action-title">
+                  {contentUploading ? "Extracting rubric..." : "Upload Rubric Template"}
+                </span>
+                <span className="create-action-copy">PDF or doc — AI extracts scoring criteria for sessions.</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className="create-primary-action"
+              disabled={contentUploading}
+              onClick={() => contentInputRef.current?.click()}
+              style={{ marginBottom: 12, background: "white", color: "var(--slate-700)", borderColor: "var(--slate-200)" }}
+            >
+              <span className="create-action-icon">
+                <Upload size={24} />
+              </span>
+              <span>
+                <span className="create-action-title">Upload Media or File</span>
+                <span className="create-action-copy">Photos, videos, floorplans, training PDFs, and more.</span>
               </span>
             </button>
 
@@ -298,11 +353,11 @@ export function NewSessionFlow() {
                   <span className="create-action-copy">Capture walkthroughs, amenities, or quick updates.</span>
                 </span>
               </button>
-              <button type="button" className="create-action-card" onClick={() => contentInputRef.current?.click()}>
-                <Images size={20} />
+              <button type="button" className="create-action-card" onClick={() => router.push("/materials")}>
+                <FolderPlus size={20} />
                 <span>
-                  <span className="create-action-title">Upload Media</span>
-                  <span className="create-action-copy">Add photos, videos, floorplans, or other files.</span>
+                  <span className="create-action-title">Add Material</span>
+                  <span className="create-action-copy">Name, type, description, and optional file upload.</span>
                 </span>
               </button>
               <button type="button" className="create-action-card" onClick={() => router.push("/tour-new")}>
@@ -341,6 +396,17 @@ export function NewSessionFlow() {
           accept="video/*,image/*,application/pdf"
           style={{ display: "none" }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f, "content"); }}
+        />
+        <input
+          ref={rubricInputRef}
+          type="file"
+          accept=".pdf,.txt,.md,.csv,.json,text/*,application/pdf"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void handleRubricTemplateSelect(f);
+            e.target.value = "";
+          }}
         />
         {errorMsg && <p className="create-error">{errorMsg}</p>}
       </>
@@ -446,10 +512,13 @@ export function NewSessionFlow() {
               <input id="title" name="title" type="text" className="form-input" placeholder={draftType === "content" ? "Model unit walkthrough" : "Downtown Unit Tour"} />
             </div>
             {draftType === "session" && (
-              <div className="form-group">
-                <label htmlFor="prospectName" className="form-label">Prospect name</label>
-                <input id="prospectName" name="prospectName" type="text" className="form-input" placeholder="Sarah Johnson" />
-              </div>
+              <>
+                <div className="form-group">
+                  <label htmlFor="prospectName" className="form-label">Prospect name</label>
+                  <input id="prospectName" name="prospectName" type="text" className="form-input" placeholder="Sarah Johnson" />
+                </div>
+                <RubricSelector />
+              </>
             )}
             <div className="form-group">
               <label htmlFor="location" className="form-label">{draftType === "content" ? "Property or project" : "Location"}</label>

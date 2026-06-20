@@ -10,6 +10,10 @@ export async function POST(request: Request) {
     const file = formData.get("file");
     const name = String(formData.get("name") ?? "").trim();
     const description = String(formData.get("description") ?? "").trim();
+    const typeParam = String(formData.get("type") ?? "other").trim();
+    const type = (["rubric", "training", "recording", "other"].includes(typeParam)
+      ? typeParam
+      : "other") as "rubric" | "training" | "recording" | "other";
 
     if (!file || !(file instanceof Blob)) {
       return NextResponse.json({ error: "No file provided." }, { status: 400 });
@@ -19,7 +23,7 @@ export async function POST(request: Request) {
     const fileUrl = await storeRecording(`material-${randomUUID()}`, file);
     const material = await createMaterial({
       name: materialName,
-      type: "other",
+      type,
       description,
       fileUrl
     });

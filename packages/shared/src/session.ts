@@ -39,6 +39,7 @@ export type SessionSummary = {
   status: SessionStatus;
   source: SessionSource;
   leads: SessionLead[];
+  rubricId: string | null;
   overallScore: number | null;
   createdAt: string;
 };
@@ -58,6 +59,7 @@ export type CreateSessionInput = {
   notes?: string | null;
   source?: SessionSource;
   leads?: SessionLead[];
+  rubricId?: string | null;
 };
 
 export type QuestionScore = {

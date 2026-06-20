@@ -12,8 +12,19 @@ import "server-only";
 
 export type ClaudeMessage = {
   role: "user" | "assistant";
-  content: string | unknown[];
+  content: string | ClaudeContentBlock[];
 };
+
+export type ClaudeContentBlock =
+  | { type: "text"; text: string }
+  | {
+      type: "document";
+      source: {
+        type: "base64";
+        media_type: "application/pdf";
+        data: string;
+      };
+    };
 
 export type ClaudeTool = {
   name: string;

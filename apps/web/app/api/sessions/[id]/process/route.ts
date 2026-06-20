@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { generateAnalysis, generateFollowUpActions } from "@/lib/analysis";
 import { createMaterial, findMaterialBySessionId } from "@/lib/materials";
+import { getRubricForSession } from "@/lib/rubrics";
 import { extractScreenshots } from "@/lib/screenshots";
 import { getSessionById, replaceFollowUpActions, saveTranscript, setSessionStatus, upsertAnalysis } from "@/lib/sessions";
 import { transcribeAudio } from "@/lib/transcribe";
@@ -39,12 +40,14 @@ export async function POST(_request: Request, context: Context) {
 
     // Step 2: AI Analysis with real transcript (run before screenshots so we know key moments)
     await setSessionStatus(id, "analyzing");
+    const rubric = await getRubricForSession(session.rubricId);
     const analysis = await generateAnalysis({
       title: session.title,
       prospectName: session.prospectName,
       location: session.location,
       notes: session.notes,
-      transcript
+      transcript,
+      rubricDefinition: rubric.definition
     });
 
     await upsertAnalysis(id, analysis);

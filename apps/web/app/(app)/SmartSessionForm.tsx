@@ -18,6 +18,7 @@ import {
   Users
 } from "lucide-react";
 
+import { RubricSelector } from "./RubricSelector";
 import { contactCard, propertyTour } from "./contact-card-data";
 
 type SmartSessionFormProps = {
@@ -59,6 +60,7 @@ export function SmartSessionForm({ mode = "inline", onDone, onCancel }: SmartSes
   const [budget, setBudget] = useState("");
   const [budgetNote, setBudgetNote] = useState("");
   const [interests, setInterests] = useState("");
+  const [rubricId, setRubricId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,7 +107,8 @@ export function SmartSessionForm({ mode = "inline", onDone, onCancel }: SmartSes
           scheduledAt: scheduledAt.toISOString(),
           prospectName: normalizedLeadName,
           location: propertyTour.name,
-          notes
+          notes,
+          rubricId
         })
       });
 
@@ -341,6 +344,12 @@ export function SmartSessionForm({ mode = "inline", onDone, onCancel }: SmartSes
         </div>
       </details>
 
+      <RubricSelector value={rubricId} onChange={setRubricId} />
+
+      <p style={{ fontSize: 12, color: "var(--slate-500)", marginTop: -4 }}>
+        After creating, you can record or upload the tour on the session page.
+      </p>
+
       <div className="smart-session-preview">
         <span>Session title</span>
         <strong>{inferredTitle}</strong>
@@ -370,7 +379,7 @@ export function SmartSessionModalButton({
   title?: string;
 }) {
   return (
-    <Link href="/new?mode=lead" className="btn btn-primary btn-sm smart-session-plus" aria-label={title}>
+    <Link href="/new" className="btn btn-primary btn-sm smart-session-plus" aria-label={title}>
       <Plus size={14} />
       <span>{label}</span>
     </Link>

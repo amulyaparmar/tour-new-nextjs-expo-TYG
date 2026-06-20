@@ -71,6 +71,7 @@ export async function createLocalSession(input: {
   notes?: string | null;
   source?: SessionSource;
   leads?: SessionLead[];
+  rubricId?: string | null;
 }): Promise<SessionSummary> {
   const store = await loadStore();
   const session: SessionDetail = {
@@ -82,6 +83,7 @@ export async function createLocalSession(input: {
     status: "scheduled",
     source: input.source ?? "manual",
     leads: input.leads ?? [],
+    rubricId: input.rubricId ?? null,
     overallScore: null,
     createdAt: new Date().toISOString(),
     notes: input.notes ?? null,
@@ -102,7 +104,14 @@ export async function getLocalSessionById(sessionId: string): Promise<SessionDet
 
 export async function updateLocalSession(
   sessionId: string,
-  fields: { title?: string; scheduledAt?: string | null; prospectName?: string | null; location?: string | null; notes?: string | null }
+  fields: {
+    title?: string;
+    scheduledAt?: string | null;
+    prospectName?: string | null;
+    location?: string | null;
+    notes?: string | null;
+    rubricId?: string | null;
+  }
 ) {
   const store = await loadStore();
   const session = store.sessions.find((item) => item.id === sessionId);
@@ -112,6 +121,7 @@ export async function updateLocalSession(
   if (fields.prospectName !== undefined) session.prospectName = fields.prospectName;
   if (fields.location !== undefined) session.location = fields.location;
   if (fields.notes !== undefined) session.notes = fields.notes;
+  if (fields.rubricId !== undefined) session.rubricId = fields.rubricId;
   await saveStore(store);
 }
 

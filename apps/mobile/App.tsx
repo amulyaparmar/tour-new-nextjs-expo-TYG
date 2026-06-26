@@ -21,7 +21,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import type { AnalysisResult, FollowUpAction, RubricSummary, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, FollowUpAction, Rubric, SessionSummary } from "@tour/shared";
+import { rubricItemCount, rubricTotalPoints } from "@tour/shared";
 import {
   type Material,
   type PaginatedSessions,
@@ -953,7 +954,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
   const [prospect, setProspect] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
-  const [rubrics, setRubrics] = useState<RubricSummary[]>([]);
+  const [rubrics, setRubrics] = useState<Rubric[]>([]);
   const [rubricId, setRubricId] = useState<string | null>(null);
   const [rubricOpen, setRubricOpen] = useState(false);
 
@@ -963,7 +964,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
         setRubrics(list);
         if (list.length > 0) {
           const defaultRubric = list.find((r) => r.isDefault) ?? list[0];
-          setRubricId(defaultRubric.id);
+          if (defaultRubric) setRubricId(defaultRubric.id);
         }
       })
       .catch(() => { /* rubric picker optional */ });
@@ -1183,7 +1184,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
                         style={({ pressed }) => [{ padding: 14, backgroundColor: rubricId === rubric.id ? C.brand + "10" : "#fff", borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "#e2e8f0" }, pressed && st.pressed]}
                       >
                         <Text style={{ fontSize: 14, fontWeight: "800", color: C.text }}>{rubric.name}{rubric.isDefault ? " (default)" : ""}</Text>
-                        <Text style={{ fontSize: 12, fontWeight: "600", color: C.textSec, marginTop: 2 }}>{rubric.totalPoints} pts · {rubric.questionCount} questions</Text>
+                        <Text style={{ fontSize: 12, fontWeight: "600", color: C.textSec, marginTop: 2 }}>{rubricTotalPoints(rubric.definition)} pts · {rubricItemCount(rubric.definition)} items</Text>
                       </Pressable>
                     ))}
                   </View>

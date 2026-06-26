@@ -1,4 +1,4 @@
-import type { AnalysisResult, FollowUpAction, RubricSummary, SessionDetail, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, FollowUpAction, Rubric, SessionDetail, SessionSummary } from "@tour/shared";
 
 import { getApiBaseUrl } from "./config";
 
@@ -67,7 +67,7 @@ export async function fetchRubrics() {
   if (!res.ok) {
     throw new Error("Failed to fetch rubrics.");
   }
-  return (await res.json()) as { rubrics: RubricSummary[] };
+  return (await res.json()) as { rubrics: Rubric[] };
 }
 
 export async function generateAnalysis(sessionId: string) {

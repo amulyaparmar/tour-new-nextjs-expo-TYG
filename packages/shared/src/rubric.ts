@@ -1,49 +1,102 @@
-export type RubricQuestion = {
+export type RubricItem = {
   id: string;
-  question: string;
-  maxPoints: number;
-  guidance?: string;
+  text: string;
+  points: number;
+  note?: string;
 };
 
 export type RubricSection = {
-  id: string;
   name: string;
-  maxPoints: number;
-  questions: RubricQuestion[];
+  items: RubricItem[];
 };
 
+/** Scored sections + optional compliance flags + optional scoring notes. */
 export type RubricDefinition = {
   sections: RubricSection[];
-  /** Compliance / fair-housing style questions — flagged, not scored */
-  complianceQuestions?: RubricQuestion[];
-  scoringInstructions?: string;
+  compliance?: RubricItem[];
+  notes?: string;
 };
 
-export type RubricSummary = {
+export type Rubric = {
   id: string;
   name: string;
-  description: string | null;
-  totalPoints: number;
-  isDefault: boolean;
-  sectionCount: number;
-  questionCount: number;
-  createdAt: string;
-};
-
-export type Rubric = RubricSummary & {
-  sourceFileUrl: string | null;
-  sourceFileName: string | null;
-  templateText: string | null;
   definition: RubricDefinition;
-  updatedAt: string;
+  sourceUrl: string | null;
+  isDefault: boolean;
+  createdAt: string;
 };
 
 export type CreateRubricInput = {
   name: string;
-  description?: string | null;
-  sourceFileUrl?: string | null;
-  sourceFileName?: string | null;
-  templateText?: string | null;
   definition: RubricDefinition;
+  sourceUrl?: string | null;
   isDefault?: boolean;
 };
+
+export function sectionPoints(section: RubricSection): number {
+  return section.items.reduce((sum, item) => sum + item.points, 0);
+}
+
+export function rubricTotalPoints(definition: RubricDefinition): number {
+  return definition.sections.reduce((sum, section) => sum + sectionPoints(section), 0);
+}
+
+export function rubricItemCount(definition: RubricDefinition): number {
+  const scored = definition.sections.reduce((sum, section) => sum + section.items.length, 0);
+  const compliance = definition.compliance?.length ?? 0;
+  return scored + compliance;
+}
+
+/** Accept legacy DB/extraction shapes and normalize to the current schema. */
+export function normalizeRubricDefinition(raw: unknown): RubricDefinition {
+  if (!raw || typeof raw !== "object") {
+    return { sections: [] };
+  }
+
+  const obj = raw as Record<string, unknown>;
+
+  if (Array.isArray(obj.sections)) {
+    const sections = obj.sections.map((section) => {
+      const s = section as Record<string, unknown>;
+      const questions = Array.isArray(s.questions) ? s.questions : Array.isArray(s.items) ? s.items : [];
+      const items = questions.map((q, qi) => {
+        const item = q as Record<string, unknown>;
+        return {
+          id: String(item.id ?? `Q${qi + 1}`),
+          text: String(item.text ?? item.question ?? "").trim(),
+          points: Number(item.points ?? item.maxPoints ?? 0),
+          note: item.note ? String(item.note) : item.guidance ? String(item.guidance) : undefined
+        };
+      }).filter((item) => item.text);
+
+      return {
+        name: String(s.name ?? "Section"),
+        items
+      };
+    }).filter((section) => section.items.length > 0);
+
+    const complianceRaw = Array.isArray(obj.compliance)
+      ? obj.compliance
+      : Array.isArray(obj.complianceQuestions)
+        ? obj.complianceQuestions
+        : [];
+
+    const compliance = complianceRaw.map((q, i) => {
+      const item = q as Record<string, unknown>;
+      return {
+        id: String(item.id ?? `C${i + 1}`),
+        text: String(item.text ?? item.question ?? ""),
+        points: 0,
+        note: item.note ? String(item.note) : item.guidance ? String(item.guidance) : undefined
+      };
+    }).filter((item) => item.text);
+
+    return {
+      sections,
+      compliance: compliance.length > 0 ? compliance : undefined,
+      notes: obj.notes ? String(obj.notes) : obj.scoringInstructions ? String(obj.scoringInstructions) : undefined
+    };
+  }
+
+  return { sections: [] };
+}

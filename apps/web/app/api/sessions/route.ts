@@ -47,6 +47,9 @@ export async function POST(request: Request) {
       prospectName?: string | null;
       notes?: string | null;
       rubricId?: string | null;
+      agentId?: string | null;
+      propertyId?: string | null;
+      unitLabel?: string | null;
     };
 
     if (!body.title?.trim()) {
@@ -59,7 +62,10 @@ export async function POST(request: Request) {
       location: body.location ?? null,
       prospectName: body.prospectName ?? null,
       notes: body.notes ?? null,
-      rubricId: body.rubricId ?? null
+      rubricId: body.rubricId ?? null,
+      agentId: body.agentId ?? null,
+      propertyId: body.propertyId ?? null,
+      unitLabel: body.unitLabel ?? null
     });
 
     return NextResponse.json({ session }, { status: 201 });

@@ -18,11 +18,9 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       name?: string;
-      description?: string | null;
       definition?: unknown;
-      sourceFileUrl?: string | null;
-      sourceFileName?: string | null;
-      templateText?: string | null;
+      sourceUrl?: string | null;
+      isDefault?: boolean;
     };
 
     if (!body.name?.trim()) {
@@ -34,11 +32,9 @@ export async function POST(request: Request) {
 
     const rubric = await createRubric({
       name: body.name,
-      description: body.description ?? null,
       definition: body.definition as never,
-      sourceFileUrl: body.sourceFileUrl ?? null,
-      sourceFileName: body.sourceFileName ?? null,
-      templateText: body.templateText ?? null
+      sourceUrl: body.sourceUrl ?? null,
+      isDefault: body.isDefault ?? false
     });
 
     return NextResponse.json({ rubric }, { status: 201 });

@@ -40,7 +40,11 @@ export type SessionSummary = {
   source: SessionSource;
   leads: SessionLead[];
   rubricId: string | null;
+  agentId?: string | null;
+  propertyId?: string | null;
+  unitLabel?: string | null;
   overallScore: number | null;
+  duration: number | null;
   createdAt: string;
 };
 
@@ -48,7 +52,6 @@ export type SessionDetail = SessionSummary & {
   notes: string | null;
   videoUrl: string | null;
   audioUrl: string | null;
-  duration: number | null;
 };
 
 export type CreateSessionInput = {
@@ -60,6 +63,9 @@ export type CreateSessionInput = {
   source?: SessionSource;
   leads?: SessionLead[];
   rubricId?: string | null;
+  agentId?: string | null;
+  propertyId?: string | null;
+  unitLabel?: string | null;
 };
 
 export type QuestionScore = {

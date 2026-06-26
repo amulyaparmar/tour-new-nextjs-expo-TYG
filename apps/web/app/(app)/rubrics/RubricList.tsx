@@ -4,9 +4,10 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 
-import type { RubricSummary } from "@tour/shared";
+import type { Rubric } from "@tour/shared";
+import { rubricItemCount, rubricTotalPoints } from "@tour/shared";
 
-export function RubricList({ rubrics }: { rubrics: RubricSummary[] }) {
+export function RubricList({ rubrics }: { rubrics: Rubric[] }) {
   const router = useRouter();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,13 +58,8 @@ export function RubricList({ rubrics }: { rubrics: RubricSummary[] }) {
                 )}
               </div>
               <div className="material-card-meta">
-                {rubric.totalPoints} pts · {rubric.sectionCount} sections · {rubric.questionCount} questions
+                {rubricTotalPoints(rubric.definition)} pts · {rubric.definition.sections.length} sections · {rubricItemCount(rubric.definition)} items
               </div>
-              {rubric.description && (
-                <div style={{ fontSize: 12, color: "var(--slate-500)", marginTop: 2 }}>
-                  {rubric.description}
-                </div>
-              )}
             </div>
             {!rubric.isDefault && (
               <button

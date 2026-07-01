@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ClipboardList, Loader2, Upload } from "lucide-react";
 
-import type { RubricSummary } from "@tour/shared";
+import type { Rubric } from "@tour/shared";
+import { rubricItemCount, rubricTotalPoints } from "@tour/shared";
 
 import { RubricUploadForm } from "./rubrics/RubricUploadForm";
 
@@ -21,7 +22,7 @@ export function RubricSelector({
   onChange,
   showManageLink = true
 }: RubricSelectorProps) {
-  const [rubrics, setRubrics] = useState<RubricSummary[]>([]);
+  const [rubrics, setRubrics] = useState<Rubric[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(value ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +31,7 @@ export function RubricSelector({
   const loadRubrics = useCallback(async () => {
     const res = await fetch("/api/rubrics");
     if (!res.ok) throw new Error("Failed to load rubrics");
-    const data = await res.json() as { rubrics: RubricSummary[] };
+    const data = await res.json() as { rubrics: Rubric[] };
     return data.rubrics ?? [];
   }, []);
 
@@ -69,7 +70,7 @@ export function RubricSelector({
     onChange?.(next);
   }
 
-  async function handleUploaded(rubric: { id: string }) {
+  async function handleUploaded(rubric: Rubric) {
     const list = await loadRubrics();
     setRubrics(list);
     setSelected(rubric.id);
@@ -117,30 +118,29 @@ export function RubricSelector({
       ) : error ? (
         <p style={{ color: "var(--red-700)", fontSize: 13 }}>{error}</p>
       ) : (
-        <>
-          <select
-            id={name}
-            name={name}
-            className="form-select"
-            value={selected}
-            onChange={(e) => handleChange(e.target.value)}
-            required
-          >
-            {rubrics.map((rubric) => (
-              <option key={rubric.id} value={rubric.id}>
-                {rubric.name}
-                {rubric.isDefault ? " (default)" : ""}
-                {" — "}
-                {rubric.totalPoints} pts · {rubric.questionCount} questions
-              </option>
-            ))}
-          </select>
-          {selectedRubric?.description && (
-            <p style={{ fontSize: 12, color: "var(--slate-500)", marginTop: 6 }}>
-              {selectedRubric.description}
-            </p>
-          )}
-        </>
+        <select
+          id={name}
+          name={name}
+          className="form-select"
+          value={selected}
+          onChange={(e) => handleChange(e.target.value)}
+          required
+        >
+          {rubrics.map((rubric) => (
+            <option key={rubric.id} value={rubric.id}>
+              {rubric.name}
+              {rubric.isDefault ? " (default)" : ""}
+              {" — "}
+              {rubricTotalPoints(rubric.definition)} pts · {rubricItemCount(rubric.definition)} items
+            </option>
+          ))}
+        </select>
+      )}
+
+      {selectedRubric?.definition.notes && (
+        <p style={{ fontSize: 12, color: "var(--slate-500)", marginTop: 6 }}>
+          {selectedRubric.definition.notes}
+        </p>
       )}
     </div>
   );

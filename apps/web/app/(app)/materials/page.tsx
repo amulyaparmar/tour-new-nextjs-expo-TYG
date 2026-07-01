@@ -34,7 +34,7 @@ export default async function MaterialsPage() {
       <details className="card" style={{ marginBottom: 16 }} open>
         <summary className="card-header" style={{ cursor: "pointer", userSelect: "none", display: "flex", alignItems: "center", gap: 6 }}>
           <Plus size={16} />
-          <h2>Add Material or Rubric</h2>
+          <h2>Add Material</h2>
         </summary>
         <div className="card-body">
           <AddMaterialForm />

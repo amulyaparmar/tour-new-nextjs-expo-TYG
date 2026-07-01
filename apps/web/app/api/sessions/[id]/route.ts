@@ -76,6 +76,9 @@ export async function PATCH(request: Request, context: Context) {
       location: typeof body.location === "string" ? body.location : undefined,
       notes: typeof body.notes === "string" ? body.notes : undefined,
       rubricId: body.rubricId === null || typeof body.rubricId === "string" ? body.rubricId as string | null : undefined,
+      agentId: body.agentId === null || typeof body.agentId === "string" ? body.agentId as string | null : undefined,
+      propertyId: body.propertyId === null || typeof body.propertyId === "string" ? body.propertyId as string | null : undefined,
+      unitLabel: body.unitLabel === null || typeof body.unitLabel === "string" ? body.unitLabel as string | null : undefined,
     };
     if (Object.values(fields).some((value) => value !== undefined)) {
       await updateSession(id, fields);

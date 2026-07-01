@@ -15,7 +15,6 @@ export function RubricUploadForm({ compact = false, onUploaded }: RubricUploadFo
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileLabel, setFileLabel] = useState<string | null>(null);
@@ -35,14 +34,12 @@ export function RubricUploadForm({ compact = false, onUploaded }: RubricUploadFo
       const formData = new FormData();
       formData.append("file", file);
       if (name.trim()) formData.append("name", name.trim());
-      if (description.trim()) formData.append("description", description.trim());
 
       const res = await fetch("/api/rubrics/upload", { method: "POST", body: formData });
       const body = await res.json().catch(() => null) as { error?: string; rubric?: Rubric } | null;
       if (!res.ok) throw new Error(body?.error ?? "Upload failed");
 
       setName("");
-      setDescription("");
       setFileLabel(null);
       if (inputRef.current) inputRef.current.value = "";
 
@@ -60,34 +57,21 @@ export function RubricUploadForm({ compact = false, onUploaded }: RubricUploadFo
   return (
     <form onSubmit={handleSubmit} className="form-grid">
       {!compact && (
-        <>
-          <div className="form-group">
-            <label htmlFor="rubricName" className="form-label">Rubric name (optional)</label>
-            <input
-              id="rubricName"
-              type="text"
-              className="form-input"
-              placeholder="Auto-detected from template"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="rubricDescription" className="form-label">Description (optional)</label>
-            <input
-              id="rubricDescription"
-              type="text"
-              className="form-input"
-              placeholder="What this rubric evaluates"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-        </>
+        <div className="form-group">
+          <label htmlFor="rubricName" className="form-label">Name (optional)</label>
+          <input
+            id="rubricName"
+            type="text"
+            className="form-input"
+            placeholder="Auto-detected from template"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
       )}
       <div className="form-group">
         <label htmlFor="rubricFile" className="form-label">
-          {compact ? "Rubric template file" : "Rubric template"}
+          {compact ? "Rubric template file" : "Template file"}
         </label>
         <input
           ref={inputRef}

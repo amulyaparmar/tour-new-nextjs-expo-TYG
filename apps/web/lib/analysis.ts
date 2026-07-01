@@ -3,7 +3,8 @@ import "server-only";
 import type { AnalysisResult, RubricDefinition } from "@tour/shared";
 import type { TranscriptSegment } from "./transcribe";
 import { invokeClaudeTool, type ClaudeTool } from "./bedrock";
-import { computeRubricTotalPoints, DEFAULT_RBG_RUBRIC_DEFINITION } from "./default-rubric";
+import { rubricTotalPoints } from "@tour/shared";
+import { DEFAULT_RBG_RUBRIC_DEFINITION } from "./default-rubric";
 import { buildRubricAnalysisPrompt } from "./rubric-prompt";
 
 export async function generateAnalysis(params: {
@@ -21,7 +22,7 @@ export async function generateAnalysis(params: {
     : "No transcript available.";
 
   const definition = params.rubricDefinition ?? DEFAULT_RBG_RUBRIC_DEFINITION;
-  const totalPoints = computeRubricTotalPoints(definition);
+  const totalPoints = rubricTotalPoints(definition);
   const systemPrompt = buildRubricAnalysisPrompt(definition);
 
   const userPrompt = [

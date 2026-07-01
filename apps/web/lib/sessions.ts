@@ -40,6 +40,9 @@ type SessionRow = {
   source: SessionSource | null;
   leads: SessionLead[] | null;
   rubric_id: string | null;
+  agent_id?: string | null;
+  property_id?: string | null;
+  unit_label?: string | null;
   overall_score: number | null;
   notes: string | null;
   video_url: string | null;
@@ -49,7 +52,7 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS =
-  "id,title,prospect_name,scheduled_at,location,status,source,leads,rubric_id,overall_score,notes,video_url,audio_url,duration,created_at";
+  "id,title,prospect_name,scheduled_at,location,status,source,leads,rubric_id,agent_id,property_id,unit_label,overall_score,notes,video_url,audio_url,duration,created_at";
 
 type AnalysisRow = {
   id: string;
@@ -163,7 +166,10 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     status: "scheduled" as const,
     source: input.source ?? "manual",
     leads: input.leads ?? [],
-    rubric_id: input.rubricId ?? null
+    rubric_id: input.rubricId ?? null,
+    agent_id: input.agentId ?? null,
+    property_id: input.propertyId ?? null,
+    unit_label: input.unitLabel ?? null
   };
 
   try {
@@ -255,6 +261,9 @@ export async function updateSession(
     videoUrl?: string | null;
     audioUrl?: string | null;
     rubricId?: string | null;
+    agentId?: string | null;
+    propertyId?: string | null;
+    unitLabel?: string | null;
   }
 ) {
   try {
@@ -268,6 +277,9 @@ export async function updateSession(
     if (fields.videoUrl !== undefined) row.video_url = fields.videoUrl;
     if (fields.audioUrl !== undefined) row.audio_url = fields.audioUrl;
     if (fields.rubricId !== undefined) row.rubric_id = fields.rubricId;
+    if (fields.agentId !== undefined) row.agent_id = fields.agentId;
+    if (fields.propertyId !== undefined) row.property_id = fields.propertyId;
+    if (fields.unitLabel !== undefined) row.unit_label = fields.unitLabel;
 
     const { error } = await supabase.from("sessions").update(row as never).eq("id", sessionId);
     if (error) throw error;
@@ -544,7 +556,11 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     source: row.source ?? "manual",
     leads: row.leads ?? [],
     rubricId: row.rubric_id ?? null,
+    agentId: row.agent_id ?? null,
+    propertyId: row.property_id ?? null,
+    unitLabel: row.unit_label ?? null,
     overallScore: row.overall_score,
+    duration: row.duration,
     createdAt: row.created_at
   };
 }

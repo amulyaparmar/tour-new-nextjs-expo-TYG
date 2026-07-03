@@ -41,7 +41,7 @@ export function Dashboard({
   onSelectSession: (id: string) => void;
   onNavigate: (view: string) => void;
 }) {
-  const { sessions, agents, trendData, properties, refresh } = useAdminData();
+  const { sessions, agents, trendData, properties, refresh, teamRadar } = useAdminData();
   const [search, setSearch] = useState("");
   const [agentFilter, setAgentFilter] = useState<string>("all");
   const [propertyFilter, setPropertyFilter] = useState<string>("all");
@@ -332,10 +332,10 @@ export function Dashboard({
                 <span className="text-xs text-muted-foreground">Team avg</span>
               </div>
               <ResponsiveContainer width="100%" height={170}>
-                <RadarChart data={[
-                  { axis: "Opening", score: 84 }, { axis: "Discovery", score: 75 },
-                  { axis: "Showcase", score: 80 }, { axis: "Objections", score: 72 },
-                  { axis: "Closing", score: 77 }, { axis: "Follow-up", score: 76 },
+                <RadarChart data={teamRadar.length > 0 ? teamRadar : [
+                  { axis: "Opening", score: 0 }, { axis: "Discovery", score: 0 },
+                  { axis: "Showcase", score: 0 }, { axis: "Objections", score: 0 },
+                  { axis: "Closing", score: 0 }, { axis: "Follow-up", score: 0 },
                 ]} margin={{ top: 0, right: 20, bottom: 0, left: 20 }}>
                   <PolarGrid stroke="#e4e4e7" />
                   <PolarAngleAxis dataKey="axis" tick={{ fontSize: 9, fill: "#71717a" }} />

@@ -6,6 +6,22 @@ import { listRubrics } from "./rubrics";
 import { getSupabaseServiceClient } from "./supabase";
 import { listSessions } from "./sessions";
 
+export type AdminSectionScore = {
+  section: string;
+  score: number;
+  pointsEarned: number;
+  pointsPossible: number;
+  insight: string;
+  questions: Array<{
+    id: string;
+    question: string;
+    earnedPoints: number;
+    maxPoints: number;
+    passed: boolean;
+    evidence: string;
+  }>;
+};
+
 export type AdminProperty = {
   id: string;
   name: string;
@@ -39,6 +55,7 @@ export type AdminSession = {
   agent: string;
   tags: string[];
   rubricId: string | null;
+  sectionScores: AdminSectionScore[] | null;
 };
 
 export type AdminProspect = {
@@ -139,14 +156,18 @@ export async function getAdminBootstrap(): Promise<AdminBootstrap> {
   ]);
 
   const properties = rawProperties.length > 0 ? rawProperties : FALLBACK_PROPERTIES;
-  const agents = buildAgents(rawAgents.length > 0 ? rawAgents : FALLBACK_AGENTS, sessions);
-  const adminSessions = sessions.map((session, index) =>
-    mapAdminSession(session, properties, agents, index)
+  const agentRows = rawAgents.length > 0 ? rawAgents : FALLBACK_AGENTS;
+  const analyses = await listAnalysesBySessionIds(
+    sessions.filter((session) => typeof session.overallScore === "number").map((session) => session.id)
   );
+  const adminSessions = sessions.map((session, index) =>
+    mapAdminSession(session, properties, agentRows, index, analyses)
+  );
+  const agents = buildAgents(agentRows, adminSessions);
   const prospects = buildProspects(adminSessions, sessions, followUps);
   const trendData = buildTrendData(agents);
   const scoreDistribution = buildScoreDistribution(adminSessions);
-  const teamRadar = buildTeamRadar(agents);
+  const teamRadar = buildTeamRadar(adminSessions);
 
   return {
     properties,
@@ -193,6 +214,51 @@ async function listAdminAgents(): Promise<AgentRow[]> {
   }
 }
 
+async function listAnalysesBySessionIds(sessionIds: string[]): Promise<Map<string, AnalysisResult>> {
+  if (sessionIds.length === 0) return new Map();
+
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("analyses")
+      .select("session_id,result_json")
+      .in("session_id", sessionIds);
+
+    if (error) throw new Error(error.message);
+
+    const map = new Map<string, AnalysisResult>();
+    for (const row of (data as Array<{ session_id: string; result_json: AnalysisResult | null }> | null) ?? []) {
+      if (row.result_json) map.set(row.session_id, row.result_json);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+export function mapAnalysisSectionScores(analysis: AnalysisResult | null | undefined): AdminSectionScore[] | null {
+  if (!analysis?.sectionScores?.length) return null;
+
+  return analysis.sectionScores.map((section) => ({
+    section: section.section,
+    score: Math.round(section.score ?? 0),
+    pointsEarned: section.pointsEarned ?? 0,
+    pointsPossible: section.pointsPossible ?? 0,
+    insight:
+      section.questions?.find((question) => question.evidence)?.evidence ??
+      section.questions?.[0]?.evidence ??
+      "",
+    questions: (section.questions ?? []).map((question) => ({
+      id: String(question.id ?? ""),
+      question: String(question.question ?? ""),
+      earnedPoints: Number(question.earnedPoints ?? 0),
+      maxPoints: Number(question.maxPoints ?? 0),
+      passed: Boolean(question.passed),
+      evidence: String(question.evidence ?? ""),
+    })),
+  }));
+}
+
 async function listProspectFollowUps(): Promise<FollowUpRow[]> {
   try {
     const supabase = getSupabaseServiceClient();
@@ -206,18 +272,15 @@ async function listProspectFollowUps(): Promise<FollowUpRow[]> {
   }
 }
 
-function buildAgents(rows: AgentRow[], sessions: SessionSummary[]): AdminAgent[] {
+function buildAgents(rows: AgentRow[], sessions: AdminSession[]): AdminAgent[] {
   return rows.map((row) => {
     const agentSessions = sessions.filter((session) => session.agentId === row.id);
-    const scored = agentSessions.filter((session) => typeof session.overallScore === "number");
+    const scored = agentSessions.filter((session) => typeof session.score === "number");
     const avgScore = scored.length
-      ? Math.round(scored.reduce((sum, session) => sum + (session.overallScore ?? 0), 0) / scored.length)
+      ? Math.round(scored.reduce((sum, session) => sum + (session.score ?? 0), 0) / scored.length)
       : 0;
-    const weeklyScores = buildWeeklyScores(scored.map((session) => session.overallScore ?? 0), avgScore);
-    const rubricBreakdown = RUBRIC_AXES.map((axis, index) => ({
-      axis,
-      score: clampScore(avgScore + [5, -3, 2, -6, 1, -2][index]!),
-    }));
+    const weeklyScores = buildWeeklyScores(scored.map((session) => session.score ?? 0), avgScore);
+    const rubricBreakdown = buildRubricBreakdown(agentSessions);
 
     return {
       id: row.id,
@@ -230,7 +293,7 @@ function buildAgents(rows: AgentRow[], sessions: SessionSummary[]): AdminAgent[]
       trend: weeklyScores[weeklyScores.length - 1]! >= weeklyScores[0]! ? "up" : "down",
       weeklyScores,
       rubricBreakdown,
-      coachingCount: Math.max(0, agentSessions.filter((session) => (session.overallScore ?? 100) < 75).length * 2),
+      coachingCount: Math.max(0, agentSessions.filter((session) => (session.score ?? 100) < 75).length * 2),
     };
   });
 }
@@ -238,13 +301,14 @@ function buildAgents(rows: AgentRow[], sessions: SessionSummary[]): AdminAgent[]
 function mapAdminSession(
   session: SessionSummary,
   properties: AdminProperty[],
-  agents: AdminAgent[],
-  index: number
+  agents: AgentRow[],
+  index: number,
+  analyses: Map<string, AnalysisResult>
 ): AdminSession {
   const agent = agents.find((item) => item.id === session.agentId) ?? agents[index % Math.max(agents.length, 1)];
   const property =
     properties.find((item) => item.id === session.propertyId) ??
-    properties.find((item) => item.id === agent?.propertyId) ??
+    properties.find((item) => item.id === agent?.property_id) ??
     properties[index % Math.max(properties.length, 1)];
   const firstLead = session.leads[0];
   const prospect = session.prospectName ?? firstLead?.name ?? session.title;
@@ -263,6 +327,7 @@ function mapAdminSession(
     agent: agent?.name ?? "Unassigned",
     tags: buildSessionTags(session),
     rubricId: session.rubricId,
+    sectionScores: mapAnalysisSectionScores(analyses.get(session.id)),
   };
 }
 
@@ -366,14 +431,44 @@ function buildScoreDistribution(sessions: AdminSession[]) {
   return bands.map(({ band, count }) => ({ band, count }));
 }
 
-function buildTeamRadar(agents: AdminAgent[]) {
-  return RUBRIC_AXES.map((axis) => {
-    const scores = agents.map((agent) => agent.rubricBreakdown.find((item) => item.axis === axis)?.score ?? 0);
-    return {
+function buildTeamRadar(sessions: AdminSession[]) {
+  return buildRubricBreakdown(sessions.filter((session) => session.sectionScores?.length));
+}
+
+function buildRubricBreakdown(sessions: AdminSession[]): Array<{ axis: string; score: number }> {
+  const buckets = new Map<string, number[]>();
+
+  for (const session of sessions) {
+    for (const section of session.sectionScores ?? []) {
+      const axis = sectionAxisLabel(section.section);
+      const scores = buckets.get(axis) ?? [];
+      scores.push(section.score);
+      buckets.set(axis, scores);
+    }
+  }
+
+  if (buckets.size === 0) {
+    return RUBRIC_AXES.map((axis) => ({ axis, score: 0 }));
+  }
+
+  return Array.from(buckets.entries())
+    .map(([axis, scores]) => ({
       axis,
-      score: scores.length ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length) : 0,
-    };
-  });
+      score: Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length),
+    }))
+    .sort((a, b) => a.axis.localeCompare(b.axis))
+    .slice(0, 6);
+}
+
+function sectionAxisLabel(section: string): string {
+  const normalized = section.toLowerCase();
+  if (normalized.includes("greet") || normalized.includes("opening") || normalized.includes("rapport")) return "Opening";
+  if (normalized.includes("discover") || normalized.includes("needs")) return "Discovery";
+  if (normalized.includes("tour") || normalized.includes("demonstr") || normalized.includes("showcase") || normalized.includes("amenit")) return "Showcase";
+  if (normalized.includes("objection")) return "Objections";
+  if (normalized.includes("clos")) return "Closing";
+  if (normalized.includes("follow")) return "Follow-up";
+  return section.split(/\s+/).slice(0, 2).join(" ");
 }
 
 function buildWeeklyScores(scores: number[], fallback: number): number[] {

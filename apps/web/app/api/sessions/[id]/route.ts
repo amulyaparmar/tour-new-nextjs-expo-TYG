@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type { SessionStatus } from "@tour/shared";
-import { deleteSession, getSessionById, setSessionStatus, updateSession } from "@/lib/sessions";
+import { deleteSession, getAnalysisBySessionId, getSessionById, setSessionStatus, updateSession } from "@/lib/sessions";
 import { getRecordingPlaybackPath, getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
 
 const VALID_STATUSES: SessionStatus[] = [
@@ -48,7 +48,9 @@ export async function GET(_request: Request, context: Context) {
 
     await attachPlaybackUrls(session);
 
-    return NextResponse.json({ session });
+    const analysis = await getAnalysisBySessionId(id);
+
+    return NextResponse.json({ session, analysis });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch session." },

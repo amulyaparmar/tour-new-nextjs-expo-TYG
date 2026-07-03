@@ -13,7 +13,24 @@ import {
 
 export type AdminProperty = typeof fallbackProperties[number];
 export type AdminAgent = typeof fallbackAgents[number];
-export type AdminSession = Omit<typeof fallbackSessions[number], "id"> & { id: string };
+export type AdminSession = Omit<typeof fallbackSessions[number], "id"> & {
+  id: string;
+  sectionScores?: Array<{
+    section: string;
+    score: number;
+    pointsEarned: number;
+    pointsPossible: number;
+    insight: string;
+    questions: Array<{
+      id: string;
+      question: string;
+      earnedPoints: number;
+      maxPoints: number;
+      passed: boolean;
+      evidence: string;
+    }>;
+  }> | null;
+};
 export type AdminProspect = Omit<typeof fallbackProspects[number], "tourSessionId"> & { tourSessionId: string };
 export type AdminRubricItem = {
   id: string;

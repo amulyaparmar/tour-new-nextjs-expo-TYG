@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { useAdminData } from "../data/AdminDataContext";
+import { useAdminData, type AdminSession } from "../data/AdminDataContext";
 import {
   ChevronLeft,
   Play,
@@ -74,7 +74,84 @@ const FOLLOWUP = [
   "Add Jordan to the WFH lifestyle newsletter (co-working features).",
 ];
 
-const fallbackRadarData = RUBRIC.map((r) => ({ axis: r.category.split(" ")[0], score: r.score }));
+type QuestionRow = {
+  id: string;
+  question: string;
+  earnedPoints: number;
+  maxPoints: number;
+  passed: boolean;
+  evidence: string;
+};
+
+type RubricRow = {
+  category: string;
+  score: number;
+  pointsEarned: number;
+  pointsPossible: number;
+  trend: "up" | "down" | "flat";
+  insight: string;
+  questions: QuestionRow[];
+};
+
+type SectionScoreInput = {
+  section: string;
+  score: number;
+  pointsEarned?: number;
+  pointsPossible?: number;
+  insight?: string;
+  questions?: Array<{
+    id?: string;
+    question?: string;
+    earnedPoints?: number;
+    maxPoints?: number;
+    passed?: boolean;
+    evidence?: string;
+  }>;
+};
+
+function scoreTone(score: number) {
+  if (score >= 85) return "text-emerald-600";
+  if (score >= 70) return "text-blue-600";
+  return "text-red-500";
+}
+
+function scoreBarClass(score: number) {
+  if (score >= 85) return "bg-emerald-500";
+  if (score >= 70) return "bg-blue-500";
+  return "bg-red-500";
+}
+
+function mapSectionScoresToRows(sections: SectionScoreInput[] | null | undefined): RubricRow[] {
+  if (!sections?.length) return [];
+
+  return sections.map((section) => ({
+    category: section.section,
+    score: Math.round(section.score ?? 0),
+    pointsEarned: section.pointsEarned ?? 0,
+    pointsPossible: section.pointsPossible ?? 0,
+    trend: "flat" as const,
+    insight:
+      section.insight ||
+      section.questions?.find((question) => question.evidence)?.evidence ||
+      section.questions?.[0]?.evidence ||
+      "No evidence summary available.",
+    questions: (section.questions ?? []).map((question) => ({
+      id: String(question.id ?? ""),
+      question: String(question.question ?? ""),
+      earnedPoints: Number(question.earnedPoints ?? 0),
+      maxPoints: Number(question.maxPoints ?? 0),
+      passed: Boolean(question.passed),
+      evidence: String(question.evidence ?? ""),
+    })),
+  }));
+}
+
+function normalizeAnalysisSections(analysis: { sectionScores?: SectionScoreInput[]; summary?: string } | null | undefined) {
+  return {
+    rows: mapSectionScoresToRows(analysis?.sectionScores),
+    summary: typeof analysis?.summary === "string" ? analysis.summary.trim() : "",
+  };
+}
 
 function formatTime(s: number) {
   const total = Math.max(0, Math.round(Number.isFinite(s) ? s : 0));
@@ -117,7 +194,7 @@ function apiUrl(path: string) {
 
 export function SessionDetail({ sessionId, onBack, onNavigate }: { sessionId: string | null; onBack: () => void; onNavigate?: (view: string) => void }) {
   const { sessions } = useAdminData();
-  const selected = sessions.find((session) => session.id === sessionId) ?? sessions[0];
+  const selected = sessionId ? sessions.find((session) => session.id === sessionId) ?? null : null;
   const session = selected
     ? {
       id: selected.id,
@@ -128,17 +205,20 @@ export function SessionDetail({ sessionId, onBack, onNavigate }: { sessionId: st
       duration: selected.duration,
       agent: selected.agent,
       score: selected.score ?? 0,
+      rubricId: selected.rubricId,
     }
     : SESSION;
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [newComment, setNewComment] = useState("");
-  const [activeTab, setActiveTab] = useState<"transcript" | "score" | "followup">("transcript");
+  const [activeTab, setActiveTab] = useState<"transcript" | "score" | "followup">("score");
   const [expandedRubric, setExpandedRubric] = useState<number | null>(0);
   const [transcript, setTranscript] = useState<TranscriptLine[]>(TRANSCRIPT);
   const [comments, setComments] = useState<CommentLine[]>(COMMENTS);
   const [followUp, setFollowUp] = useState<string[]>(FOLLOWUP);
-  const [rubricRows, setRubricRows] = useState(RUBRIC);
+  const [rubricRows, setRubricRows] = useState<RubricRow[]>([]);
+  const [analysisSummary, setAnalysisSummary] = useState<string | null>(null);
+  const [rubricLoading, setRubricLoading] = useState(true);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [playbackSrc, setPlaybackSrc] = useState<string | null>(null);
   const [mediaDuration, setMediaDuration] = useState(0);
@@ -150,7 +230,21 @@ export function SessionDetail({ sessionId, onBack, onNavigate }: { sessionId: st
   const totalDuration = mediaDuration || fallbackDuration;
 
   useEffect(() => {
+    if (!sessionId || selected?.id !== sessionId || !selected.sectionScores?.length) return;
+    const { rows, summary } = normalizeAnalysisSections({ sectionScores: selected.sectionScores });
+    if (rows.length) {
+      setRubricRows(rows);
+      setRubricLoading(false);
+    }
+    if (summary) setAnalysisSummary(summary);
+  }, [sessionId, selected]);
+
+  useEffect(() => {
     if (!sessionId) return;
+
+    setExpandedRubric(0);
+    setRubricLoading(true);
+    setAnalysisSummary(null);
     setCurrentTime(0);
     setPlaying(false);
     setRecordingUrl(null);
@@ -158,18 +252,31 @@ export function SessionDetail({ sessionId, onBack, onNavigate }: { sessionId: st
     setMediaError(null);
     setMediaLoading(false);
     setMediaDuration(0);
+
+    let cancelled = false;
+
+    const applyAnalysis = (analysis: { sectionScores?: SectionScoreInput[]; summary?: string } | null | undefined) => {
+      if (cancelled || !analysis?.sectionScores?.length) return;
+      const { rows, summary } = normalizeAnalysisSections(analysis);
+      setRubricRows(rows);
+      setRubricLoading(false);
+      if (summary) setAnalysisSummary(summary);
+    };
+
     void Promise.all([
       fetch(apiUrl(`/api/sessions/${sessionId}`))
         .then((res) => res.ok ? res.json() : null)
         .then((data) => {
-          const nextUrl = data?.session?.audioUrl ?? data?.session?.videoUrl ?? null;
+          if (cancelled || !data) return;
+          const nextUrl = data.session?.audioUrl ?? data.session?.videoUrl ?? null;
           if (nextUrl) {
             setRecordingUrl(nextUrl);
             setMediaLoading(true);
           }
-          if (typeof data?.session?.duration === "number" && data.session.duration > 0) {
+          if (typeof data.session?.duration === "number" && data.session.duration > 0) {
             setMediaDuration(data.session.duration);
           }
+          applyAnalysis(data.analysis);
         })
         .catch(() => {}),
       fetch(apiUrl(`/api/sessions/${sessionId}/transcript`))
@@ -206,17 +313,17 @@ export function SessionDetail({ sessionId, onBack, onNavigate }: { sessionId: st
       fetch(apiUrl(`/api/sessions/${sessionId}/analysis`))
         .then((res) => res.ok ? res.json() : null)
         .then((data) => {
-          const sections = data?.analysis?.sectionScores?.map((section: { section: string; score: number; questions?: Array<{ evidence?: string }> }) => ({
-            category: section.section,
-            score: Math.round(section.score ?? 0),
-            max: 100,
-            trend: "flat",
-            insight: section.questions?.find((question) => question.evidence)?.evidence ?? "No evidence summary available.",
-          }));
-          if (sections?.length) setRubricRows(sections);
+          applyAnalysis(data?.analysis);
         })
-        .catch(() => {}),
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setRubricLoading(false);
+        }),
     ]);
+
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId]);
 
   useEffect(() => {
@@ -322,7 +429,10 @@ export function SessionDetail({ sessionId, onBack, onNavigate }: { sessionId: st
 
   const scoreColor = session.score >= 85 ? "text-emerald-600" : session.score >= 70 ? "text-blue-600" : "text-red-500";
   const scoreBg = session.score >= 85 ? "bg-emerald-50 border-emerald-200" : session.score >= 70 ? "bg-blue-50 border-blue-200" : "bg-red-50 border-red-200";
-  const radarData = rubricRows.map((r) => ({ axis: r.category.split(" ")[0], score: r.score }));
+  const radarData = rubricRows.map((row) => ({
+    axis: row.category.split(/\s+/).slice(0, 2).join(" ") || row.category,
+    score: row.score,
+  }));
 
   return (
     <div className="min-h-screen bg-background" style={{ fontFamily: "'Inter', sans-serif" }}>
@@ -536,19 +646,21 @@ export function SessionDetail({ sessionId, onBack, onNavigate }: { sessionId: st
                       <div className={`text-5xl font-black tracking-tight ${scoreColor}`} style={{ fontFamily: "'Inter', sans-serif" }}>
                         {session.score}
                       </div>
-                      <div className="text-sm text-muted-foreground mt-1">out of 100 · Excellent</div>
+                      <div className="text-sm text-muted-foreground mt-1">out of 100 · {session.score >= 85 ? "Excellent" : session.score >= 70 ? "Good" : "Needs work"}</div>
                       <button
                         onClick={() => onNavigate?.("rubrics")}
                         className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary hover:opacity-80 transition-opacity font-medium"
                       >
-                        Standard Leasing Rubric v2 →
+                        View scoring rubric →
                       </button>
-                      <div className="mt-3 text-xs text-muted-foreground leading-relaxed">
-                        Sarah delivered a strong, prospect-centric tour. Excellent rapport-building, sharp needs discovery, and a well-handled budget objection. Follow-up lock-in is the primary growth area.
-                      </div>
+                      {analysisSummary && (
+                        <div className="mt-3 text-xs text-muted-foreground leading-relaxed">
+                          {analysisSummary}
+                        </div>
+                      )}
                     </div>
                     <ResponsiveContainer width={160} height={160}>
-                      <RadarChart data={radarData.length ? radarData : fallbackRadarData} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
+                      <RadarChart data={radarData.length ? radarData : [{ axis: "Score", score: session.score }]} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
                         <PolarGrid stroke="#e4e4e7" />
                         <PolarAngleAxis dataKey="axis" tick={{ fontSize: 9, fill: "#71717a" }} />
                         <Radar dataKey="score" stroke="#4f46e5" fill="#4f46e5" fillOpacity={0.2} strokeWidth={2} />
@@ -558,29 +670,40 @@ export function SessionDetail({ sessionId, onBack, onNavigate }: { sessionId: st
 
                   {/* Rubric breakdown */}
                   <div className="space-y-2">
-                    {rubricRows.map((r, i) => (
+                    {rubricRows.length === 0 ? (
+                      <div className="rounded-2xl border border-border bg-card px-5 py-8 text-center text-sm text-muted-foreground">
+                        {rubricLoading ? "Loading rubric breakdown…" : "Rubric breakdown will appear once analysis finishes for this session."}
+                      </div>
+                    ) : rubricRows.map((r, i) => {
+                      const passCount = r.questions.filter((question) => question.passed).length;
+                      return (
                       <div key={r.category} className="rounded-2xl border border-border bg-card overflow-hidden">
                         <button
                           onClick={() => setExpandedRubric(expandedRubric === i ? null : i)}
                           className="w-full flex items-center gap-4 px-5 py-3.5 hover:bg-secondary/50 transition-colors"
                         >
                           <div className="flex-1 text-left">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-semibold text-foreground">{r.category}</span>
+                              {r.questions.length > 0 && (
+                                <span className="text-xs font-medium text-muted-foreground">
+                                  {passCount}/{r.questions.length} passed
+                                </span>
+                              )}
                               <TrendIcon trend={r.trend} />
                             </div>
                             <div className="mt-1.5 flex items-center gap-2">
                               <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
                                 <div
-                                  className="h-full rounded-full bg-primary"
-                                  style={{ width: `${r.score}%` }}
+                                  className={`h-full rounded-full ${scoreBarClass(r.score)}`}
+                                  style={{ width: `${Math.max(0, Math.min(100, r.score))}%` }}
                                 />
                               </div>
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className={`text-sm font-bold ${r.score >= 85 ? "text-emerald-600" : r.score >= 70 ? "text-blue-600" : "text-red-500"}`}>
-                              {r.score}
+                            <span className={`text-sm font-bold ${scoreTone(r.score)}`}>
+                              {r.pointsPossible > 0 ? `${r.pointsEarned}/${r.pointsPossible}` : `${r.score}%`}
                             </span>
                             {expandedRubric === i ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
                           </div>
@@ -594,17 +717,42 @@ export function SessionDetail({ sessionId, onBack, onNavigate }: { sessionId: st
                               transition={{ duration: 0.2 }}
                               className="overflow-hidden"
                             >
-                              <div className="px-5 pb-4 pt-1 border-t border-border">
-                                <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                                  <Lightbulb className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-                                  <span>{r.insight}</span>
-                                </div>
+                              <div className="px-5 pb-4 pt-1 border-t border-border space-y-3">
+                                {r.questions.length > 0 ? r.questions.map((question) => (
+                                  <div
+                                    key={question.id || question.question}
+                                    className={`rounded-xl border p-3 ${question.passed ? "border-emerald-200 bg-emerald-50/40" : "border-red-200 bg-red-50/40"}`}
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${question.passed ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                                        {question.passed ? "✓" : "✗"}
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex flex-wrap items-start gap-2">
+                                          {question.id && <span className="text-[11px] font-mono text-muted-foreground">{question.id}</span>}
+                                          <span className="flex-1 text-sm text-foreground">{question.question}</span>
+                                          <span className={`text-xs font-bold ${question.passed ? "text-emerald-700" : "text-red-700"}`}>
+                                            {question.earnedPoints}/{question.maxPoints}
+                                          </span>
+                                        </div>
+                                        {question.evidence && (
+                                          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{question.evidence}</p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )) : (
+                                  <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                                    <Lightbulb className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                                    <span>{r.insight}</span>
+                                  </div>
+                                )}
                               </div>
                             </motion.div>
                           )}
                         </AnimatePresence>
                       </div>
-                    ))}
+                    );})}
                   </div>
                 </motion.div>
               )}

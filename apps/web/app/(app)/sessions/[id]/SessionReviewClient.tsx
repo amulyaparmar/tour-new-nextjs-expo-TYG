@@ -196,11 +196,13 @@ export function SessionReviewClient({
     <div className="sr-client">
       <div className="sr-player-combined">
         <PlayerController
+          allMoments={allMoments}
           currentTime={currentTime}
           duration={effectiveDuration}
           isPlaying={isPlaying}
           isVideo={isVideo}
           mediaRef={mediaRef}
+          onMomentClick={handleMomentClick}
           onError={() => setMediaError(true)}
           onLoadedDuration={setLoadedDuration}
           onPlaybackRate={cyclePlaybackRate}
@@ -208,18 +210,14 @@ export function SessionReviewClient({
           onSeek={seekTo}
           onTimeChange={setCurrentTime}
           playbackRate={playbackRate}
+          selectedMomentId={selectedMoment?.id ?? null}
           src={src}
           togglePlayback={togglePlayback}
         />
 
         <SessionTimeline
-          allMoments={allMoments}
           analysis={analysis}
-          currentTime={currentTime}
           duration={effectiveDuration}
-          onMomentClick={handleMomentClick}
-          onSeek={seekTo}
-          selectedMomentId={selectedMoment?.id ?? null}
         />
       </div>
 
@@ -249,11 +247,13 @@ export function SessionReviewClient({
 }
 
 function PlayerController({
+  allMoments,
   currentTime,
   duration,
   isPlaying,
   isVideo,
   mediaRef,
+  onMomentClick,
   onError,
   onLoadedDuration,
   onPlaybackRate,
@@ -261,14 +261,17 @@ function PlayerController({
   onSeek,
   onTimeChange,
   playbackRate,
+  selectedMomentId,
   src,
   togglePlayback,
 }: {
+  allMoments: Moment[];
   currentTime: number;
   duration: number;
   isPlaying: boolean;
   isVideo: boolean;
   mediaRef: RefObject<HTMLVideoElement | HTMLAudioElement | null>;
+  onMomentClick: (moment: Moment) => void;
   onError: () => void;
   onLoadedDuration: (duration: number) => void;
   onPlaybackRate: () => void;
@@ -276,6 +279,7 @@ function PlayerController({
   onSeek: (seconds: number, options?: { play?: boolean }) => void;
   onTimeChange: (seconds: number) => void;
   playbackRate: number;
+  selectedMomentId: string | null;
   src: string;
   togglePlayback: () => void;
 }) {
@@ -307,12 +311,15 @@ function PlayerController({
               <track kind="captions" />
             </video>
             <UnifiedControls
+              allMoments={allMoments}
               currentTime={currentTime}
               duration={duration}
               isPlaying={isPlaying}
+              onMomentClick={onMomentClick}
               onPlaybackRate={onPlaybackRate}
               onSeek={onSeek}
               playbackRate={playbackRate}
+              selectedMomentId={selectedMomentId}
               togglePlayback={togglePlayback}
             />
           </>
@@ -333,12 +340,15 @@ function PlayerController({
               onTimeUpdate={(e) => onTimeChange(e.currentTarget.currentTime)}
             />
             <UnifiedControls
+              allMoments={allMoments}
               currentTime={currentTime}
               duration={duration}
               isPlaying={isPlaying}
+              onMomentClick={onMomentClick}
               onPlaybackRate={onPlaybackRate}
               onSeek={onSeek}
               playbackRate={playbackRate}
+              selectedMomentId={selectedMomentId}
               togglePlayback={togglePlayback}
             />
           </div>
@@ -349,20 +359,26 @@ function PlayerController({
 }
 
 function UnifiedControls({
+  allMoments,
   currentTime,
   duration,
   isPlaying,
+  onMomentClick,
   onPlaybackRate,
   onSeek,
   playbackRate,
+  selectedMomentId,
   togglePlayback,
 }: {
+  allMoments: Moment[];
   currentTime: number;
   duration: number;
   isPlaying: boolean;
+  onMomentClick: (moment: Moment) => void;
   onPlaybackRate: () => void;
   onSeek: (seconds: number, options?: { play?: boolean }) => void;
   playbackRate: number;
+  selectedMomentId: string | null;
   togglePlayback: () => void;
 }) {
   return (
@@ -387,6 +403,19 @@ function UnifiedControls({
         }}
       >
         <div className="sr-progress-fill" style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : "0%" }} />
+        {allMoments.map((m) => (
+          <button
+            key={m.id}
+            className={`sr-audio-marker sr-audio-marker--${m.type} ${selectedMomentId === m.id ? "sr-audio-marker--active" : ""}`}
+            style={{ left: `${clampPct(m.timestamp, duration)}%` }}
+            title={`${formatTime(m.timestamp)} - ${m.label}`}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMomentClick(m);
+            }}
+          />
+        ))}
       </div>
 
       <span className="sr-time">{formatTime(duration)}</span>
@@ -404,45 +433,16 @@ function UnifiedControls({
 }
 
 function SessionTimeline({
-  allMoments,
   analysis,
-  currentTime,
   duration,
-  onMomentClick,
-  onSeek,
-  selectedMomentId,
 }: {
-  allMoments: Moment[];
   analysis: AnalysisResult;
-  currentTime: number;
   duration: number;
-  onMomentClick: (moment: Moment) => void;
-  onSeek: (seconds: number, options?: { play?: boolean }) => void;
-  selectedMomentId: string | null;
 }) {
   if (duration <= 0) return null;
 
   return (
     <div className="vtl">
-      <div className="vtl-bar" onClick={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const pct = (e.clientX - rect.left) / rect.width;
-        onSeek(pct * duration);
-      }}>
-        <div className="vtl-track" />
-        <div className="vtl-playhead" style={{ left: `${clampPct(currentTime, duration)}%` }} />
-        {allMoments.map((m) => (
-          <button
-            key={m.id}
-            className={`vtl-dot ${m.type === "key_moment" ? "vtl-dot--key" : m.type === "screenshot" ? "vtl-dot--shot" : "vtl-dot--moment"} ${selectedMomentId === m.id ? "vtl-dot--active" : ""}`}
-            style={{ left: `${clampPct(m.timestamp, duration)}%` }}
-            title={`${formatTime(m.timestamp)} - ${m.label}`}
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onMomentClick(m); }}
-          />
-        ))}
-      </div>
-
       <div className="vtl-sections">
         {analysis.sectionScores.map((sec, index) => {
           const c = scoreColor(sec.score);

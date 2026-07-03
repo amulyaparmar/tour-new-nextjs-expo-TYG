@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Download, CheckCircle2, XCircle, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Copy, Download, FileText, Image as ImageIcon, Link2, MessageSquare, Send, ShieldAlert, ShieldCheck, Video } from "lucide-react";
 
 import { SESSION_STATUS_LABELS } from "@tour/shared";
 
@@ -115,6 +115,19 @@ export default async function SessionDetailPage({ params }: Props) {
                 id: "actions",
                 label: `Next Steps${actions.length > 0 ? ` (${actions.filter(a => a.status === "open").length})` : ""}`,
                 content: <ActionsTab actions={actions} sessionId={id} prospectName={session.prospectName} />
+              },
+              {
+                id: "followup-card",
+                label: "Followup Card",
+                content: (
+                  <FollowupCardTab
+                    actions={actions}
+                    analysis={analysis}
+                    recordingUrl={recordingUrl}
+                    screenshots={screenshots}
+                    session={session}
+                  />
+                )
               },
               {
                 id: "comments",
@@ -411,6 +424,146 @@ function ActionsTab({ actions, sessionId, prospectName }: { actions: Awaited<Ret
   );
 }
 
+/* ════════════════════════════════════════════════════════════
+   Followup Card Tab
+   ════════════════════════════════════════════════════════════ */
+function FollowupCardTab({
+  actions,
+  analysis,
+  recordingUrl,
+  screenshots,
+  session,
+}: {
+  actions: Awaited<ReturnType<typeof listFollowUpActions>>;
+  analysis: NonNullable<Awaited<ReturnType<typeof getAnalysisBySessionId>>>;
+  recordingUrl: string | null;
+  screenshots: SessionScreenshot[];
+  session: NonNullable<Awaited<ReturnType<typeof getSessionById>>>;
+}) {
+  const lead = session.leads?.[0];
+  const prospectName = session.prospectName || lead?.name || "the prospect";
+  const contactValue = lead?.phone || lead?.email || "";
+  const suggestedMessages = actions
+    .map((action) => action.suggestedMessage)
+    .filter((message): message is string => !!message && message.trim().length > 0);
+  const message = suggestedMessages[0] ?? buildDefaultFollowupMessage(prospectName, session.location, analysis.suggestedRewrite);
+  const cardUrl = `/sessions/${session.id}/followup-card`;
+  const mediaItems = screenshots.slice(0, 6);
+
+  return (
+    <div className="fc-layout">
+      <section className="fc-panel fc-panel--composer">
+        <div className="fc-panel-header">
+          <div>
+            <p className="fc-eyebrow">Message prospect</p>
+            <h2>Share follow-up card</h2>
+          </div>
+          <span className="fc-status">Draft</span>
+        </div>
+
+        <label className="fc-field">
+          <span>To</span>
+          <input className="form-input" defaultValue={contactValue} placeholder="Phone number or email" />
+        </label>
+
+        <label className="fc-field">
+          <span>Automatic message</span>
+          <textarea className="form-textarea fc-message" defaultValue={message} />
+        </label>
+
+        {suggestedMessages.length > 1 && (
+          <div className="fc-auto-messages">
+            <span className="fc-mini-label">Other generated messages</span>
+            {suggestedMessages.slice(1).map((suggested, index) => (
+              <button className="fc-message-chip" key={`${suggested}-${index}`} type="button">
+                {suggested}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="fc-actions-row">
+          <button className="btn btn-primary" type="button"><Send size={14} /> Send message</button>
+          <button className="btn btn-outline" type="button"><Copy size={14} /> Copy</button>
+        </div>
+      </section>
+
+      <section className="fc-panel">
+        <div className="fc-panel-header">
+          <div>
+            <p className="fc-eyebrow">Shareable card</p>
+            <h2>Included elements</h2>
+          </div>
+          <button className="btn btn-outline btn-sm" type="button"><Link2 size={13} /> Preview</button>
+        </div>
+
+        <div className="fc-share-link">
+          <span>{cardUrl}</span>
+          <button type="button" aria-label="Copy follow-up card link"><Copy size={14} /></button>
+        </div>
+
+        <div className="fc-options">
+          <label className="fc-option">
+            <input type="checkbox" defaultChecked />
+            <span><FileText size={15} /> Summary and next steps</span>
+          </label>
+          <label className="fc-option">
+            <input type="checkbox" defaultChecked />
+            <span><MessageSquare size={15} /> Automatic message</span>
+          </label>
+          <label className="fc-option">
+            <input type="checkbox" defaultChecked={!!recordingUrl} disabled={!recordingUrl} />
+            <span><Video size={15} /> Meeting recording</span>
+          </label>
+        </div>
+
+        <div className="fc-media-section">
+          <div className="fc-section-head">
+            <span className="fc-mini-label">Media in card</span>
+            <button className="btn btn-ghost" type="button">Add media</button>
+          </div>
+          {mediaItems.length > 0 ? (
+            <div className="fc-media-grid">
+              {mediaItems.map((shot, index) => (
+                <label className="fc-media-item" key={shot.id}>
+                  <input type="checkbox" defaultChecked={index < 4} />
+                  <img src={shot.imageUrl} alt={shot.label} />
+                  <span>{shot.label || `Screenshot at ${formatSeconds(shot.timestamp)}`}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div className="fc-empty-media">
+              <ImageIcon size={18} />
+              <span>No captured media yet. Add a floor plan, amenity photo, or tour clip before sending.</span>
+            </div>
+          )}
+        </div>
+
+        <label className="fc-field">
+          <span>Additional notes</span>
+          <textarea
+            className="form-textarea"
+            defaultValue={analysis.summary}
+            placeholder="Add move-in notes, pricing, specials, application steps, or links..."
+          />
+        </label>
+      </section>
+    </div>
+  );
+}
+
+function buildDefaultFollowupMessage(prospectName: string, location: string | null, suggestedRewrite: string) {
+  const place = location || "the property";
+  const coachingLine = suggestedRewrite ? ` ${suggestedRewrite}` : "";
+  return `Hi ${prospectName}, thanks for touring ${place}. I put together a quick follow-up card with the details, media, and next steps we discussed.${coachingLine}`;
+}
+
+function formatSeconds(seconds: number) {
+  const safe = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+  const mins = Math.floor(safe / 60);
+  return `${mins}:${String(safe % 60).padStart(2, "0")}`;
+}
 
 /* ── Helpers ─────────────────────────────────────────────── */
 

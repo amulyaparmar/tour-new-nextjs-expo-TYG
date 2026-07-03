@@ -158,19 +158,12 @@ export async function getAdminBootstrap(workspace: AdminWorkspace): Promise<Admi
     listCommunityRubricIds(workspace.community.id),
   ]);
 
-<<<<<<< Updated upstream
+  const sessions = allSessions.filter((session) => session.propertyId === workspace.community.id);
+  const rubrics = allRubrics.filter((rubric) => rubricIds.has(rubric.id));
   const properties = rawProperties.length > 0 ? rawProperties : FALLBACK_PROPERTIES;
   const agentRows = rawAgents.length > 0 ? rawAgents : FALLBACK_AGENTS;
   const analyses = await listAnalysesBySessionIds(
     sessions.filter((session) => typeof session.overallScore === "number").map((session) => session.id)
-=======
-  const sessions = allSessions.filter((session) => session.propertyId === workspace.community.id);
-  const rubrics = allRubrics.filter((rubric) => rubricIds.has(rubric.id));
-  const properties = rawProperties;
-  const agents = buildAgents(rawAgents, sessions);
-  const adminSessions = sessions.map((session, index) =>
-    mapAdminSession(session, properties, agents, index)
->>>>>>> Stashed changes
   );
   const adminSessions = sessions.map((session, index) =>
     mapAdminSession(session, properties, agentRows, index, analyses)

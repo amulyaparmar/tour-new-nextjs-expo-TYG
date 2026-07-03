@@ -98,7 +98,7 @@ function propertyPosterUrl(mediaUrl: string): string {
 function PropertyLayout({ card }: { card: RepCard }) {
   const { rep, property } = card;
   const gallery = property.galleryImageUrls?.length ? property.galleryImageUrls : [propertyPosterUrl(property.mediaUrl)];
-  const [primaryImage, secondaryImage, tertiaryImage] = gallery;
+  const [primaryImage] = gallery;
 
   return (
     <div
@@ -114,49 +114,38 @@ function PropertyLayout({ card }: { card: RepCard }) {
         fontFamily: "Inter, sans-serif"
       }}
     >
+      {primaryImage && (
+        <img
+          src={primaryImage}
+          width={OG_WIDTH}
+          height={OG_HEIGHT}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover"
+          }}
+        />
+      )}
       <div
         style={{
           position: "absolute",
           inset: 0,
           display: "flex",
           background:
-            "radial-gradient(circle at 78% 18%, rgba(255,255,255,.28), rgba(255,255,255,0) 34%), linear-gradient(90deg, rgba(15, 13, 44, 0.54), rgba(15, 13, 44, 0.06))"
+            "linear-gradient(90deg, rgba(15, 13, 44, 0.92) 0%, rgba(15, 13, 44, 0.72) 48%, rgba(15, 13, 44, 0.18) 100%)"
         }}
       />
-
-      <div style={{ position: "absolute", right: 48, top: 108, width: 420, display: "flex", flexDirection: "column", gap: 16 }}>
-        {primaryImage && (
-          <div
-            style={{
-              width: 420,
-              height: 240,
-              borderRadius: 30,
-              overflow: "hidden",
-              border: "1px solid rgba(255,255,255,.38)",
-              display: "flex"
-            }}
-          >
-            <img src={primaryImage} width={420} height={240} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          </div>
-        )}
-        <div style={{ display: "flex", gap: 16 }}>
-          {[secondaryImage, tertiaryImage].filter(Boolean).map((image) => (
-            <div
-              key={image}
-              style={{
-                width: 202,
-                height: 150,
-                borderRadius: 26,
-                overflow: "hidden",
-                border: "1px solid rgba(255,255,255,.35)",
-                display: "flex"
-              }}
-            >
-              <img src={image as string} width={202} height={150} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            </div>
-          ))}
-        </div>
-      </div>
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          background:
+            "linear-gradient(180deg, rgba(15, 13, 44, 0.18) 0%, rgba(15, 13, 44, 0.05) 44%, rgba(15, 13, 44, 0.78) 100%)"
+        }}
+      />
 
       <div
         style={{
@@ -195,7 +184,7 @@ function PropertyLayout({ card }: { card: RepCard }) {
           flexDirection: "column",
           justifyContent: "center",
           color: "white",
-          maxWidth: 690,
+          maxWidth: 760,
           gap: 18,
           margin: "10px 48px 0"
         }}
@@ -203,8 +192,8 @@ function PropertyLayout({ card }: { card: RepCard }) {
         <div style={{ display: "flex", fontSize: 22, fontWeight: 800, opacity: 0.72, textTransform: "uppercase" }}>
           Property tour
         </div>
-        <div style={{ display: "flex", fontSize: 74, lineHeight: 0.94, fontWeight: 880 }}>{property.name}</div>
-        <div style={{ display: "flex", fontSize: 24, lineHeight: 1.28, fontWeight: 620, opacity: 0.86, maxWidth: 610 }}>
+        <div style={{ display: "flex", fontSize: 78, lineHeight: 0.94, fontWeight: 880 }}>{property.name}</div>
+        <div style={{ display: "flex", fontSize: 25, lineHeight: 1.28, fontWeight: 620, opacity: 0.88, maxWidth: 650 }}>
           Your contact card and tour details, saved in one place for quick follow-up.
         </div>
       </div>

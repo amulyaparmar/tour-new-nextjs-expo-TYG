@@ -30,6 +30,8 @@ export type PropertyProfile = {
   name: string;
   /** Looping hero video/image shown behind the card header. */
   mediaUrl: string;
+  /** Still apartment/property photos used in generated social/MMS cards. */
+  galleryImageUrls?: string[];
 };
 
 export type CheckInQuestion = {
@@ -92,7 +94,12 @@ const REPS: Record<string, RepCard> = {
     property: {
       name: "TYG Apartments",
       mediaUrl:
-        "https://storage.googleapis.com/leasemagnets---dummy-db.appspot.com/community/44/intro_revamp_intro/27_North_intro_2024_mp4_1.mp4#t=8"
+        "https://storage.googleapis.com/leasemagnets---dummy-db.appspot.com/community/44/intro_revamp_intro/27_North_intro_2024_mp4_1.mp4#t=8",
+      galleryImageUrls: [
+        "https://storage.googleapis.com/leasemagnets---dummy-db.appspot.com/community/44/magnet/f020cff3-ba56-4d5c-ab20-f0d37ca493c6/amenities_Pool/27NPool.mp4.jpg",
+        "https://storage.googleapis.com/leasemagnets---dummy-db.appspot.com/community/44/magnet/f020cff3-ba56-4d5c-ab20-f0d37ca493c6/amenities_Gym/27NFitness20Center.mp4.jpg",
+        "https://storage.googleapis.com/leasemagnets---dummy-db.appspot.com/community/44/magnet/f020cff3-ba56-4d5c-ab20-f0d37ca493c6/amenities_Clubhouse/27NClubhouse.mp4.jpg"
+      ]
     },
     questions: DEFAULT_QUESTIONS
   },
@@ -112,7 +119,12 @@ const REPS: Record<string, RepCard> = {
     property: {
       name: "27 North",
       mediaUrl:
-        "https://storage.googleapis.com/leasemagnets---dummy-db.appspot.com/community/44/intro_revamp_intro/27_North_intro_2024_mp4_1.mp4#t=8"
+        "https://storage.googleapis.com/leasemagnets---dummy-db.appspot.com/community/44/intro_revamp_intro/27_North_intro_2024_mp4_1.mp4#t=8",
+      galleryImageUrls: [
+        "https://storage.googleapis.com/leasemagnets---dummy-db.appspot.com/community/44/magnet/f020cff3-ba56-4d5c-ab20-f0d37ca493c6/amenities_Pool/27NPool.mp4.jpg",
+        "https://storage.googleapis.com/leasemagnets---dummy-db.appspot.com/community/44/magnet/f020cff3-ba56-4d5c-ab20-f0d37ca493c6/amenities_Gym/27NFitness20Center.mp4.jpg",
+        "https://storage.googleapis.com/leasemagnets---dummy-db.appspot.com/community/44/magnet/f020cff3-ba56-4d5c-ab20-f0d37ca493c6/amenities_Clubhouse/27NClubhouse.mp4.jpg"
+      ]
     },
     questions: DEFAULT_QUESTIONS
   }

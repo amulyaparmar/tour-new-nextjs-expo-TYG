@@ -5,6 +5,7 @@ import type { AnalysisResult, Rubric, SessionLead, SessionSummary } from "@tour/
 import { listRubrics } from "./rubrics";
 import { getSupabaseServiceClient } from "./supabase";
 import { listSessions } from "./sessions";
+import type { AdminWorkspace } from "./admin-auth";
 
 export type AdminSectionScore = {
   section: string;
@@ -79,6 +80,7 @@ export type AdminProspect = {
 };
 
 export type AdminBootstrap = {
+  workspace: AdminWorkspace;
   properties: AdminProperty[];
   agents: AdminAgent[];
   sessions: AdminSession[];
@@ -146,19 +148,29 @@ const FALLBACK_AGENTS: AgentRow[] = [
 
 const RUBRIC_AXES = ["Opening", "Discovery", "Showcase", "Objections", "Closing", "Follow-up"];
 
-export async function getAdminBootstrap(): Promise<AdminBootstrap> {
-  const [rawProperties, rawAgents, sessions, rubrics, followUps] = await Promise.all([
-    listAdminProperties(),
-    listAdminAgents(),
+export async function getAdminBootstrap(workspace: AdminWorkspace): Promise<AdminBootstrap> {
+  const [rawProperties, rawAgents, allSessions, allRubrics, followUps, rubricIds] = await Promise.all([
+    listAdminProperties(workspace.community.id),
+    listAdminAgents(workspace.membership.companyId, workspace.community.id),
     listSessions({ limit: 100, sort: "newest" }),
     listRubrics(),
     listProspectFollowUps(),
+    listCommunityRubricIds(workspace.community.id),
   ]);
 
+<<<<<<< Updated upstream
   const properties = rawProperties.length > 0 ? rawProperties : FALLBACK_PROPERTIES;
   const agentRows = rawAgents.length > 0 ? rawAgents : FALLBACK_AGENTS;
   const analyses = await listAnalysesBySessionIds(
     sessions.filter((session) => typeof session.overallScore === "number").map((session) => session.id)
+=======
+  const sessions = allSessions.filter((session) => session.propertyId === workspace.community.id);
+  const rubrics = allRubrics.filter((rubric) => rubricIds.has(rubric.id));
+  const properties = rawProperties;
+  const agents = buildAgents(rawAgents, sessions);
+  const adminSessions = sessions.map((session, index) =>
+    mapAdminSession(session, properties, agents, index)
+>>>>>>> Stashed changes
   );
   const adminSessions = sessions.map((session, index) =>
     mapAdminSession(session, properties, agentRows, index, analyses)
@@ -170,6 +182,7 @@ export async function getAdminBootstrap(): Promise<AdminBootstrap> {
   const teamRadar = buildTeamRadar(adminSessions);
 
   return {
+    workspace,
     properties,
     agents,
     sessions: adminSessions,
@@ -186,31 +199,67 @@ export async function getAdminBootstrap(): Promise<AdminBootstrap> {
   };
 }
 
-async function listAdminProperties(): Promise<AdminProperty[]> {
+async function listAdminProperties(communityId: string): Promise<AdminProperty[]> {
   try {
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
-      .from("admin_properties")
+      .from("communities")
       .select("id,name")
+      .eq("id", communityId)
+      .eq("portal_enabled", true)
       .order("name", { ascending: true });
     if (error) throw new Error(error.message);
     return ((data as PropertyRow[] | null) ?? []).map((row) => ({ id: row.id, name: row.name }));
   } catch {
-    return FALLBACK_PROPERTIES;
+    return [];
   }
 }
 
-async function listAdminAgents(): Promise<AgentRow[]> {
+async function listAdminAgents(companyId: string, communityId: string): Promise<AgentRow[]> {
   try {
     const supabase = getSupabaseServiceClient();
-    const { data, error } = await supabase
-      .from("admin_agents")
+    const { data: access, error: accessError } = await supabase
+      .from("membership_communities")
+      .select("membership_id")
+      .eq("property_id", communityId);
+    if (accessError) throw new Error(accessError.message);
+    const membershipIds = ((access ?? []) as unknown as Array<{ membership_id: string }>)
+      .map((row) => String(row.membership_id));
+
+    let query = supabase
+      .from("agents")
       .select("id,name,full_name,role,property_id")
+      .eq("company_id", companyId)
       .order("name", { ascending: true });
+
+    if (membershipIds.length > 0) {
+      query = query.or(`property_id.eq.${communityId},membership_id.in.(${membershipIds.join(",")})`);
+    } else {
+      query = query.eq("property_id", communityId);
+    }
+
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
     return (data as AgentRow[] | null) ?? [];
   } catch {
-    return FALLBACK_AGENTS;
+    return [];
+  }
+}
+
+async function listCommunityRubricIds(communityId: string) {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("rubric_communities")
+      .select("rubric_id")
+      .eq("property_id", communityId);
+    if (error) throw new Error(error.message);
+    return new Set(
+      ((data ?? []) as unknown as Array<{ rubric_id: string }>)
+        .map((row) => String(row.rubric_id))
+    );
+  } catch {
+    return new Set<string>();
   }
 }
 

@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
+import { hasAdminSession, requireAdminContext } from "@/lib/admin-auth";
 import { createMaterial, listVisibleMaterials } from "@/lib/materials";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const materials = await listVisibleMaterials();
+    const workspace = hasAdminSession(request) ? await requireAdminContext(request) : null;
+    const materials = await listVisibleMaterials(
+      workspace?.community.alias ?? undefined,
+      workspace?.community.id
+    );
     return NextResponse.json({ materials });
   } catch (error) {
     return NextResponse.json(
@@ -15,6 +20,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const workspace = hasAdminSession(request) ? await requireAdminContext(request) : null;
     const body = (await request.json()) as {
       name?: string;
       type?: "rubric" | "training" | "other";
@@ -28,7 +34,8 @@ export async function POST(request: Request) {
     const material = await createMaterial({
       name: body.name,
       type: body.type,
-      description: body.description ?? ""
+      description: body.description ?? "",
+      propertyId: workspace?.community.id ?? null
     });
 
     return NextResponse.json({ material }, { status: 201 });

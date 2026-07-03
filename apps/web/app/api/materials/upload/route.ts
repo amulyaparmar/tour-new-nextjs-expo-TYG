@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
+import { requireAdminContext } from "@/lib/admin-auth";
 import { createMaterial } from "@/lib/materials";
 import { storeRecording } from "@/lib/storage";
 
 export async function POST(request: Request) {
   try {
+    const workspace = await requireAdminContext(request);
     const formData = await request.formData();
     const file = formData.get("file");
     const name = String(formData.get("name") ?? "").trim();
@@ -25,7 +27,8 @@ export async function POST(request: Request) {
       name: materialName,
       type,
       description,
-      fileUrl
+      fileUrl,
+      propertyId: workspace.community.id
     });
 
     return NextResponse.json({ material }, { status: 201 });

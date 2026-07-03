@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { createRubric, listRubrics } from "@/lib/rubrics";
+import { hasAdminSession, requireAdminContext } from "@/lib/admin-auth";
+import { createRubric, listRubrics, listRubricsForCommunity } from "@/lib/rubrics";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const rubrics = await listRubrics();
+    const workspace = hasAdminSession(request) ? await requireAdminContext(request) : null;
+    const rubrics = workspace
+      ? await listRubricsForCommunity(workspace.community.id)
+      : await listRubrics();
     return NextResponse.json({ rubrics });
   } catch (error) {
     return NextResponse.json(

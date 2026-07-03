@@ -29,7 +29,7 @@ export function RubricSelector({
   const [showUpload, setShowUpload] = useState(false);
 
   const loadRubrics = useCallback(async () => {
-    const res = await fetch("/api/rubrics");
+    const res = await fetch("/api/admin/rubrics");
     if (!res.ok) throw new Error("Failed to load rubrics");
     const data = await res.json() as { rubrics: Rubric[] };
     return data.rubrics ?? [];

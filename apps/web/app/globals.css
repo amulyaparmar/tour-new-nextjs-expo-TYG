@@ -116,6 +116,215 @@ img { display: block; max-width: 100%; }
   background: rgba(255,255,255,0.22);
 }
 
+.top-bar-community {
+  max-width: min(44vw, 260px);
+  margin-left: auto;
+  margin-right: 10px;
+  overflow: hidden;
+  color: rgba(255,255,255,0.78);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entrata-sync {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: white;
+  padding: 11px 12px;
+  box-shadow: var(--shadow-card);
+}
+
+.calendar-page-header {
+  display: grid;
+  gap: 12px;
+}
+
+.entrata-sync-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--green-600);
+}
+
+.entrata-sync-status > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.entrata-sync-status strong {
+  color: var(--slate-800);
+  font-size: 12px;
+}
+
+.entrata-sync-status small {
+  overflow: hidden;
+  color: var(--slate-500);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entrata-sync-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--red-700);
+  font-size: 11px;
+}
+
+.entrata-event-detail {
+  margin-top: 12px;
+  border-left: 3px solid var(--indigo-600);
+}
+
+.entrata-event-detail .card-header > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.entrata-event-detail .card-header h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entrata-event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 16px;
+}
+
+.entrata-event-grid > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.entrata-event-grid span {
+  color: var(--slate-500);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.entrata-event-grid strong {
+  overflow-wrap: anywhere;
+  color: var(--slate-800);
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.entrata-event-grid a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  overflow-wrap: anywhere;
+  color: var(--indigo-600);
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.entrata-tour-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-bottom: 1px solid var(--slate-100);
+  background: transparent;
+  padding: 11px 14px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background .1s;
+}
+
+.entrata-tour-row:hover {
+  background: var(--slate-50);
+}
+
+.entrata-tour-row-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--indigo-50);
+  color: var(--indigo-600);
+}
+
+.entrata-tour-row-content {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.entrata-tour-row-content strong {
+  overflow: hidden;
+  color: var(--slate-800);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entrata-tour-row-content small {
+  overflow: hidden;
+  color: var(--slate-500);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-source-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid var(--slate-100);
+  background: var(--slate-50);
+  padding: 9px 14px;
+  color: var(--slate-600);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.calendar-source-heading span {
+  color: var(--slate-400);
+}
+
+@media (max-width: 700px) {
+  .entrata-sync {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .entrata-sync-status small {
+    white-space: normal;
+  }
+
+  .entrata-tour-row {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .entrata-tour-row > .badge {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
 .top-bar-brand {
   display: flex;
   align-items: center;

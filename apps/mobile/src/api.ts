@@ -1,8 +1,6 @@
 import type { AnalysisResult, FollowUpAction, Rubric, SessionDetail, SessionSummary } from "@tour/shared";
 
-import { getApiBaseUrl } from "./config";
-
-const BASE_URL = getApiBaseUrl();
+import { authenticatedFetch } from "./auth";
 
 export type FetchSessionsParams = {
   page?: number;
@@ -28,7 +26,7 @@ export async function fetchSessions(params?: FetchSessionsParams): Promise<Pagin
   if (params?.search) sp.set("search", params.search);
   if (params?.sort) sp.set("sort", params.sort);
   const qs = sp.toString();
-  const res = await fetch(`${BASE_URL}/api/sessions${qs ? `?${qs}` : ""}`);
+  const res = await authenticatedFetch(`/api/sessions${qs ? `?${qs}` : ""}`);
   if (!res.ok) {
     throw new Error("Failed to fetch sessions.");
   }
@@ -43,7 +41,7 @@ export async function createSession(payload: {
   notes?: string | null;
   rubricId?: string | null;
 }) {
-  const res = await fetch(`${BASE_URL}/api/sessions`, {
+  const res = await authenticatedFetch("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -55,7 +53,7 @@ export async function createSession(payload: {
 }
 
 export async function fetchSession(sessionId: string) {
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}`);
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}`);
   if (!res.ok) {
     throw new Error("Failed to fetch session detail.");
   }
@@ -63,15 +61,51 @@ export async function fetchSession(sessionId: string) {
 }
 
 export async function fetchRubrics() {
-  const res = await fetch(`${BASE_URL}/api/rubrics`);
+  const res = await authenticatedFetch("/api/admin/rubrics");
   if (!res.ok) {
     throw new Error("Failed to fetch rubrics.");
   }
   return (await res.json()) as { rubrics: Rubric[] };
 }
 
+export async function uploadRubric(
+  fileUri: string,
+  mimeType: string,
+  fileName: string,
+  name?: string
+) {
+  const formData = new FormData();
+  formData.append("file", {
+    uri: fileUri,
+    type: mimeType,
+    name: fileName,
+  } as any);
+  if (name?.trim()) formData.append("name", name.trim());
+
+  const res = await authenticatedFetch("/api/rubrics/upload", {
+    method: "POST",
+    body: formData,
+  });
+  const body = await res.json().catch(() => null) as { rubric?: Rubric; error?: string } | null;
+  if (!res.ok || !body?.rubric) {
+    throw new Error(body?.error ?? "Rubric upload failed.");
+  }
+  return body.rubric;
+}
+
+export async function applyRubricToSession(sessionId: string, rubricId: string) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rubricId }),
+  });
+  const body = await res.json().catch(() => null) as { error?: string } | null;
+  if (!res.ok) throw new Error(body?.error ?? "Could not apply rubric.");
+  return { ok: true as const };
+}
+
 export async function generateAnalysis(sessionId: string) {
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/analysis`, {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/analysis`, {
     method: "POST"
   });
   if (!res.ok) {
@@ -81,7 +115,7 @@ export async function generateAnalysis(sessionId: string) {
 }
 
 export async function fetchAnalysis(sessionId: string) {
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/analysis`);
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/analysis`);
   if (!res.ok) {
     throw new Error("Failed to fetch analysis.");
   }
@@ -89,7 +123,7 @@ export async function fetchAnalysis(sessionId: string) {
 }
 
 export async function fetchActions(sessionId: string) {
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/actions`);
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/actions`);
   if (!res.ok) {
     throw new Error("Failed to fetch actions.");
   }
@@ -101,7 +135,7 @@ export async function updateActionStatus(
   actionId: string,
   status: "open" | "completed" | "dismissed"
 ) {
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/actions`, {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/actions`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -118,7 +152,7 @@ export async function updateActionStatus(
 }
 
 export async function fetchTranscript(sessionId: string) {
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/transcript`);
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/transcript`);
   if (!res.ok) {
     throw new Error("Failed to fetch transcript.");
   }
@@ -135,7 +169,7 @@ export async function fetchTranscript(sessionId: string) {
 }
 
 export async function fetchScreenshots(sessionId: string) {
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/screenshots`);
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/screenshots`);
   if (!res.ok) {
     throw new Error("Failed to fetch screenshots.");
   }
@@ -151,15 +185,16 @@ export async function fetchScreenshots(sessionId: string) {
   };
 }
 
-export async function uploadRecording(sessionId: string, fileUri: string, mimeType: string, fileName: string) {
+export async function uploadRecording(sessionId: string, fileUri: string, mimeType: string, fileName: string, durationSec?: number) {
   const formData = new FormData();
   formData.append("file", {
     uri: fileUri,
     type: mimeType,
     name: fileName,
   } as any);
+  if (durationSec && durationSec > 0) formData.append("durationSec", String(Math.round(durationSec)));
 
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/upload`, {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/upload`, {
     method: "POST",
     body: formData,
   });
@@ -171,7 +206,7 @@ export async function uploadRecording(sessionId: string, fileUri: string, mimeTy
 }
 
 export async function processSession(sessionId: string) {
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/process`, {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/process`, {
     method: "POST",
   });
   if (!res.ok) {
@@ -186,8 +221,34 @@ export type Material = {
   name: string;
   type: "rubric" | "training" | "recording" | "other";
   description: string;
+  fileUrl?: string | null;
   sessionId?: string | null;
+  propertyId?: string | null;
   createdAt: string;
+  media?: {
+    sourceKey: string;
+    videoUrl: string | null;
+    imageUrl: string | null;
+    gifUrl: string | null;
+    iframeUrl: string | null;
+  };
+};
+
+export type CalendarEvent = {
+  id: string;
+  session_id: string | null;
+  external_event_id: string;
+  external_application_id: string | null;
+  event_type: "in_person" | "virtual" | "other";
+  status: string;
+  appointment_date: string;
+  time_from: string | null;
+  time_to: string | null;
+  prospect_name: string | null;
+  prospect_email: string | null;
+  prospect_phone: string | null;
+  notes: string | null;
+  synced_at: string;
 };
 
 export type SessionComment = {
@@ -202,7 +263,7 @@ export type SessionComment = {
 };
 
 export async function fetchComments(sessionId: string) {
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/comments`);
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/comments`);
   if (!res.ok) throw new Error("Failed to fetch comments.");
   return (await res.json()) as { comments: SessionComment[] };
 }
@@ -213,7 +274,7 @@ export async function postComment(sessionId: string, payload: {
   timestampSec?: number | null;
   parentId?: string | null;
 }) {
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/comments`, {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/comments`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -223,7 +284,7 @@ export async function postComment(sessionId: string, payload: {
 }
 
 export async function deleteComment(sessionId: string, commentId: string) {
-  const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/comments`, {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/comments`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ commentId }),
@@ -233,9 +294,55 @@ export async function deleteComment(sessionId: string, commentId: string) {
 }
 
 export async function fetchMaterials() {
-  const res = await fetch(`${BASE_URL}/api/materials`);
+  const res = await authenticatedFetch("/api/materials");
   if (!res.ok) {
     throw new Error("Failed to fetch materials.");
   }
   return (await res.json()) as { materials: Material[] };
+}
+
+export async function uploadMaterial(fileUri: string, mimeType: string, fileName: string) {
+  const formData = new FormData();
+  formData.append("file", {
+    uri: fileUri,
+    type: mimeType,
+    name: fileName,
+  } as any);
+  formData.append("name", fileName.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "));
+  formData.append("type", "other");
+
+  const res = await authenticatedFetch("/api/materials/upload", {
+    method: "POST",
+    body: formData,
+  });
+  const body = await res.json().catch(() => null) as { material?: Material; error?: string } | null;
+  if (!res.ok || !body?.material) throw new Error(body?.error ?? "Asset upload failed.");
+  return body.material;
+}
+
+export async function fetchCalendarEvents(fromDate?: string, toDate?: string) {
+  const params = new URLSearchParams();
+  if (fromDate) params.set("fromDate", fromDate);
+  if (toDate) params.set("toDate", toDate);
+  const query = params.toString();
+  const res = await authenticatedFetch(`/api/admin/calendar/scheduled${query ? `?${query}` : ""}`);
+  if (!res.ok) throw new Error("Failed to fetch Entrata calendar.");
+  return (await res.json()) as {
+    community: { id: string; name: string };
+    events: CalendarEvent[];
+  };
+}
+
+export async function syncCalendar() {
+  const res = await authenticatedFetch("/api/admin/calendar/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  const body = await res.json().catch(() => null) as {
+    sync?: { eventsSynced: number; prospectsEnriched?: number };
+    error?: string;
+  } | null;
+  if (!res.ok) throw new Error(body?.error ?? "Entrata sync failed.");
+  return body?.sync;
 }

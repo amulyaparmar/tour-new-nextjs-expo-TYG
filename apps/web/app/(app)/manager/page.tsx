@@ -12,6 +12,7 @@ import Link from "next/link";
 import { SESSION_STATUS_LABELS, shopRubrics, type SessionStatus, type SessionSummary } from "@tour/shared";
 import { listMaterials } from "@/lib/materials";
 import { listSessions } from "@/lib/sessions";
+import { requireTourWorkspace } from "@/lib/tour-auth";
 
 type ReviewSession = {
   id: string;
@@ -325,8 +326,9 @@ function statusLabel(status: ReviewSession["status"]) {
 export const dynamic = "force-dynamic";
 
 export default async function ManagerPage() {
+  const workspace = await requireTourWorkspace();
   const [realSessions, materials] = await Promise.all([
-    listSessions({ limit: 100, sort: "newest" }),
+    listSessions({ limit: 100, sort: "newest", propertyId: workspace.community.id }),
     listMaterials()
   ]);
   const materialRubricNames = materials

@@ -1,9 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import * as DocumentPicker from "expo-document-picker";
+import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
 import { VideoView, useVideoPlayer } from "expo-video";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +14,8 @@ import {
   Dimensions,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -26,12 +30,15 @@ import { rubricItemCount, rubricTotalPoints } from "@tour/shared";
 import {
   type Material,
   type PaginatedSessions,
+  applyRubricToSession,
   createSession,
+  type CalendarEvent,
   type SessionComment,
   deleteComment,
   fetchActions,
   fetchAnalysis,
   fetchComments,
+  fetchCalendarEvents,
   fetchMaterials,
   fetchRubrics,
   fetchSession,
@@ -39,11 +46,16 @@ import {
   fetchTranscript,
   postComment,
   processSession,
+  syncCalendar,
   updateActionStatus,
   uploadRecording,
+  uploadMaterial,
+  uploadRubric,
 } from "./src/api";
 import { getApiBaseUrl } from "./src/config";
 import { computeDashboardMetrics } from "./src/dashboard";
+import { type MobileAuthSession, authenticatedFetch, clearSession, restoreSession, switchCommunity } from "./src/auth";
+import { LoginScreen } from "./src/LoginScreen";
 
 const onboardingBackground = require("./assets/videos/login-bg.mp4");
 
@@ -74,6 +86,7 @@ type Screen =
   | { type: "main"; tab: MainTab }
   | { type: "session-detail"; sessionId: string }
   | { type: "create-session" }
+  | { type: "rubrics" }
   | { type: "profile" }
   | { type: "tour" };
 
@@ -103,6 +116,7 @@ const tourSteps: Array<{ id: TourStep; label: string }> = [
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   scheduled: { bg: "#eaf4ff", text: C.brand },
+  in_progress: { bg: C.redBg, text: C.red },
   uploaded: { bg: C.amberBg, text: C.amber },
   transcribing: { bg: C.amberBg, text: C.amber },
   analyzing: { bg: C.amberBg, text: C.amber },
@@ -114,6 +128,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
 
 const STATUS_LABELS: Record<string, string> = {
   scheduled: "Scheduled",
+  in_progress: "In progress",
   uploaded: "Uploaded",
   transcribing: "Processing",
   analyzing: "Analyzing",
@@ -122,6 +137,8 @@ const STATUS_LABELS: Record<string, string> = {
   reviewed: "Reviewed",
   failed: "Failed",
 };
+
+const PROCESSING_STATUSES = new Set(["transcribing", "analyzing", "extracting_screenshots"]);
 
 function scoreColor(score: number) {
   if (score >= 75) return C.green;
@@ -143,6 +160,10 @@ function fmtSec(sec: number) {
   const m = Math.floor(sec / 60);
   const ss = Math.floor(sec % 60);
   return `${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+function materialUrl(material: Material) {
+  return material.media?.videoUrl ?? material.media?.iframeUrl ?? material.fileUrl ?? null;
 }
 
 // ═══════════════════════════════════════
@@ -193,14 +214,14 @@ function showToast(msg: string, type?: "error" | "success" | "info") {
 type RecordingCtx = {
   isRecording: boolean;
   elapsed: number;
-  start: () => Promise<void>;
-  stop: () => Promise<{ uri: string } | null>;
+  start: () => Promise<boolean>;
+  stop: () => Promise<{ uri: string; durationSec: number } | null>;
 };
 
 const RecordingContext = React.createContext<RecordingCtx>({
   isRecording: false,
   elapsed: 0,
-  start: async () => {},
+  start: async () => false,
   stop: async () => null,
 });
 
@@ -208,39 +229,58 @@ function RecordingProvider({ children }: { children: React.ReactNode }) {
   const [isRecording, setIsRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const recordingRef = useRef<Audio.Recording | null>(null);
+  const startingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
 
   const start = useCallback(async () => {
-    const { granted } = await Audio.requestPermissionsAsync();
-    if (!granted) { showToast("Microphone permission required", "error"); return; }
+    if (recordingRef.current || startingRef.current) return false;
+    startingRef.current = true;
+    try {
+      const { granted } = await Audio.requestPermissionsAsync();
+      if (!granted) {
+        showToast("Microphone permission required", "error");
+        return false;
+      }
 
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: true,
-    });
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+      });
 
-    const { recording } = await Audio.Recording.createAsync(
-      Audio.RecordingOptionsPresets.HIGH_QUALITY
-    );
-    recordingRef.current = recording;
-    setIsRecording(true);
-    setElapsed(0);
-    timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+      const preset = Audio.RecordingOptionsPresets.HIGH_QUALITY!;
+      const { recording } = await Audio.Recording.createAsync({
+        ...preset,
+        android: { ...preset.android, numberOfChannels: 1, bitRate: 48000 },
+        ios: { ...preset.ios, numberOfChannels: 1, bitRate: 48000 },
+        web: { ...preset.web, bitsPerSecond: 48000 },
+      });
+      recordingRef.current = recording;
+      setIsRecording(true);
+      setElapsed(0);
+      timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+      return true;
+    } finally {
+      startingRef.current = false;
+    }
   }, []);
 
-  const stop = useCallback(async (): Promise<{ uri: string } | null> => {
+  const stop = useCallback(async (): Promise<{ uri: string; durationSec: number } | null> => {
     if (!recordingRef.current) return null;
     if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = undefined;
+    const recording = recordingRef.current;
     try {
-      await recordingRef.current.stopAndUnloadAsync();
+      const status = await recording.getStatusAsync();
+      await recording.stopAndUnloadAsync();
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-      const uri = recordingRef.current.getURI();
+      const uri = recording.getURI();
       recordingRef.current = null;
       setIsRecording(false);
       setElapsed(0);
-      return uri ? { uri } : null;
+      return uri ? { uri, durationSec: Math.max(1, Math.round(status.durationMillis / 1000)) } : null;
     } catch {
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(() => {});
       recordingRef.current = null;
       setIsRecording(false);
       setElapsed(0);
@@ -265,8 +305,8 @@ function useRecording() {
 // Live Activity Banner
 // ═══════════════════════════════════════
 
-function LiveActivityBanner({ onTap }: { onTap?: () => void }) {
-  const { isRecording, elapsed, stop } = useRecording();
+function LiveActivityBanner() {
+  const { isRecording, elapsed } = useRecording();
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -287,24 +327,14 @@ function LiveActivityBanner({ onTap }: { onTap?: () => void }) {
   const ss = String(elapsed % 60).padStart(2, "0");
 
   return (
-    <Pressable onPress={onTap} style={laSt.banner}>
+    <View style={laSt.banner}>
       <Animated.View style={[laSt.dot, { opacity: pulseAnim }]} />
       <Ionicons name="mic" size={16} color="#fff" />
       <Text style={laSt.label}>Recording</Text>
       <Text style={laSt.timer}>{mm}:{ss}</Text>
       <View style={laSt.spacer} />
-      <Pressable
-        onPress={async () => {
-          const result = await stop();
-          if (!result) showToast("Recording cancelled", "info");
-        }}
-        hitSlop={12}
-        style={({ pressed }) => [laSt.stopBtn, pressed && { opacity: 0.7 }]}
-      >
-        <View style={laSt.stopSquare} />
-        <Text style={laSt.stopLabel}>Stop</Text>
-      </Pressable>
-    </Pressable>
+      <Text style={laSt.activeLabel}>Finish in session</Text>
+    </View>
   );
 }
 
@@ -336,26 +366,7 @@ const laSt = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   spacer: { flex: 1 },
-  stopBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "rgba(255,255,255,0.25)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  stopSquare: {
-    width: 10,
-    height: 10,
-    borderRadius: 2,
-    backgroundColor: "#fff",
-  },
-  stopLabel: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#fff",
-  },
+  activeLabel: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.86)" },
 });
 
 // ═══════════════════════════════════════
@@ -369,7 +380,9 @@ export default function App() {
     vp.play();
   });
 
-  const [screen, setScreen] = useState<Screen>({ type: "onboarding" });
+  const [screen, setScreen] = useState<Screen>({ type: "main", tab: "home" });
+  const [authSession, setAuthSession] = useState<MobileAuthSession | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [obStep, setObStep] = useState<OnboardingStep>("rep");
   const [tourStep, setTourStep] = useState<TourStep>("contact");
   const [ob, setOb] = useState<ObData>({ name: AGENT.name, email: AGENT.email, phone: AGENT.phone, property: AGENT.property, teamInvites: "", password: "", verificationCode: "" });
@@ -381,43 +394,86 @@ export default function App() {
     return () => sub.remove();
   }, [player]);
 
+  useEffect(() => {
+    restoreSession()
+      .then(setAuthSession)
+      .finally(() => setAuthLoading(false));
+  }, []);
+
   const obIdx = useMemo(() => onboardingSteps.findIndex((s) => s.id === obStep), [obStep]);
   const tourIdx = useMemo(() => tourSteps.findIndex((s) => s.id === tourStep), [tourStep]);
   const nav = useCallback((s: Screen) => setScreen(s), []);
 
+  if (authLoading) {
+    return (
+      <SafeAreaProvider>
+        <View style={[st.root, st.center]}>
+          <StatusBar style="dark" />
+          <ActivityIndicator color={C.brand} size="large" />
+        </View>
+      </SafeAreaProvider>
+    );
+  }
+
+  if (!authSession) {
+    return (
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <LoginScreen player={player} onAuthenticated={setAuthSession} />
+      </SafeAreaProvider>
+    );
+  }
+
+  const agentName =
+    authSession.workspace.user.fullName ??
+    authSession.workspace.user.email.split("@")[0] ??
+    "Team member";
+  const property = authSession.workspace.community.name;
+
   return (
+    <SafeAreaProvider>
     <View style={st.root}>
       <StatusBar style="dark" />
       <RecordingProvider>
         <ToastProvider>
-          <LiveActivityBanner onTap={() => {
-            if (screen.type !== "create-session") nav({ type: "create-session" });
-          }} />
+          <LiveActivityBanner />
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={st.flex1}>
-            {screen.type === "onboarding" && (
-              <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-                <OnboardingScreen idx={obIdx} ob={ob} player={player} step={obStep} onChange={(k: keyof ObData, v: string) => setOb((c) => ({ ...c, [k]: v }))} onFinish={() => nav({ type: "main", tab: "home" })} onStep={setObStep} />
-              </ScrollView>
-            )}
             {screen.type === "main" && (
-              <MainTabs tab={screen.tab} onTab={(t) => nav({ type: "main", tab: t })} onSession={(id) => nav({ type: "session-detail", sessionId: id })} onCreate={() => nav({ type: "create-session" })} onProfile={() => nav({ type: "profile" })} onResetOb={() => nav({ type: "onboarding" })} agentName={ob.name} property={ob.property} />
+              <MainTabs
+                key={authSession.workspace.community.id}
+                tab={screen.tab}
+                onTab={(t) => nav({ type: "main", tab: t })}
+                onSession={(id) => nav({ type: "session-detail", sessionId: id })}
+                onCreate={() => nav({ type: "create-session" })}
+                onProfile={() => nav({ type: "profile" })}
+                onRubrics={() => nav({ type: "rubrics" })}
+                onSignOut={() => {
+                  void clearSession().then(() => setAuthSession(null));
+                }}
+                authSession={authSession}
+                onAuthSession={setAuthSession}
+                agentName={agentName}
+                property={property}
+              />
             )}
             {screen.type === "session-detail" && <SessionDetailScreen sessionId={screen.sessionId} onBack={() => nav({ type: "main", tab: "sessions" })} />}
             {screen.type === "create-session" && <CreateSessionScreen onBack={() => nav({ type: "main", tab: "sessions" })} onCreated={(id) => nav({ type: "session-detail", sessionId: id })} />}
+            {screen.type === "rubrics" && <RubricsScreen session={authSession} onBack={() => nav({ type: "main", tab: "settings" })} onSession={(id) => nav({ type: "session-detail", sessionId: id })} />}
             {screen.type === "profile" && (
               <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-                <ProfileScreen onBack={() => nav({ type: "main", tab: "home" })} onStartTour={() => { setTourStep("contact"); nav({ type: "tour" }); }} />
+                <ProfileScreen session={authSession} onBack={() => nav({ type: "main", tab: "home" })} onStartTour={() => { setTourStep("contact"); nav({ type: "tour" }); }} />
               </ScrollView>
             )}
             {screen.type === "tour" && (
               <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-                <TourStepper idx={tourIdx} prospect={prospect} step={tourStep} onBack={() => nav({ type: "profile" })} onChange={(k, v) => setProspect((c) => ({ ...c, [k]: v }))} onStep={setTourStep} />
+                <TourStepper session={authSession} idx={tourIdx} prospect={prospect} step={tourStep} onBack={() => nav({ type: "profile" })} onChange={(k, v) => setProspect((c) => ({ ...c, [k]: v }))} onStep={setTourStep} />
               </ScrollView>
             )}
           </KeyboardAvoidingView>
         </ToastProvider>
       </RecordingProvider>
     </View>
+    </SafeAreaProvider>
   );
 }
 
@@ -433,11 +489,12 @@ const TAB_ITEMS: Array<{ id: MainTab; label: string; icon: keyof typeof Ionicons
   { id: "settings", label: "Settings", icon: "settings-outline", iconActive: "settings" },
 ];
 
-function MainTabs({ tab, onTab, onSession, onCreate, onProfile, onResetOb, agentName, property }: {
-  tab: MainTab; onTab: (t: MainTab) => void; onSession: (id: string) => void; onCreate: () => void; onProfile: () => void; onResetOb: () => void; agentName: string; property: string;
+function MainTabs({ tab, onTab, onSession, onCreate, onProfile, onRubrics, onSignOut, authSession, onAuthSession, agentName, property }: {
+  tab: MainTab; onTab: (t: MainTab) => void; onSession: (id: string) => void; onCreate: () => void; onProfile: () => void; onRubrics: () => void; onSignOut: () => void; authSession: MobileAuthSession; onAuthSession: (session: MobileAuthSession) => void; agentName: string; property: string;
 }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -445,12 +502,14 @@ function MainTabs({ tab, onTab, onSession, onCreate, onProfile, onResetOb, agent
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [sessData, matData] = await Promise.all([
+      const [sessData, matData, calendarData] = await Promise.all([
         fetchSessions({ limit: 100 }),
         fetchMaterials().catch(() => ({ materials: [] as Material[] })),
+        fetchCalendarEvents().catch(() => ({ events: [] as CalendarEvent[] })),
       ]);
       setSessions(sessData.sessions);
       setMaterials(matData.materials);
+      setCalendarEvents(calendarData.events);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
@@ -470,9 +529,9 @@ function MainTabs({ tab, onTab, onSession, onCreate, onProfile, onResetOb, agent
         <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
           {error && <ErrorBanner message={error} onRetry={load} />}
           {tab === "home" && <DashboardScreen sessions={sessions} loading={loading} onSession={onSession} onProfile={onProfile} agentName={agentName} property={property} />}
-          {tab === "calendar" && <CalendarScreen sessions={sessions} onSession={onSession} />}
-          {tab === "materials" && <MaterialsScreen materials={materials} loading={loading} />}
-          {tab === "settings" && <SettingsScreen onResetOb={onResetOb} />}
+          {tab === "calendar" && <CalendarScreen sessions={sessions} entrataEvents={calendarEvents} onSession={onSession} onReload={load} />}
+          {tab === "materials" && <MaterialsScreen materials={materials} loading={loading} onReload={load} />}
+          {tab === "settings" && <SettingsScreen session={authSession} onSessionChange={onAuthSession} onRubrics={onRubrics} onSignOut={onSignOut} />}
         </ScrollView>
       )}
 
@@ -481,7 +540,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onProfile, onResetOb, agent
       )}
 
       {tab === "sessions" && (
-        <Pressable onPress={onCreate} style={({ pressed }) => [st.fab, pressed && st.pressed]}>
+        <Pressable accessibilityLabel="New session" onPress={onCreate} style={({ pressed }) => [st.fab, pressed && st.pressed]}>
           <Ionicons name="add" size={28} color="#fff" />
         </Pressable>
       )}
@@ -824,26 +883,43 @@ const slst = StyleSheet.create({
 // Calendar
 // ═══════════════════════════════════════
 
-function CalendarScreen({ sessions, onSession }: { sessions: SessionSummary[]; onSession: (id: string) => void }) {
+function CalendarScreen({
+  sessions,
+  entrataEvents,
+  onSession,
+  onReload,
+}: {
+  sessions: SessionSummary[];
+  entrataEvents: CalendarEvent[];
+  onSession: (id: string) => void;
+  onReload: () => Promise<void>;
+}) {
   const today = new Date();
   const [monthOffset, setMonthOffset] = useState(0);
+  const [syncing, setSyncing] = useState(false);
   const viewDate = useMemo(() => new Date(today.getFullYear(), today.getMonth() + monthOffset, 1), [monthOffset]);
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
   const monthLabel = viewDate.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
-  const sessionsByDay = useMemo(() => {
-    const map: Record<string, SessionSummary[]> = {};
+  const itemsByDay = useMemo(() => {
+    const map: Record<number, Array<{ source: "session"; session: SessionSummary } | { source: "entrata"; event: CalendarEvent }>> = {};
     for (const s of sessions) {
       if (!s.scheduledAt) continue;
       const d = new Date(s.scheduledAt);
       if (d.getFullYear() === year && d.getMonth() === month) {
         const day = d.getDate();
-        (map[day] ??= []).push(s);
+        (map[day] ??= []).push({ source: "session", session: s });
+      }
+    }
+    for (const event of entrataEvents) {
+      const [eventYear, eventMonth, eventDay] = event.appointment_date.split("-").map(Number);
+      if (eventYear === year && eventMonth === month + 1 && eventDay) {
+        (map[eventDay] ??= []).push({ source: "entrata", event });
       }
     }
     return map;
-  }, [sessions, year, month]);
+  }, [entrataEvents, sessions, year, month]);
 
   const firstDow = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -855,12 +931,49 @@ function CalendarScreen({ sessions, onSession }: { sessions: SessionSummary[]; o
   }
   if (week.length) { while (week.length < 7) week.push(null); weeks.push(week); }
 
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
-  const daySessionList = selectedDay ? (sessionsByDay[selectedDay] ?? []) : [];
+  const [selectedDay, setSelectedDay] = useState<number | null>(today.getDate());
+  const dayItems = selectedDay ? (itemsByDay[selectedDay] ?? []) : [];
+
+  useEffect(() => {
+    setSelectedDay(
+      monthOffset === 0 ? today.getDate() : null
+    );
+  }, [monthOffset]);
+
+  async function runSync() {
+    setSyncing(true);
+    try {
+      const result = await syncCalendar();
+      await onReload();
+      showToast(`${result?.eventsSynced ?? 0} Entrata tours synced`, "success");
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Entrata sync failed", "error");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   return (
     <View style={st.page}>
-      <Text style={st.pageTitle}>Calendar</Text>
+      <View style={st.pageHeadingRow}>
+        <View style={st.flex1}>
+          <Text style={st.pageTitle}>Calendar</Text>
+          <Text style={st.pageHeadingSub}>{entrataEvents.length} Entrata tours · {sessions.length} sessions</Text>
+        </View>
+        <Pressable onPress={() => void runSync()} disabled={syncing} style={({ pressed }) => [st.iconButton, pressed && st.pressed]}>
+          {syncing ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="sync" size={19} color={C.brand} />}
+        </Pressable>
+      </View>
+
+      <View style={st.integrationStrip}>
+        <View style={st.integrationIcon}><Ionicons name="calendar" size={17} color={C.green} /></View>
+        <View style={st.flex1}>
+          <Text style={st.integrationTitle}>Entrata connected</Text>
+          <Text style={st.integrationSub}>Tours and prospect details sync from Entrata.</Text>
+        </View>
+        <View style={st.connectedBadge}><View style={st.connectedBadgeDot} /><Text style={st.connectedBadgeText}>Live</Text></View>
+      </View>
+
       <View style={st.card}>
         <View style={{ padding: 16 }}>
           <View style={st.calNav}>
@@ -876,12 +989,17 @@ function CalendarScreen({ sessions, onSession }: { sessions: SessionSummary[]; o
               {w.map((d, di) => {
                 if (d === null) return <View key={di} style={st.calDayCell} />;
                 const isToday = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-                const hasSessions = !!sessionsByDay[d];
+                const dayItems = itemsByDay[d] ?? [];
+                const hasSessions = dayItems.some((item) => item.source === "session");
+                const hasEntrata = dayItems.some((item) => item.source === "entrata");
                 const isSelected = d === selectedDay;
                 return (
                   <Pressable key={di} onPress={() => setSelectedDay(d === selectedDay ? null : d)} style={[st.calDayCell, isSelected && st.calDaySelected, isToday && !isSelected && st.calDayToday]}>
                     <Text style={[st.calDayText, isToday && st.calDayTextToday, isSelected && st.calDayTextSelected]}>{d}</Text>
-                    {hasSessions && <View style={[st.calDot, isSelected && { backgroundColor: "#fff" }]} />}
+                    <View style={st.calDots}>
+                      {hasEntrata && <View style={[st.calDot, { backgroundColor: isSelected ? "#fff" : C.purple }]} />}
+                      {hasSessions && <View style={[st.calDot, { backgroundColor: isSelected ? "#fff" : C.brand }]} />}
+                    </View>
                   </Pressable>
                 );
               })}
@@ -893,9 +1011,31 @@ function CalendarScreen({ sessions, onSession }: { sessions: SessionSummary[]; o
       {selectedDay !== null && (
         <>
           <Text style={st.sectionTitle}>{monthLabel.split(" ")[0]} {selectedDay}</Text>
-          {daySessionList.length === 0 ? <EmptyState icon="calendar-outline" title="No sessions" subtitle={`Nothing scheduled for ${monthLabel.split(" ")[0]} ${selectedDay}`} /> : (
+          {dayItems.length === 0 ? <EmptyState icon="calendar-outline" title="No calendar items" subtitle={`Nothing scheduled for ${monthLabel.split(" ")[0]} ${selectedDay}`} /> : (
             <View style={st.card}>
-              {daySessionList.map((s, i) => <SessionRow key={s.id} session={s} onPress={() => onSession(s.id)} isLast={i === daySessionList.length - 1} />)}
+              {dayItems.map((item, index) => item.source === "session" ? (
+                <SessionRow key={item.session.id} session={item.session} onPress={() => onSession(item.session.id)} isLast={index === dayItems.length - 1} />
+              ) : (
+                <Pressable
+                  key={item.event.id}
+                  disabled={!item.event.session_id}
+                  onPress={() => item.event.session_id && onSession(item.event.session_id)}
+                  style={({ pressed }) => [st.calendarEventRow, index < dayItems.length - 1 && st.rowBorder, pressed && st.pressed]}
+                >
+                  <View style={st.entrataEventIcon}><Ionicons name={item.event.event_type === "virtual" ? "videocam-outline" : "business-outline"} size={18} color={C.purple} /></View>
+                  <View style={st.flex1}>
+                    <Text style={st.sessionTitle} numberOfLines={1}>{item.event.prospect_name ?? "Entrata tour"}</Text>
+                    <Text style={st.sessionMeta}>
+                      {formatEntrataClock(item.event.time_from)} · {item.event.event_type === "virtual" ? "Virtual" : "In person"}
+                    </Text>
+                    {(item.event.prospect_email || item.event.prospect_phone) && (
+                      <Text style={st.calendarContact} numberOfLines={1}>{item.event.prospect_email ?? item.event.prospect_phone}</Text>
+                    )}
+                  </View>
+                  <View style={[st.badge, { backgroundColor: C.purpleBg }]}><Text style={[st.badgeText, { color: C.purple }]}>{item.event.status.replaceAll("_", " ")}</Text></View>
+                  {item.event.session_id && <Ionicons name="chevron-forward" size={17} color={C.textMuted} />}
+                </Pressable>
+              ))}
             </View>
           )}
         </>
@@ -904,22 +1044,69 @@ function CalendarScreen({ sessions, onSession }: { sessions: SessionSummary[]; o
   );
 }
 
+function formatEntrataClock(value: string | null) {
+  if (!value) return "Time TBD";
+  const match = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return value;
+  const date = new Date(2000, 0, 1, Number(match[1]), Number(match[2]));
+  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 // ═══════════════════════════════════════
 // Materials
 // ═══════════════════════════════════════
 
-function MaterialsScreen({ materials, loading }: { materials: Material[]; loading: boolean }) {
+function MaterialsScreen({ materials, loading, onReload }: { materials: Material[]; loading: boolean; onReload: () => Promise<void> }) {
   const typeIcon: Record<string, keyof typeof Ionicons.glyphMap> = { rubric: "clipboard-outline", training: "book-outline", recording: "mic-outline", other: "document-outline" };
   const typeColor: Record<string, string> = { rubric: C.brand, training: C.purple, recording: C.green, other: C.textSec };
+  const [uploading, setUploading] = useState(false);
+
+  async function addAsset() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["video/*", "audio/*", "image/*", "application/pdf"],
+        copyToCacheDirectory: true,
+      });
+      const file = result.assets?.[0];
+      if (result.canceled || !file) return;
+      setUploading(true);
+      await uploadMaterial(file.uri, file.mimeType ?? "application/octet-stream", file.name);
+      await onReload();
+      showToast("Asset added to this community", "success");
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not upload asset", "error");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <View style={st.page}>
-      <Text style={st.pageTitle}>Assets</Text>
-      <Text style={st.pageSub}>{materials.length} material{materials.length !== 1 ? "s" : ""}</Text>
+      <View style={st.pageHeadingRow}>
+        <View style={st.flex1}>
+          <Text style={st.pageTitle}>Assets</Text>
+          <Text style={st.pageHeadingSub}>{materials.length} community resources</Text>
+        </View>
+        <Pressable onPress={() => void addAsset()} disabled={uploading} style={({ pressed }) => [st.iconButton, pressed && st.pressed]}>
+          {uploading ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="add" size={22} color={C.brand} />}
+        </Pressable>
+      </View>
+      <View style={st.assetSummary}>
+        <View style={st.assetSummaryIcon}><Ionicons name="folder-open-outline" size={19} color={C.brand} /></View>
+        <View style={st.flex1}>
+          <Text style={st.integrationTitle}>Community library</Text>
+          <Text style={st.integrationSub}>Use these during recordings and prospect follow-up.</Text>
+        </View>
+      </View>
       {loading ? <LoadingBox /> : materials.length === 0 ? <EmptyState icon="folder-open-outline" title="No materials" subtitle="Rubrics, training docs, and recordings appear here" /> : (
         <View style={st.card}>
           {materials.map((m, i) => (
-            <View key={m.id} style={[st.materialRow, i < materials.length - 1 && st.rowBorder]}>
+            <Pressable
+              key={m.id}
+              disabled={!materialUrl(m)}
+              onPress={() => { const url = materialUrl(m); if (url) void Linking.openURL(url); }}
+              style={({ pressed }) => [st.materialRow, i < materials.length - 1 && st.rowBorder, pressed && st.pressed]}
+            >
               <View style={[st.materialIcon, { backgroundColor: (typeColor[m.type] ?? C.textSec) + "12" }]}>
                 <Ionicons name={typeIcon[m.type] ?? "document-outline"} size={18} color={typeColor[m.type] ?? C.textSec} />
               </View>
@@ -928,7 +1115,8 @@ function MaterialsScreen({ materials, loading }: { materials: Material[]; loadin
                 <Text style={st.materialDesc} numberOfLines={2}>{m.description}</Text>
                 <Text style={st.materialMeta}>{m.type} \u00B7 {fmtDate(m.createdAt)}</Text>
               </View>
-            </View>
+              {materialUrl(m) && <Ionicons name="open-outline" size={17} color={C.textMuted} />}
+            </Pressable>
           ))}
         </View>
       )}
@@ -957,11 +1145,18 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
   const [rubricId, setRubricId] = useState<string | null>(null);
   const [rubricOpen, setRubricOpen] = useState(false);
+  const [assets, setAssets] = useState<Material[]>([]);
+  const [assetSheetOpen, setAssetSheetOpen] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
 
   useEffect(() => {
-    fetchRubrics()
-      .then(({ rubrics: list }) => {
+    Promise.all([
+      fetchRubrics(),
+      fetchMaterials().catch(() => ({ materials: [] as Material[] })),
+    ])
+      .then(([{ rubrics: list }, materialData]) => {
         setRubrics(list);
+        setAssets(materialData.materials.filter((material) => materialUrl(material)));
         if (list.length > 0) {
           const defaultRubric = list.find((r) => r.isDefault) ?? list[0];
           if (defaultRubric) setRubricId(defaultRubric.id);
@@ -972,7 +1167,9 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
 
   async function startRecording() {
     try {
-      await rec.start();
+      const started = await rec.start();
+      if (!started) return;
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setPhase("recording");
     } catch {
       showToast("Could not start recording", "error");
@@ -980,9 +1177,10 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
   }
 
   async function stopRecording() {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const result = await rec.stop();
     if (result?.uri) {
-      await uploadFile(result.uri, "audio/m4a", `tour-${Date.now()}.m4a`);
+      await uploadFile(result.uri, "audio/m4a", `tour-${Date.now()}.m4a`, undefined, result.durationSec);
     } else {
       showToast("Failed to save recording", "error");
       setPhase("choose");
@@ -1000,7 +1198,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
     }
   }
 
-  async function uploadFile(uri: string, mimeType: string, name: string, size?: number | null) {
+  async function uploadFile(uri: string, mimeType: string, name: string, size?: number | null, durationSec?: number) {
     setFileName(name);
     setFileSizeMB(size ? (size / 1024 / 1024).toFixed(1) : null);
     setPhase("uploading");
@@ -1014,11 +1212,14 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
       setTitle(defaultTitle);
 
       const interval = setInterval(() => setProgress((p) => Math.min(p + 6, 90)), 300);
-      await uploadRecording(sid, uri, mimeType, name);
-      clearInterval(interval);
-      setProgress(100);
-      showToast("Recording uploaded", "success");
-      setPhase("details");
+      try {
+        await uploadRecording(sid, uri, mimeType, name, durationSec);
+        setProgress(100);
+        showToast("Recording uploaded", "success");
+        setPhase("details");
+      } finally {
+        clearInterval(interval);
+      }
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Upload failed", "error");
       setPhase("choose");
@@ -1038,7 +1239,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
 
     if (Object.keys(patchBody).length > 0) {
       try {
-        await fetch(`${getApiBaseUrl()}/api/sessions/${sessionId}`, {
+        await authenticatedFetch(`/api/sessions/${sessionId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(patchBody),
@@ -1050,6 +1251,19 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
   }
 
   const fmtElapsed = `${String(Math.floor(rec.elapsed / 60)).padStart(2, "0")}:${String(rec.elapsed % 60).padStart(2, "0")}`;
+
+  function addAsset(asset: Material) {
+    if (selectedAssetIds.includes(asset.id)) return;
+    const url = materialUrl(asset);
+    const snippet = [
+      `Follow-up asset: ${asset.name}`,
+      asset.description || null,
+      url ? `Link: ${url}` : null,
+    ].filter(Boolean).join("\n");
+    setNotes((current) => current.trim() ? `${current.trim()}\n\n${snippet}` : snippet);
+    setSelectedAssetIds((current) => [...current, asset.id]);
+    void Haptics.selectionAsync();
+  }
 
   // ── Choose: Record or Upload ──
   if (phase === "choose") {
@@ -1090,37 +1304,98 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
   // ── Audio recording (works in background) ──
   if (phase === "recording") {
     return (
-      <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-        <View style={st.page}>
-          <BackBtn label="Cancel" onPress={async () => { await rec.stop(); setPhase("choose"); }} />
-          <Text style={st.pageTitle}>Recording</Text>
+      <View style={st.callRecorder}>
+        <View style={st.callTopBar}>
+          <Pressable
+            accessibilityLabel="Cancel recording"
+            onPress={async () => { await rec.stop(); setPhase("choose"); }}
+            style={st.callTopButton}
+          >
+            <Ionicons name="close" size={22} color="#fff" />
+          </Pressable>
+          <View style={st.callLiveBadge}><View style={st.callLiveDot} /><Text style={st.callLiveText}>LIVE RECORDING</Text></View>
+          <View style={st.callTopSpacer} />
+        </View>
 
-          <View style={[st.card, { padding: 28, alignItems: "center", gap: 20 }]}>
-            {/* Pulsing mic indicator */}
-            <View style={{ width: 100, height: 100, borderRadius: 50, backgroundColor: C.red + "12", alignItems: "center", justifyContent: "center" }}>
-              <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: C.red + "20", alignItems: "center", justifyContent: "center" }}>
-                <Ionicons name="mic" size={36} color={C.red} />
-              </View>
-            </View>
+        <View style={st.callCenter}>
+          <View style={st.callMicHalo}>
+            <View style={st.callMicCore}><Ionicons name="mic" size={38} color="#fff" /></View>
+          </View>
+          <Text style={st.callTitle}>Tour conversation</Text>
+          <Text style={st.callTimer}>{fmtElapsed}</Text>
+          <View style={st.waveform} accessibilityElementsHidden>
+            {[18, 30, 42, 24, 50, 34, 44, 22, 38, 28, 46, 20].map((height, index) => (
+              <View key={`${height}-${index}`} style={[st.waveBar, { height }]} />
+            ))}
+          </View>
+          <Text style={st.callCaption}>Recording securely in the background</Text>
+        </View>
 
-            {/* Timer */}
-            <Text style={{ fontSize: 40, fontWeight: "900", color: C.text, fontVariant: ["tabular-nums"] }}>{fmtElapsed}</Text>
-
-            {/* Status */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.red }} />
-              <Text style={{ fontSize: 14, fontWeight: "700", color: C.red }}>Recording in progress</Text>
-            </View>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec, textAlign: "center" }}>You can leave the app — recording continues in the background</Text>
-
-            {/* Stop button */}
-            <Pressable onPress={stopRecording} style={({ pressed }) => [{ width: 72, height: 72, borderRadius: 36, borderWidth: 4, borderColor: C.red, alignItems: "center", justifyContent: "center", marginTop: 8 }, pressed && st.pressed]}>
-              <View style={{ width: 28, height: 28, borderRadius: 4, backgroundColor: C.red }} />
+        <View style={st.callControls}>
+          <View style={st.callAction}>
+            <Pressable onPress={() => setAssetSheetOpen(true)} style={({ pressed }) => [st.callActionButton, pressed && st.pressed]}>
+              <Ionicons name="attach" size={25} color="#fff" />
+              {selectedAssetIds.length > 0 && <View style={st.callActionCount}><Text style={st.callActionCountText}>{selectedAssetIds.length}</Text></View>}
             </Pressable>
-            <Text style={{ fontSize: 13, fontWeight: "700", color: C.textSec }}>Tap to stop</Text>
+            <Text style={st.callActionLabel}>Assets</Text>
+          </View>
+          <View style={st.callAction}>
+            <Pressable onPress={stopRecording} style={({ pressed }) => [st.callStopButton, pressed && st.pressed]}>
+              <View style={st.callStopSquare} />
+            </Pressable>
+            <Text style={st.callActionLabel}>Finish</Text>
+          </View>
+          <View style={st.callAction}>
+            <Pressable onPress={() => setAssetSheetOpen(true)} style={({ pressed }) => [st.callActionButton, pressed && st.pressed]}>
+              <Ionicons name="create-outline" size={24} color="#fff" />
+            </Pressable>
+            <Text style={st.callActionLabel}>Notes</Text>
           </View>
         </View>
-      </ScrollView>
+
+        <Modal visible={assetSheetOpen} transparent animationType="slide" onRequestClose={() => setAssetSheetOpen(false)}>
+          <View style={st.sheetBackdrop}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setAssetSheetOpen(false)} />
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={st.assetSheet}>
+              <View style={st.sheetHandle} />
+              <View style={st.sheetHeader}>
+                <View style={st.flex1}>
+                  <Text style={st.sheetTitle}>Follow-up assets</Text>
+                  <Text style={st.sheetSubtitle}>Add links while they are top of mind.</Text>
+                </View>
+                <Pressable accessibilityLabel="Close assets" onPress={() => setAssetSheetOpen(false)} style={st.iconButton}>
+                  <Ionicons name="close" size={20} color={C.text} />
+                </Pressable>
+              </View>
+              <ScrollView style={st.assetSheetList} contentContainerStyle={{ gap: 8 }} showsVerticalScrollIndicator={false}>
+                {assets.length ? assets.map((asset) => {
+                  const selected = selectedAssetIds.includes(asset.id);
+                  return (
+                    <Pressable key={asset.id} onPress={() => addAsset(asset)} style={[st.assetPickRow, selected && st.assetPickRowSelected]}>
+                      <View style={[st.materialIcon, { backgroundColor: selected ? C.greenBg : C.purpleBg }]}>
+                        <Ionicons name={selected ? "checkmark" : "document-attach-outline"} size={18} color={selected ? C.green : C.purple} />
+                      </View>
+                      <View style={st.flex1}>
+                        <Text style={st.assetPickTitle} numberOfLines={1}>{asset.name}</Text>
+                        <Text style={st.assetPickMeta} numberOfLines={1}>{asset.description || asset.type}</Text>
+                      </View>
+                      <Text style={[st.assetPickAction, selected && { color: C.green }]}>{selected ? "Added" : "Add"}</Text>
+                    </Pressable>
+                  );
+                }) : <EmptyState icon="folder-open-outline" title="No assets yet" subtitle="Add files from the Assets tab." />}
+              </ScrollView>
+              <TextInput
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Add a quick follow-up note"
+                placeholderTextColor={C.textMuted}
+                multiline
+                style={st.assetNotesInput}
+              />
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
+      </View>
     );
   }
 
@@ -1241,6 +1516,13 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
   }, [sessionId]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!session || analysis || !PROCESSING_STATUSES.has(session.status)) return;
+    const poll = setInterval(() => {
+      if (AppState.currentState === "active") void load();
+    }, 4000);
+    return () => clearInterval(poll);
+  }, [analysis, load, session]);
   const onRefresh = useCallback(async () => { setRefreshing(true); await load(); setRefreshing(false); }, [load]);
 
   if (loading) return <View style={[st.flex1, st.center]}><ActivityIndicator size="large" color={C.brand} /><Text style={[st.pageSub, { marginTop: 12 }]}>Loading session...</Text></View>;
@@ -1276,7 +1558,7 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
         </View>
 
         {/* Upload / Process section for non-analyzed sessions */}
-        {!hasAnalysis && <UploadProcessCard sessionId={sessionId} status={session.status} onDone={load} />}
+        {!hasAnalysis && <UploadProcessCard sessionId={sessionId} status={session.status} rubricId={session.rubricId} onDone={load} />}
 
         {hasAnalysis && <ScoreHero analysis={analysis} />}
 
@@ -1318,12 +1600,73 @@ function DetailMeta({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text
   );
 }
 
+function RubricPicker({
+  rubrics,
+  value,
+  open,
+  onToggle,
+  onSelect,
+}: {
+  rubrics: Rubric[];
+  value: string | null;
+  open: boolean;
+  onToggle: () => void;
+  onSelect: (id: string) => void;
+}) {
+  const selected = rubrics.find((rubric) => rubric.id === value);
+  return (
+    <View>
+      <Text style={st.fieldLabel}>Evaluation rubric</Text>
+      <Pressable onPress={onToggle} style={({ pressed }) => [st.inputWrap, pressed && st.pressed]}>
+        <Ionicons name="clipboard-outline" size={18} color={C.textMuted} />
+        <View style={st.flex1}>
+          <Text style={st.pickerValue} numberOfLines={1}>{selected?.name ?? "Select rubric"}</Text>
+          {selected && (
+            <Text style={st.pickerMeta}>
+              {rubricTotalPoints(selected.definition)} pts · {rubricItemCount(selected.definition)} items
+            </Text>
+          )}
+        </View>
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={C.textMuted} />
+      </Pressable>
+      {open && (
+        <View style={st.pickerMenu}>
+          {rubrics.map((rubric, index) => (
+            <Pressable
+              key={rubric.id}
+              onPress={() => onSelect(rubric.id)}
+              style={({ pressed }) => [
+                st.pickerOption,
+                index > 0 && st.rowBorder,
+                value === rubric.id && st.pickerOptionSelected,
+                pressed && st.pressed,
+              ]}
+            >
+              <View style={st.flex1}>
+                <Text style={st.pickerOptionTitle}>{rubric.name}</Text>
+                <Text style={st.pickerMeta}>
+                  {rubric.definition.sections.length} sections · {rubricItemCount(rubric.definition)} items
+                </Text>
+              </View>
+              {rubric.isDefault && <View style={st.defaultBadge}><Text style={st.defaultBadgeText}>Default</Text></View>}
+              {value === rubric.id && <Ionicons name="checkmark-circle" size={19} color={C.brand} />}
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ═══════════════════════════════════════
 // Upload & Process Card
 // ═══════════════════════════════════════
 
-function UploadProcessCard({ sessionId, status, onDone }: { sessionId: string; status: string; onDone: () => void }) {
-  const [phase, setPhase] = useState<"idle" | "uploading" | "details" | "processing" | "done" | "error">(status === "scheduled" ? "idle" : status === "uploaded" ? "idle" : "idle");
+function UploadProcessCard({ sessionId, status, rubricId: initialRubricId, onDone }: { sessionId: string; status: string; rubricId: string | null; onDone: () => void }) {
+  const rec = useRecording();
+  const [phase, setPhase] = useState<"idle" | "uploading" | "details" | "processing" | "done" | "error">(
+    PROCESSING_STATUSES.has(status) ? "processing" : "idle"
+  );
   const [progress, setProgress] = useState(0);
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [pickedFile, setPickedFile] = useState<{ uri: string; mimeType: string; name: string; size?: number } | null>(null);
@@ -1333,6 +1676,126 @@ function UploadProcessCard({ sessionId, status, onDone }: { sessionId: string; s
   const [dProspect, setDProspect] = useState("");
   const [dLocation, setDLocation] = useState("");
   const [dNotes, setDNotes] = useState("");
+  const [recordingOpen, setRecordingOpen] = useState(false);
+  const [rubrics, setRubrics] = useState<Rubric[]>([]);
+  const [rubricsLoaded, setRubricsLoaded] = useState(false);
+  const [rubricId, setRubricId] = useState<string | null>(initialRubricId);
+  const [rubricOpen, setRubricOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+
+  useEffect(() => {
+    fetchRubrics()
+      .then(({ rubrics: list }) => {
+        setRubrics(list);
+        if (!initialRubricId) {
+          const fallbackRubricId = list.find((rubric) => rubric.isDefault)?.id ?? list[0]?.id ?? null;
+          setRubricId(fallbackRubricId);
+          if (fallbackRubricId) {
+            void applyRubricToSession(sessionId, fallbackRubricId).catch(() => {});
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => setRubricsLoaded(true));
+  }, [initialRubricId, sessionId]);
+
+  useEffect(() => {
+    if (PROCESSING_STATUSES.has(status)) setPhase("processing");
+    if (status === "analysis_ready" || status === "reviewed") setPhase("done");
+    if (status === "failed") {
+      setErrMsg("Analysis did not complete. Retry when you have a stable connection.");
+      setPhase("error");
+    }
+  }, [status]);
+
+  async function selectRubric(nextRubricId: string) {
+    const previous = rubricId;
+    setRubricId(nextRubricId);
+    setRubricOpen(false);
+    try {
+      await applyRubricToSession(sessionId, nextRubricId);
+      showToast("Rubric applied to this session", "success");
+    } catch (caught) {
+      setRubricId(previous);
+      showToast(caught instanceof Error ? caught.message : "Could not apply rubric", "error");
+    }
+  }
+
+  async function startSessionRecording() {
+    try {
+      const started = await rec.start();
+      if (!started) return;
+      try {
+        await authenticatedFetch(`/api/sessions/${sessionId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "in_progress" }),
+        });
+      } catch {
+        await rec.stop();
+        throw new Error("Could not activate the tour session");
+      }
+      setRecordingOpen(true);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not start recording", "error");
+    }
+  }
+
+  async function stopSessionRecording() {
+    const result = await rec.stop();
+    setRecordingOpen(false);
+    if (!result?.uri) {
+      showToast("Failed to save recording", "error");
+      return;
+    }
+    setPickedFile({ uri: result.uri, mimeType: "audio/m4a", name: `tour-${Date.now()}.m4a` });
+    setPhase("uploading");
+    setProgress(0);
+    const interval = setInterval(() => setProgress((value) => Math.min(value + 8, 90)), 300);
+    try {
+      await uploadRecording(sessionId, result.uri, "audio/m4a", `tour-${Date.now()}.m4a`, result.durationSec);
+      setProgress(100);
+      setPhase("details");
+      showToast("Recording uploaded", "success");
+    } catch (caught) {
+      setPhase("error");
+      setErrMsg(caught instanceof Error ? caught.message : "Upload failed");
+    } finally {
+      clearInterval(interval);
+    }
+  }
+
+  async function cancelSessionRecording() {
+    setCancelling(true);
+    try {
+      if (rec.isRecording) await rec.stop();
+      setRecordingOpen(false);
+      const response = await authenticatedFetch(`/api/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "scheduled" }),
+      });
+      if (!response.ok) throw new Error("Could not reset the session");
+      showToast("Recording cancelled. Session returned to scheduled.", "success");
+      await onDone();
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not cancel the session", "error");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  function confirmCancelSession() {
+    Alert.alert(
+      "Cancel this recording?",
+      "The current recording will be discarded and the session will return to Scheduled.",
+      [
+        { text: "Keep recording", style: "cancel" },
+        { text: "Cancel recording", style: "destructive", onPress: () => void cancelSessionRecording() },
+      ]
+    );
+  }
 
   async function pickAndUpload() {
     try {
@@ -1345,13 +1808,14 @@ function UploadProcessCard({ sessionId, status, onDone }: { sessionId: string; s
       setPhase("uploading");
       setProgress(0);
       const interval = setInterval(() => setProgress((p) => Math.min(p + 8, 90)), 300);
-      await uploadRecording(sessionId, file.uri, file.mimeType ?? "video/mp4", file.name ?? "recording.mp4");
-      clearInterval(interval);
-      setProgress(100);
-      showToast("Recording uploaded", "success");
-
-      // Show details form
-      setPhase("details");
+      try {
+        await uploadRecording(sessionId, file.uri, file.mimeType ?? "video/mp4", file.name ?? "recording.mp4");
+        setProgress(100);
+        showToast("Recording uploaded", "success");
+        setPhase("details");
+      } finally {
+        clearInterval(interval);
+      }
     } catch (err) {
       setPhase("error");
       setErrMsg(err instanceof Error ? err.message : "Upload failed");
@@ -1369,7 +1833,7 @@ function UploadProcessCard({ sessionId, status, onDone }: { sessionId: string; s
 
     if (Object.keys(patchBody).length > 0) {
       try {
-        await fetch(`${getApiBaseUrl()}/api/sessions/${sessionId}`, {
+        await authenticatedFetch(`/api/sessions/${sessionId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(patchBody),
@@ -1407,23 +1871,77 @@ function UploadProcessCard({ sessionId, status, onDone }: { sessionId: string; s
     }
   }
 
-  // Auto-process if status is uploaded
+  // Resume an uploaded session only after its evaluation rubric is resolved.
   useEffect(() => {
-    if (status === "uploaded" && phase === "idle") {
-      startProcess();
-    }
-  }, [status]);
+    if (status !== "uploaded" || phase !== "idle" || !rubricsLoaded) return;
+    void (async () => {
+      if (rubricId) await applyRubricToSession(sessionId, rubricId);
+      await startProcess();
+    })().catch((caught) => {
+      setPhase("error");
+      setErrMsg(caught instanceof Error ? caught.message : "Processing failed");
+    });
+  }, [phase, rubricId, rubricsLoaded, sessionId, status]);
 
   // ── Idle: pick a file ──
-  if (phase === "idle" && status === "scheduled") {
+  if (phase === "idle" && (status === "scheduled" || status === "in_progress")) {
     return (
-      <View style={[st.card, { padding: 20, gap: 14, alignItems: "center" }]}>
+      <View style={[st.card, { padding: 20, gap: 14 }]}>
+        <View style={{ alignItems: "center", gap: 8 }}>
         <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.brand + "10", alignItems: "center", justifyContent: "center" }}>
-          <Ionicons name="cloud-upload-outline" size={28} color={C.brand} />
+          <Ionicons name="mic-outline" size={28} color={C.brand} />
         </View>
-        <Text style={st.formTitle}>Upload Recording</Text>
-        <Text style={[st.pageSub, { textAlign: "center" }]}>Upload a video or audio recording to generate AI analysis</Text>
-        <PrimaryBtn label="Choose File" onPress={pickAndUpload} icon="document-attach-outline" />
+        <Text style={st.formTitle}>{status === "in_progress" ? "Resume this tour" : "Start this tour"}</Text>
+        <Text style={[st.pageSub, { textAlign: "center" }]}>Record live audio or upload an existing recording.</Text>
+        </View>
+        {rubrics.length > 0 && (
+          <RubricPicker
+            rubrics={rubrics}
+            value={rubricId}
+            open={rubricOpen}
+            onToggle={() => setRubricOpen((current) => !current)}
+            onSelect={(id) => void selectRubric(id)}
+          />
+        )}
+        <PrimaryBtn label="Record Audio" onPress={startSessionRecording} icon="mic-outline" />
+        <Pressable onPress={pickAndUpload} style={({ pressed }) => [st.outlineBtn, pressed && st.pressed]}>
+          <Ionicons name="document-attach-outline" size={18} color={C.textSec} />
+          <Text style={st.outlineBtnText}>Upload File</Text>
+        </Pressable>
+        {status === "in_progress" && (
+          <Pressable disabled={cancelling} onPress={confirmCancelSession} style={({ pressed }) => [st.cancelSessionBtn, pressed && st.pressed]}>
+            {cancelling ? <ActivityIndicator size="small" color={C.red} /> : <Ionicons name="close-circle-outline" size={18} color={C.red} />}
+            <Text style={st.cancelSessionText}>{cancelling ? "Cancelling..." : "Cancel active session"}</Text>
+          </Pressable>
+        )}
+        <Modal visible={recordingOpen} animationType="fade" onRequestClose={() => {}}>
+          <View style={st.callRecorder}>
+            <View style={st.callTopBar}>
+              <Pressable accessibilityLabel="Cancel recording" disabled={cancelling} onPress={confirmCancelSession} style={st.callTopButton}>
+                <Ionicons name="close" size={22} color="#fff" />
+              </Pressable>
+              <View style={st.callLiveBadge}><View style={st.callLiveDot} /><Text style={st.callLiveText}>LIVE RECORDING</Text></View>
+              <View style={st.callTopSpacer} />
+            </View>
+            <View style={st.callCenter}>
+              <View style={st.callMicHalo}><View style={st.callMicCore}><Ionicons name="mic" size={38} color="#fff" /></View></View>
+              <Text style={st.callTitle}>Tour conversation</Text>
+              <Text style={st.callTimer}>{fmtSec(rec.elapsed)}</Text>
+              <View style={st.waveform} accessibilityElementsHidden>
+                {[18, 30, 42, 24, 50, 34, 44, 22, 38, 28, 46, 20].map((height, index) => <View key={`${height}-${index}`} style={[st.waveBar, { height }]} />)}
+              </View>
+              <Text style={st.callCaption}>Recording to this Entrata session</Text>
+            </View>
+            <View style={st.callControls}>
+              <View style={st.callAction}>
+                <Pressable onPress={() => void stopSessionRecording()} style={({ pressed }) => [st.callStopButton, pressed && st.pressed]}>
+                  <View style={st.callStopSquare} />
+                </Pressable>
+                <Text style={st.callActionLabel}>Finish</Text>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   }
@@ -1449,6 +1967,15 @@ function UploadProcessCard({ sessionId, status, onDone }: { sessionId: string; s
           <Input placeholder="Session title" value={dTitle} onChangeText={setDTitle} icon="text-outline" />
           <Input placeholder="Prospect name" value={dProspect} onChangeText={setDProspect} icon="person-outline" />
           <Input placeholder="Location / unit" value={dLocation} onChangeText={setDLocation} icon="location-outline" />
+          {rubrics.length > 0 && (
+            <RubricPicker
+              rubrics={rubrics}
+              value={rubricId}
+              open={rubricOpen}
+              onToggle={() => setRubricOpen((current) => !current)}
+              onSelect={(id) => void selectRubric(id)}
+            />
+          )}
           <Input placeholder="Notes or focus areas" value={dNotes} onChangeText={setDNotes} icon="document-text-outline" multiline />
           <PrimaryBtn label="Start Processing" onPress={submitDetailsAndProcess} icon="analytics-outline" />
           <Pressable onPress={() => submitDetailsAndProcess()} style={({ pressed }) => [pressed && st.pressed]}>
@@ -2058,22 +2585,333 @@ function CommentsTab({ comments, sessionId, onUpdate }: { comments: SessionComme
 }
 
 // ═══════════════════════════════════════
+// Rubrics
+// ═══════════════════════════════════════
+
+function RubricsScreen({
+  session,
+  onBack,
+  onSession,
+}: {
+  session: MobileAuthSession;
+  onBack: () => void;
+  onSession: (id: string) => void;
+}) {
+  const [rubrics, setRubrics] = useState<Rubric[]>([]);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [selected, setSelected] = useState<Rubric | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const canManage = session.workspace.membership.role !== "member";
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const [rubricData, sessionData] = await Promise.all([
+        fetchRubrics(),
+        fetchSessions({ limit: 100 }),
+      ]);
+      setRubrics(rubricData.rubrics);
+      setSessions(sessionData.sessions);
+      setSelected((current) => current
+        ? rubricData.rubrics.find((rubric) => rubric.id === current.id) ?? null
+        : null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not load rubrics");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function refresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
+
+  async function pickRubricFile() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf", "text/*", "application/json", "text/csv"],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const file = result.assets[0];
+      setUploading(true);
+      const rubric = await uploadRubric(
+        file.uri,
+        file.mimeType ?? "application/octet-stream",
+        file.name ?? "rubric-template.pdf"
+      );
+      await load();
+      setSelected(rubric);
+      showToast("Rubric extracted and added", "success");
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Rubric upload failed", "error");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function applicationsFor(rubricId: string) {
+    return sessions.filter((item) => item.rubricId === rubricId);
+  }
+
+  return (
+    <View style={st.flex1}>
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={st.scroll}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={C.brand} />}
+      >
+        <View style={st.page}>
+          <View style={st.pageHeadingRow}>
+            <BackBtn label="Settings" onPress={onBack} />
+            <View style={st.flex1} />
+            {canManage && (
+              <Pressable
+                accessibilityLabel="Upload rubric"
+                disabled={uploading}
+                onPress={() => void pickRubricFile()}
+                style={({ pressed }) => [st.iconButton, pressed && st.pressed]}
+              >
+                {uploading ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="cloud-upload-outline" size={20} color={C.brand} />}
+              </Pressable>
+            )}
+          </View>
+          <View>
+            <Text style={st.pageTitle}>Rubrics</Text>
+            <Text style={st.pageHeadingSub}>{session.workspace.community.name}</Text>
+          </View>
+          {error && <ErrorBanner message={error} onRetry={load} />}
+          {canManage && (
+            <Pressable onPress={() => void pickRubricFile()} disabled={uploading} style={({ pressed }) => [st.rubricUploadCard, pressed && st.pressed]}>
+              <View style={st.rubricUploadIcon}>
+                {uploading ? <ActivityIndicator color={C.brand} /> : <Ionicons name="document-attach-outline" size={22} color={C.brand} />}
+              </View>
+              <View style={st.flex1}>
+                <Text style={st.cardRowTitle}>{uploading ? "Extracting rubric..." : "Upload rubric template"}</Text>
+                <Text style={st.cardRowSub}>PDF, TXT, Markdown, CSV, or JSON</Text>
+              </View>
+              {!uploading && <Ionicons name="chevron-forward" size={18} color={C.textMuted} />}
+            </Pressable>
+          )}
+          {loading ? <LoadingBox /> : rubrics.length === 0 ? (
+            <EmptyState icon="clipboard-outline" title="No rubrics" subtitle="Upload the first evaluation template for this community" />
+          ) : (
+            <View style={st.card}>
+              {rubrics.map((rubric, index) => {
+                const applications = applicationsFor(rubric.id);
+                return (
+                  <Pressable
+                    key={rubric.id}
+                    onPress={() => setSelected(rubric)}
+                    style={({ pressed }) => [st.rubricRow, index < rubrics.length - 1 && st.rowBorder, pressed && st.pressed]}
+                  >
+                    <View style={st.rubricListIcon}><Ionicons name="clipboard-outline" size={19} color={C.purple} /></View>
+                    <View style={st.flex1}>
+                      <View style={st.rubricTitleRow}>
+                        <Text style={st.materialName} numberOfLines={1}>{rubric.name}</Text>
+                        {rubric.isDefault && <View style={st.defaultBadge}><Text style={st.defaultBadgeText}>Default</Text></View>}
+                      </View>
+                      <Text style={st.materialMeta}>
+                        {rubric.definition.sections.length} sections · {rubricItemCount(rubric.definition)} items · {rubricTotalPoints(rubric.definition)} pts
+                      </Text>
+                      <Text style={st.rubricAppliedText}>{applications.length} session{applications.length === 1 ? "" : "s"}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
+      </ScrollView>
+
+      <Modal visible={Boolean(selected)} animationType="slide" onRequestClose={() => setSelected(null)}>
+        {selected && (
+          <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
+            <View style={st.page}>
+              <View style={st.pageHeadingRow}>
+                <BackBtn label="Rubrics" onPress={() => setSelected(null)} />
+                <View style={st.flex1} />
+                {selected.isDefault && <View style={st.defaultBadge}><Text style={st.defaultBadgeText}>Default</Text></View>}
+              </View>
+              <Text style={st.detailTitle}>{selected.name}</Text>
+              <Text style={st.pageHeadingSub}>
+                {rubricItemCount(selected.definition)} criteria · {rubricTotalPoints(selected.definition)} points
+              </Text>
+              {selected.definition.sections.map((section) => (
+                <View key={section.name} style={st.card}>
+                  <View style={st.rubricSectionHeader}>
+                    <View style={st.flex1}>
+                      <Text style={st.cardTitle}>{section.name}</Text>
+                      <Text style={st.materialMeta}>{section.items.length} items</Text>
+                    </View>
+                    <Text style={st.rubricPoints}>{section.items.reduce((sum, item) => sum + item.points, 0)} pts</Text>
+                  </View>
+                  {section.items.map((item, index) => (
+                    <View key={item.id} style={[st.rubricItem, index > 0 && st.rowBorder]}>
+                      <View style={st.rubricItemNumber}><Text style={st.rubricItemNumberText}>{index + 1}</Text></View>
+                      <View style={st.flex1}>
+                        <Text style={st.rubricItemText}>{item.text}</Text>
+                        {item.note && <Text style={st.rubricItemNote}>{item.note}</Text>}
+                      </View>
+                      <Text style={st.rubricPoints}>{item.points}</Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+              {selected.definition.compliance && selected.definition.compliance.length > 0 && (
+                <View style={st.card}>
+                  <View style={st.rubricSectionHeader}><Text style={st.cardTitle}>Compliance</Text></View>
+                  {selected.definition.compliance.map((item, index) => (
+                    <View key={item.id} style={[st.rubricItem, index > 0 && st.rowBorder]}>
+                      <Ionicons name="shield-checkmark-outline" size={18} color={C.green} />
+                      <View style={st.flex1}>
+                        <Text style={st.rubricItemText}>{item.text}</Text>
+                        {item.note && <Text style={st.rubricItemNote}>{item.note}</Text>}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+              <Text style={st.sectionTitle}>Applied sessions</Text>
+              {applicationsFor(selected.id).length === 0 ? (
+                <EmptyState icon="albums-outline" title="No applications yet" subtitle="Choose this rubric when starting or opening a scheduled session" />
+              ) : (
+                <View style={st.card}>
+                  {applicationsFor(selected.id).map((item, index, list) => (
+                    <SessionRow
+                      key={item.id}
+                      session={item}
+                      isLast={index === list.length - 1}
+                      onPress={() => {
+                        setSelected(null);
+                        onSession(item.id);
+                      }}
+                    />
+                  ))}
+                </View>
+              )}
+            </View>
+          </ScrollView>
+        )}
+      </Modal>
+    </View>
+  );
+}
+
+// ═══════════════════════════════════════
 // Settings
 // ═══════════════════════════════════════
 
-function SettingsScreen({ onResetOb }: { onResetOb: () => void }) {
+function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { session: MobileAuthSession; onSessionChange: (session: MobileAuthSession) => void; onRubrics: () => void; onSignOut: () => void }) {
+  const [switchingId, setSwitchingId] = useState<string | null>(null);
+  const [communityPickerOpen, setCommunityPickerOpen] = useState(false);
+  const [communityQuery, setCommunityQuery] = useState("");
+  const filteredCommunities = useMemo(() => {
+    const value = communityQuery.trim().toLowerCase();
+    return value
+      ? session.workspace.communities.filter((community) => community.name.toLowerCase().includes(value))
+      : session.workspace.communities;
+  }, [communityQuery, session.workspace.communities]);
+
+  async function chooseCommunity(communityId: string) {
+    if (communityId === session.workspace.community.id) {
+      setCommunityPickerOpen(false);
+      return;
+    }
+    setSwitchingId(communityId);
+    try {
+      onSessionChange(await switchCommunity(communityId));
+      setCommunityPickerOpen(false);
+      setCommunityQuery("");
+      showToast("Community switched", "success");
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not switch community", "error");
+    } finally {
+      setSwitchingId(null);
+    }
+  }
+
   return (
     <View style={st.page}>
       <Text style={st.pageTitle}>Settings</Text>
-      <CardRow icon="refresh-outline" title="Review Onboarding" sub="Restart the setup flow" onPress={onResetOb} />
-      <View style={[st.card, { padding: 18, gap: 8 }]}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Ionicons name="information-circle-outline" size={18} color={C.textSec} />
-          <Text style={st.cardTitle}>About</Text>
+      <View style={st.settingsIdentity}>
+        <View style={st.avatar48}><Text style={st.avatar48Text}>{(session.workspace.user.fullName ?? session.workspace.user.email)[0]?.toUpperCase()}</Text></View>
+        <View style={st.flex1}>
+          <Text style={st.cardRowTitle}>{session.workspace.user.fullName ?? "Team member"}</Text>
+          <Text style={st.cardRowSub}>{session.workspace.user.email} · {session.workspace.membership.role}</Text>
         </View>
-        <Text style={{ fontSize: 14, fontWeight: "600", color: C.textSec }}>Tour.video v0.1.0</Text>
-        <Text style={{ fontSize: 13, fontWeight: "600", color: C.textMuted }}>AI-powered leasing tour evaluation platform</Text>
       </View>
+
+      <Text style={st.settingsSectionLabel}>ACTIVE COMMUNITY</Text>
+      <Pressable onPress={() => setCommunityPickerOpen(true)} style={({ pressed }) => [st.settingsIdentity, pressed && st.pressed]}>
+        <View style={[st.communitySettingIcon, { backgroundColor: C.greenBg }]}>
+          <Ionicons name="business-outline" size={18} color={C.green} />
+        </View>
+        <View style={st.flex1}>
+          <Text style={st.communitySettingName}>{session.workspace.community.name}</Text>
+          <Text style={st.cardRowSub}>{session.workspace.communities.length} available communities</Text>
+        </View>
+        <Text style={st.settingsChangeText}>Change</Text>
+      </Pressable>
+      <Text style={st.settingsSectionLabel}>EVALUATION</Text>
+      <CardRow icon="clipboard-outline" title="Rubrics" sub="Templates, criteria, and session applications" onPress={onRubrics} />
+      <CardRow icon="log-out-outline" title="Sign out" sub="Remove this account from the device" onPress={onSignOut} />
+      <Text style={st.settingsVersion}>Tour mobile 0.1.0 · {session.workspace.membership.companyName}</Text>
+
+      <Modal visible={communityPickerOpen} transparent animationType="slide" onRequestClose={() => setCommunityPickerOpen(false)}>
+        <View style={st.sheetBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setCommunityPickerOpen(false)} />
+          <View style={[st.assetSheet, { minHeight: "70%" }]}>
+            <View style={st.sheetHandle} />
+            <View style={st.sheetHeader}>
+              <View style={st.flex1}>
+                <Text style={st.sheetTitle}>Switch community</Text>
+                <Text style={st.sheetSubtitle}>Your dashboard and integrations will update.</Text>
+              </View>
+              <Pressable accessibilityLabel="Close communities" onPress={() => setCommunityPickerOpen(false)} style={st.iconButton}>
+                <Ionicons name="close" size={20} color={C.text} />
+              </Pressable>
+            </View>
+            <View style={st.searchBar}>
+              <Ionicons name="search" size={18} color={C.textMuted} />
+              <TextInput
+                value={communityQuery}
+                onChangeText={setCommunityQuery}
+                placeholder="Search communities"
+                placeholderTextColor={C.textMuted}
+                style={st.searchInput}
+              />
+            </View>
+            <FlatList
+              data={filteredCommunities}
+              keyExtractor={(community) => community.id}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingTop: 10, paddingBottom: 20 }}
+              renderItem={({ item }) => {
+                const active = item.id === session.workspace.community.id;
+                return (
+                  <Pressable onPress={() => void chooseCommunity(item.id)} style={({ pressed }) => [st.communitySettingRow, st.rowBorder, pressed && st.pressed]}>
+                    <View style={[st.communitySettingIcon, active && { backgroundColor: C.greenBg }]}>
+                      <Ionicons name="business-outline" size={18} color={active ? C.green : C.brand} />
+                    </View>
+                    <Text style={st.communitySettingName} numberOfLines={1}>{item.name}</Text>
+                    {switchingId === item.id ? <ActivityIndicator size="small" color={C.brand} /> : active ? <Ionicons name="checkmark-circle" size={20} color={C.green} /> : <Ionicons name="chevron-forward" size={17} color={C.textMuted} />}
+                  </Pressable>
+                );
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2144,17 +2982,19 @@ function OnboardingScreen({ idx, ob, player, step, onChange, onFinish, onStep }:
 // Profile & Tour (preserved)
 // ═══════════════════════════════════════
 
-function ProfileScreen({ onBack, onStartTour }: { onBack: () => void; onStartTour: () => void }) {
+function ProfileScreen({ session, onBack, onStartTour }: { session: MobileAuthSession; onBack: () => void; onStartTour: () => void }) {
+  const name = session.workspace.user.fullName ?? "Team member";
+  const initials = name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
   return (
     <View style={st.page}>
       <BackBtn label="Home" onPress={onBack} />
       <View style={[st.card, { alignItems: "center", padding: 22, gap: 14 }]}>
-        <View style={st.avatarLg}><Text style={st.avatarLgText}>AJ</Text></View>
-        <Text style={{ fontSize: 28, fontWeight: "900", color: C.text }}>{AGENT.name}</Text>
-        <Text style={{ fontSize: 15, fontWeight: "700", color: C.textSec, textAlign: "center" }}>{AGENT.title} at {AGENT.property}</Text>
+        <View style={st.avatarLg}><Text style={st.avatarLgText}>{initials}</Text></View>
+        <Text style={{ fontSize: 28, fontWeight: "900", color: C.text }}>{name}</Text>
+        <Text style={{ fontSize: 15, fontWeight: "700", color: C.textSec, textAlign: "center" }}>{session.workspace.membership.role} at {session.workspace.community.name}</Text>
         <View style={{ alignSelf: "stretch", backgroundColor: "#f8fafc", borderRadius: 20, padding: 16, gap: 12 }}>
-          <View style={{ gap: 4 }}><Text style={st.labelSmall}>Email</Text><Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{AGENT.email}</Text></View>
-          <View style={{ gap: 4 }}><Text style={st.labelSmall}>Phone</Text><Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{AGENT.phone}</Text></View>
+          <View style={{ gap: 4 }}><Text style={st.labelSmall}>Email</Text><Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{session.workspace.user.email}</Text></View>
+          <View style={{ gap: 4 }}><Text style={st.labelSmall}>Company</Text><Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{session.workspace.membership.companyName}</Text></View>
         </View>
         <PrimaryBtn label="Exchange contact and start tour" onPress={onStartTour} icon="swap-horizontal-outline" />
       </View>
@@ -2162,17 +3002,18 @@ function ProfileScreen({ onBack, onStartTour }: { onBack: () => void; onStartTou
   );
 }
 
-function TourStepper({ idx, prospect, step, onBack, onChange, onStep }: {
-  idx: number; prospect: ProspectData; step: TourStep; onBack: () => void; onChange: (k: keyof ProspectData, v: string) => void; onStep: (s: TourStep) => void;
+function TourStepper({ session, idx, prospect, step, onBack, onChange, onStep }: {
+  session: MobileAuthSession; idx: number; prospect: ProspectData; step: TourStep; onBack: () => void; onChange: (k: keyof ProspectData, v: string) => void; onStep: (s: TourStep) => void;
 }) {
+  const name = session.workspace.user.fullName ?? "Team member";
   return (
     <View style={st.page}>
       <BackBtn label="Profile" onPress={onBack} />
       <View style={[st.card, { flexDirection: "row", alignItems: "center", gap: 12, padding: 14 }]}>
-        <View style={st.avatar36}><Text style={{ color: C.brand, fontSize: 13, fontWeight: "900" }}>AJ</Text></View>
+        <View style={st.avatar36}><Text style={{ color: C.brand, fontSize: 13, fontWeight: "900" }}>{name[0]?.toUpperCase()}</Text></View>
         <View style={st.flex1}>
-          <Text style={{ fontSize: 17, fontWeight: "900", color: C.text }}>{AGENT.name}</Text>
-          <Text style={{ fontSize: 12, fontWeight: "700", color: C.textSec }}>{AGENT.email}</Text>
+          <Text style={{ fontSize: 17, fontWeight: "900", color: C.text }}>{name}</Text>
+          <Text style={{ fontSize: 12, fontWeight: "700", color: C.textSec }}>{session.workspace.user.email}</Text>
         </View>
       </View>
       <View style={[st.card, { flexDirection: "row", padding: 14, gap: 10 }]}>
@@ -2293,44 +3134,44 @@ const st = StyleSheet.create({
   root: { backgroundColor: C.bg, flex: 1 },
   flex1: { flex: 1 },
   center: { alignItems: "center", justifyContent: "center" },
-  scroll: { gap: 16, paddingHorizontal: 18, paddingTop: 60, paddingBottom: 32 },
+  scroll: { gap: 14, paddingHorizontal: 18, paddingTop: 56, paddingBottom: 32 },
   pressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
   page: { gap: 14 },
 
   // Toast
-  toast: { position: "absolute", bottom: 100, left: 20, right: 20, flexDirection: "row", alignItems: "center", gap: 10, padding: 14, borderRadius: 14, zIndex: 999 },
+  toast: { position: "absolute", bottom: 100, left: 20, right: 20, flexDirection: "row", alignItems: "center", gap: 10, padding: 14, borderRadius: 8, zIndex: 999 },
   toastText: { color: "#fff", fontSize: 14, fontWeight: "700", flex: 1 },
 
   // Tab Bar
-  tabBar: { flexDirection: "row", backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border, paddingBottom: 28, paddingTop: 8 },
+  tabBar: { flexDirection: "row", backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border, paddingBottom: Platform.OS === "web" ? 12 : 28, paddingTop: 9 },
   tabBarItem: { flex: 1, alignItems: "center", gap: 2 },
   tabBarLabel: { fontSize: 10, fontWeight: "700", color: C.textMuted },
   tabBarLabelActive: { color: C.brand },
 
   // FAB
-  fab: { position: "absolute", bottom: 96, right: 20, width: 56, height: 56, borderRadius: 20, backgroundColor: C.brand, alignItems: "center", justifyContent: "center", shadowColor: C.brand, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 8 },
+  fab: { position: "absolute", bottom: 96, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: C.brand, alignItems: "center", justifyContent: "center", shadowColor: C.brand, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 8 },
 
   // Error
-  errorBanner: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, backgroundColor: C.redBg, borderRadius: 14, borderWidth: 1, borderColor: C.red + "20" },
+  errorBanner: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, backgroundColor: C.redBg, borderRadius: 8, borderWidth: 1, borderColor: C.red + "20" },
   errorBannerText: { flex: 1, fontSize: 13, fontWeight: "700", color: C.red },
   errorRetryBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
 
   // Dashboard
   dashGreet: { flexDirection: "row", alignItems: "center", gap: 14 },
-  dashGreetText: { fontSize: 26, fontWeight: "900", color: C.text },
+  dashGreetText: { fontSize: 24, fontWeight: "900", color: C.text },
   dashProperty: { fontSize: 14, fontWeight: "700", color: C.textSec, marginTop: 2 },
-  avatar48: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#e9f2ff", alignItems: "center", justifyContent: "center" },
+  avatar48: { width: 48, height: 48, borderRadius: 8, backgroundColor: "#e9f2ff", alignItems: "center", justifyContent: "center" },
   avatar48Text: { color: C.brand, fontSize: 16, fontWeight: "900" },
   metricsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  metricCard: { width: (W - 36 - 10) / 2, backgroundColor: C.card, borderRadius: 18, borderWidth: 1, borderColor: C.border, padding: 16, gap: 6 },
-  metricValue: { fontSize: 32, fontWeight: "900", color: C.text },
+  metricCard: { width: "48.5%", backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: C.border, padding: 15, gap: 6 },
+  metricValue: { fontSize: 28, fontWeight: "900", color: C.text },
   metricLabel: { fontSize: 12, fontWeight: "800", color: C.textSec, textTransform: "uppercase" },
 
   // Card
-  card: { backgroundColor: C.card, borderRadius: 20, borderWidth: 1, borderColor: C.border, overflow: "hidden" },
+  card: { backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: C.border, overflow: "hidden" },
   cardTitle: { fontSize: 15, fontWeight: "800", color: C.text },
-  cardRow: { backgroundColor: C.card, borderRadius: 20, borderWidth: 1, borderColor: C.border, flexDirection: "row", alignItems: "center", gap: 14, padding: 16 },
-  cardRowIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: C.brand + "10", alignItems: "center", justifyContent: "center" },
+  cardRow: { backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: C.border, flexDirection: "row", alignItems: "center", gap: 14, padding: 15 },
+  cardRowIcon: { width: 40, height: 40, borderRadius: 8, backgroundColor: C.brand + "10", alignItems: "center", justifyContent: "center" },
   cardRowTitle: { fontSize: 15, fontWeight: "800", color: C.text },
   cardRowSub: { fontSize: 12, fontWeight: "600", color: C.textSec, marginTop: 1 },
 
@@ -2347,19 +3188,19 @@ const st = StyleSheet.create({
   sectionTitle: { fontSize: 17, fontWeight: "900", color: C.text, marginTop: 4 },
 
   // Page
-  pageTitle: { fontSize: 32, fontWeight: "900", color: C.text },
+  pageTitle: { fontSize: 27, fontWeight: "900", color: C.text },
   pageSub: { fontSize: 14, fontWeight: "700", color: C.textSec, marginTop: -8 },
   emptyTitle: { fontSize: 15, fontWeight: "800", color: C.text },
 
   // Search
-  searchBar: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.card, borderRadius: 16, borderWidth: 1, borderColor: C.border, paddingHorizontal: 14, minHeight: 48 },
+  searchBar: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: C.border, paddingHorizontal: 14, minHeight: 48 },
   searchInput: { flex: 1, fontSize: 15, fontWeight: "600", color: C.text },
 
   // Detail
   detailTitle: { fontSize: 28, fontWeight: "900", color: C.text },
 
   // Score Hero
-  scoreHero: { backgroundColor: C.card, borderRadius: 22, borderWidth: 1, borderColor: C.border, padding: 20, gap: 18 },
+  scoreHero: { backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: C.border, padding: 18, gap: 18 },
   scoreRing: { width: 120, height: 120, borderRadius: 60, borderWidth: 8, alignItems: "center", justifyContent: "center" },
   scoreRingFill: { position: "absolute", width: 120, height: 120, borderRadius: 60, borderWidth: 8, transform: [{ rotate: "-90deg" }] },
   scoreRingNum: { fontSize: 36, fontWeight: "900" } as any,
@@ -2371,8 +3212,8 @@ const st = StyleSheet.create({
   progressFill: { height: "100%", borderRadius: 99, backgroundColor: C.brand },
 
   // Tabs
-  tabsRow: { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 4, flexGrow: 0 },
-  tabPill: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10 },
+  tabsRow: { backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: C.border, padding: 4, flexGrow: 0 },
+  tabPill: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 6 },
   tabPillActive: { backgroundColor: C.brand + "10" },
   tabPillText: { fontSize: 11, fontWeight: "800", color: C.textSec },
   tabPillTextActive: { color: C.brand },
@@ -2401,8 +3242,87 @@ const st = StyleSheet.create({
   materialName: { fontSize: 14, fontWeight: "800", color: C.text },
   materialDesc: { fontSize: 12, fontWeight: "600", color: C.textSec, marginTop: 2, lineHeight: 17 },
   materialMeta: { fontSize: 11, fontWeight: "700", color: C.textMuted, marginTop: 4, textTransform: "capitalize" },
+  assetSummary: { flexDirection: "row", alignItems: "center", gap: 11, padding: 12, borderWidth: 1, borderColor: "#dbeafe", borderRadius: 8, backgroundColor: "#f5f9ff" },
+  assetSummaryIcon: { width: 36, height: 36, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#eaf2ff" },
+
+  // Rubric library and picker
+  fieldLabel: { color: C.textSec, fontSize: 11, fontWeight: "900", marginBottom: 7, textTransform: "uppercase" },
+  pickerValue: { color: C.text, fontSize: 14, fontWeight: "800" },
+  pickerMeta: { color: C.textMuted, fontSize: 10, fontWeight: "700", marginTop: 2 },
+  pickerMenu: { marginTop: 7, overflow: "hidden", borderWidth: 1, borderColor: C.border, borderRadius: 8, backgroundColor: C.card },
+  pickerOption: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12 },
+  pickerOptionSelected: { backgroundColor: "#f3f7ff" },
+  pickerOptionTitle: { color: C.text, fontSize: 13, fontWeight: "800" },
+  defaultBadge: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3, backgroundColor: C.greenBg },
+  defaultBadgeText: { color: C.green, fontSize: 9, fontWeight: "900", textTransform: "uppercase" },
+  rubricUploadCard: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderWidth: 1, borderColor: "#bfdbfe", borderRadius: 8, backgroundColor: "#f7fbff" },
+  rubricUploadIcon: { width: 42, height: 42, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#eaf2ff" },
+  rubricRow: { minHeight: 82, flexDirection: "row", alignItems: "center", gap: 11, padding: 13 },
+  rubricListIcon: { width: 40, height: 40, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: C.purpleBg },
+  rubricTitleRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  rubricAppliedText: { color: C.brand, fontSize: 10, fontWeight: "800", marginTop: 4 },
+  rubricSectionHeader: { minHeight: 60, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, backgroundColor: "#f8fafc" },
+  rubricPoints: { color: C.brand, fontSize: 12, fontWeight: "900" },
+  rubricItem: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 13 },
+  rubricItemNumber: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#eef4ff" },
+  rubricItemNumberText: { color: C.brand, fontSize: 10, fontWeight: "900" },
+  rubricItemText: { color: C.text, fontSize: 13, fontWeight: "700", lineHeight: 19 },
+  rubricItemNote: { color: C.textSec, fontSize: 11, fontWeight: "500", lineHeight: 16, marginTop: 4 },
+
+  // Call recorder
+  callRecorder: { flex: 1, backgroundColor: "#111318", paddingHorizontal: 22, paddingTop: Platform.OS === "ios" ? 56 : 24, paddingBottom: Platform.OS === "ios" ? 38 : 24 },
+  callTopBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  callTopButton: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.1)" },
+  callTopSpacer: { width: 42 },
+  callLiveBadge: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 7, backgroundColor: "rgba(255,255,255,0.08)" },
+  callLiveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#f04438" },
+  callLiveText: { color: "#f2f4f7", fontSize: 10, fontWeight: "900" },
+  callCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 20 },
+  callMicHalo: { width: 128, height: 128, borderRadius: 64, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(79,70,229,0.17)", marginBottom: 24 },
+  callMicCore: { width: 88, height: 88, borderRadius: 44, alignItems: "center", justifyContent: "center", backgroundColor: "#4f46e5", shadowColor: "#4f46e5", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.38, shadowRadius: 24, elevation: 8 },
+  callTitle: { color: "#fff", fontSize: 21, fontWeight: "800" },
+  callTimer: { color: "#fff", fontSize: 48, fontWeight: "300", fontVariant: ["tabular-nums"], marginTop: 7 },
+  waveform: { height: 54, flexDirection: "row", alignItems: "center", gap: 5, marginTop: 22 },
+  waveBar: { width: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.72)" },
+  callCaption: { color: "#98a2b3", fontSize: 12, fontWeight: "600", marginTop: 12 },
+  callControls: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-around" },
+  callAction: { width: 82, alignItems: "center", gap: 8 },
+  callActionButton: { width: 58, height: 58, borderRadius: 29, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.12)" },
+  callActionCount: { position: "absolute", top: -3, right: -2, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#4f46e5", borderWidth: 2, borderColor: "#111318" },
+  callActionCountText: { color: "#fff", fontSize: 10, fontWeight: "900" },
+  callStopButton: { width: 66, height: 66, borderRadius: 33, alignItems: "center", justifyContent: "center", backgroundColor: "#f04438", borderWidth: 4, borderColor: "rgba(255,255,255,0.9)" },
+  callStopSquare: { width: 23, height: 23, borderRadius: 4, backgroundColor: "#fff" },
+  callActionLabel: { color: "#d0d5dd", fontSize: 12, fontWeight: "700" },
+  cancelSessionBtn: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 8, backgroundColor: C.redBg },
+  cancelSessionText: { color: C.red, fontSize: 13, fontWeight: "800" },
+  sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(16,24,40,0.52)" },
+  assetSheet: { maxHeight: "78%", minHeight: "52%", borderTopLeftRadius: 18, borderTopRightRadius: 18, backgroundColor: "#fff", paddingHorizontal: 18, paddingBottom: Platform.OS === "ios" ? 32 : 18 },
+  sheetHandle: { width: 40, height: 4, alignSelf: "center", borderRadius: 2, backgroundColor: "#d0d5dd", marginTop: 9, marginBottom: 14 },
+  sheetHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
+  sheetTitle: { color: C.text, fontSize: 20, fontWeight: "900" },
+  sheetSubtitle: { color: C.textSec, fontSize: 12, marginTop: 2 },
+  assetSheetList: { flexGrow: 0, marginBottom: 12 },
+  assetPickRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 11, borderWidth: 1, borderColor: "#e4e7ec", borderRadius: 8, backgroundColor: "#fff" },
+  assetPickRowSelected: { borderColor: "#abefc6", backgroundColor: "#ecfdf3" },
+  assetPickTitle: { color: C.text, fontSize: 13, fontWeight: "800" },
+  assetPickMeta: { color: C.textSec, fontSize: 11, marginTop: 2 },
+  assetPickAction: { color: C.brand, fontSize: 11, fontWeight: "900" },
+  assetNotesInput: { minHeight: 74, maxHeight: 120, borderWidth: 1, borderColor: "#d0d5dd", borderRadius: 8, padding: 11, color: C.text, fontSize: 13, textAlignVertical: "top" },
 
   // Calendar
+  pageHeadingRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  pageHeadingSub: { color: C.textSec, fontSize: 12, fontWeight: "600", marginTop: 2 },
+  iconButton: { width: 42, height: 42, borderRadius: 8, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.border, backgroundColor: C.card },
+  integrationStrip: { flexDirection: "row", alignItems: "center", gap: 11, padding: 12, borderWidth: 1, borderColor: "#d1fadf", borderRadius: 8, backgroundColor: "#f6fef9" },
+  integrationIcon: { width: 36, height: 36, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#dcfae6" },
+  integrationTitle: { color: C.text, fontSize: 13, fontWeight: "800" },
+  integrationSub: { color: C.textSec, fontSize: 10, marginTop: 2 },
+  connectedBadge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 7, backgroundColor: "#dcfae6" },
+  connectedBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.green },
+  connectedBadgeText: { color: C.green, fontSize: 10, fontWeight: "900" },
+  calendarEventRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 13 },
+  entrataEventIcon: { width: 38, height: 38, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: C.purpleBg },
+  calendarContact: { color: C.purple, fontSize: 10, fontWeight: "700", marginTop: 3 },
   calNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
   calMonth: { fontSize: 17, fontWeight: "800", color: C.text },
   calDowRow: { flexDirection: "row", marginBottom: 6 },
@@ -2415,18 +3335,28 @@ const st = StyleSheet.create({
   calDaySelected: { backgroundColor: C.brand },
   calDayTextSelected: { color: "#fff", fontWeight: "900" },
   calDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: C.brand },
+  calDots: { height: 5, flexDirection: "row", gap: 3 },
+
+  // Settings
+  settingsIdentity: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderWidth: 1, borderColor: C.border, borderRadius: 8, backgroundColor: C.card },
+  settingsSectionLabel: { color: C.textMuted, fontSize: 10, fontWeight: "900", marginTop: 4 },
+  communitySettingRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 12 },
+  communitySettingIcon: { width: 34, height: 34, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#eef2ff" },
+  communitySettingName: { flex: 1, color: C.text, fontSize: 13, fontWeight: "800" },
+  settingsChangeText: { color: C.brand, fontSize: 12, fontWeight: "900" },
+  settingsVersion: { color: C.textMuted, fontSize: 11, textAlign: "center", marginTop: 4 },
 
   // Buttons
-  primaryBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: C.brand, borderRadius: 18, minHeight: 54, paddingHorizontal: 16 },
+  primaryBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: C.brand, borderRadius: 8, minHeight: 52, paddingHorizontal: 16 },
   primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "900" },
-  outlineBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: C.card, borderRadius: 18, minHeight: 54, paddingHorizontal: 16, borderWidth: 1, borderColor: C.border },
+  outlineBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: C.card, borderRadius: 8, minHeight: 52, paddingHorizontal: 16, borderWidth: 1, borderColor: C.border },
   outlineBtnText: { color: C.textSec, fontSize: 15, fontWeight: "800" },
-  darkBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: C.text, borderRadius: 18, minHeight: 56, paddingHorizontal: 16 },
+  darkBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: C.text, borderRadius: 8, minHeight: 52, paddingHorizontal: 16 },
   darkBtnText: { color: "#fff", fontSize: 16, fontWeight: "900" },
 
   // Form
   formTitle: { color: C.text, fontSize: 23, fontWeight: "900", lineHeight: 29 },
-  inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#f8fafc", borderColor: "#d7dee8", borderRadius: 16, borderWidth: 1, minHeight: 54, paddingHorizontal: 14 },
+  inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#f8fafc", borderColor: "#d7dee8", borderRadius: 8, borderWidth: 1, minHeight: 52, paddingHorizontal: 14 },
   inputField: { flex: 1, fontSize: 16, color: C.text, fontWeight: "600" },
   labelSmall: { fontSize: 11, fontWeight: "800", color: C.textMuted, textTransform: "uppercase" },
 

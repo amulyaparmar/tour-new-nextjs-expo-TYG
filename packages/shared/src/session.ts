@@ -9,7 +9,7 @@ export type SessionStatus =
   | "reviewed"
   | "failed";
 
-export type SessionSource = "manual" | "qr";
+export type SessionSource = "manual" | "qr" | "entrata";
 
 export type SessionLead = {
   name: string;

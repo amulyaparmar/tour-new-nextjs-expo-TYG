@@ -1,8 +1,13 @@
 import Link from "next/link";
 import { ContactCardPanel } from "../ContactCardPanel";
-import { contactCard } from "../contact-card-data";
+import { requireTourWorkspace } from "@/lib/tour-auth";
+import { WorkspaceActions } from "./WorkspaceActions";
 
-export default function ProfilePage() {
+export default async function ProfilePage() {
+  const workspace = await requireTourWorkspace();
+  const displayName = workspace.user.fullName ?? workspace.user.email.split("@")[0] ?? "Tour user";
+  const initials = displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+
   return (
     <>
       <div className="page-header">
@@ -24,14 +29,24 @@ export default function ProfilePage() {
             fontWeight: 700,
             flexShrink: 0
           }}>
-            {contactCard.initials}
+            {initials}
           </span>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "var(--slate-900)" }}>{contactCard.name}</div>
-            <div style={{ fontSize: 13, color: "var(--slate-500)" }}>{contactCard.title}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "var(--slate-900)" }}>{displayName}</div>
+            <div style={{ fontSize: 13, color: "var(--slate-500)" }}>
+              {workspace.user.email} · {workspace.membership.role}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--indigo-600)", fontWeight: 700, marginTop: 3 }}>
+              {workspace.community.name}
+            </div>
           </div>
         </div>
       </div>
+
+      <WorkspaceActions
+        communities={workspace.communities}
+        currentCommunityId={workspace.community.id}
+      />
 
       <ContactCardPanel id="profile-contact-card-heading" />
 

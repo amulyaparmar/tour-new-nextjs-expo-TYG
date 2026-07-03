@@ -1,6 +1,7 @@
 import { ClipboardList } from "lucide-react";
 
-import { listRubrics } from "@/lib/rubrics";
+import { listRubricsForCommunity } from "@/lib/rubrics";
+import { requireTourWorkspace } from "@/lib/tour-auth";
 
 import { RubricList } from "./RubricList";
 import { RubricUploadForm } from "./RubricUploadForm";
@@ -8,7 +9,8 @@ import { RubricUploadForm } from "./RubricUploadForm";
 export const dynamic = "force-dynamic";
 
 export default async function RubricsPage() {
-  const rubrics = await listRubrics();
+  const workspace = await requireTourWorkspace();
+  const rubrics = await listRubricsForCommunity(workspace.community.id);
 
   return (
     <>

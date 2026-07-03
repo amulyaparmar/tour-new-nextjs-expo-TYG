@@ -19,7 +19,7 @@ export function RubricList({ rubrics }: { rubrics: Rubric[] }) {
     setError(null);
 
     try {
-      const res = await fetch(`/api/rubrics/${rubricId}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/rubrics/${rubricId}`, { method: "DELETE" });
       const body = await res.json().catch(() => null) as { error?: string } | null;
       if (!res.ok) throw new Error(body?.error ?? "Delete failed");
       router.refresh();

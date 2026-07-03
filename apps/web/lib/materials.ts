@@ -24,6 +24,7 @@ export type Material = {
   fileUrl: string | null;
   parsedText: string | null;
   sessionId: string | null;
+  propertyId: string | null;
   createdAt: string;
   media?: TourMaterialMedia;
 };
@@ -36,13 +37,12 @@ type MaterialRow = {
   file_url: string | null;
   parsed_text: string | null;
   session_id: string | null;
+  property_id: string | null;
   created_at: string;
 };
 
 // ── Local fallback ──────────────────────────────────────
 const STORE_PATH = path.join(process.cwd(), ".codex", "materials-store.json");
-const TOUR_PROPERTY_ID = "@27north";
-const TOUR_API_URL = `https://tour.video/api/list?id=${encodeURIComponent(TOUR_PROPERTY_ID)}`;
 const TOUR_MATERIAL_CREATED_AT = "2026-05-22T00:00:00.000Z";
 const EXCLUDED_TOUR_SOURCE_KEYS = new Set([
   "floor_plans.floor_plans_video_5",
@@ -90,19 +90,22 @@ function mapRow(row: MaterialRow): Material {
     fileUrl: row.file_url,
     parsedText: row.parsed_text,
     sessionId: row.session_id,
+    propertyId: row.property_id ?? null,
     createdAt: row.created_at
   };
 }
 
 // ── Public API ──────────────────────────────────────────
 
-export async function listMaterials(): Promise<Material[]> {
+export async function listMaterials(propertyId?: string): Promise<Material[]> {
   try {
     const supabase = getSupabaseServiceClient();
-    const { data, error } = await supabase
+    let query = supabase
       .from("materials")
       .select("*")
       .order("created_at", { ascending: false });
+    if (propertyId) query = query.or(`property_id.eq.${propertyId},property_id.is.null`);
+    const { data, error } = await query;
 
     if (error) throw error;
 
@@ -127,10 +130,10 @@ export async function listMaterials(): Promise<Material[]> {
   }
 }
 
-export async function listVisibleMaterials(): Promise<Material[]> {
+export async function listVisibleMaterials(tourAlias = "@27north", propertyId?: string): Promise<Material[]> {
   const [materials, tourMaterials] = await Promise.all([
-    listMaterials(),
-    listTourMaterials()
+    listMaterials(propertyId),
+    listTourMaterials(tourAlias)
   ]);
 
   return [
@@ -161,9 +164,10 @@ export async function getMaterial(id: string): Promise<Material | null> {
   }
 }
 
-async function listTourMaterials(): Promise<Material[]> {
+async function listTourMaterials(tourAlias = "@27north"): Promise<Material[]> {
+  const propertyId = tourAlias.startsWith("@") ? tourAlias : `@${tourAlias}`;
   try {
-    const response = await fetch(TOUR_API_URL, {
+    const response = await fetch(`https://tour.video/api/list?id=${encodeURIComponent(propertyId)}`, {
       next: { revalidate: 300 }
     });
 
@@ -171,14 +175,14 @@ async function listTourMaterials(): Promise<Material[]> {
 
     const payload = (await response.json()) as Record<string, TourApiAsset>;
     return Object.entries(payload)
-      .map(([sourceKey, asset]) => mapTourAsset(sourceKey, asset))
+      .map(([sourceKey, asset]) => mapTourAsset(sourceKey, asset, propertyId))
       .filter((asset): asset is Material => asset !== null);
   } catch {
     return [];
   }
 }
 
-function mapTourAsset(sourceKey: string, asset: TourApiAsset): Material | null {
+function mapTourAsset(sourceKey: string, asset: TourApiAsset, propertyId: string): Material | null {
   const videoUrl = stringOrNull(asset.video);
   const imageUrl = stringOrNull(asset.img);
   const gifUrl = stringOrNull(asset.gif);
@@ -197,10 +201,11 @@ function mapTourAsset(sourceKey: string, asset: TourApiAsset): Material | null {
     id: `tour-api-${Buffer.from(sourceKey).toString("base64url")}`,
     name: title,
     type: "other",
-    description: `Tour.video ${includes} from ${TOUR_PROPERTY_ID}.`,
+    description: `Tour.video ${includes} from ${propertyId}.`,
     fileUrl: videoUrl ?? iframeUrl,
     parsedText: iframeUrl ? `Embed link: ${iframeUrl}` : null,
     sessionId: null,
+    propertyId: null,
     createdAt: TOUR_MATERIAL_CREATED_AT,
     media: {
       sourceKey,
@@ -266,6 +271,7 @@ export async function createMaterial(input: {
   fileUrl?: string;
   parsedText?: string;
   sessionId?: string;
+  propertyId?: string | null;
 }): Promise<Material> {
   const payload = {
     name: input.name,
@@ -273,7 +279,8 @@ export async function createMaterial(input: {
     description: input.description,
     file_url: input.fileUrl ?? null,
     parsed_text: input.parsedText ?? null,
-    session_id: input.sessionId ?? null
+    session_id: input.sessionId ?? null,
+    property_id: input.propertyId ?? null
   };
 
   try {
@@ -296,6 +303,7 @@ export async function createMaterial(input: {
       fileUrl: input.fileUrl ?? null,
       parsedText: input.parsedText ?? null,
       sessionId: input.sessionId ?? null,
+      propertyId: input.propertyId ?? null,
       createdAt: new Date().toISOString()
     };
     materials.push(material);
@@ -382,6 +390,7 @@ function getDefaultMaterials(): Material[] {
         "Q520. No discrimination of any kind"
       ].join("\n"),
       sessionId: null,
+      propertyId: null,
       createdAt: new Date().toISOString()
     },
     {
@@ -392,6 +401,7 @@ function getDefaultMaterials(): Material[] {
       fileUrl: null,
       parsedText: null,
       sessionId: null,
+      propertyId: null,
       createdAt: new Date().toISOString()
     }
   ];

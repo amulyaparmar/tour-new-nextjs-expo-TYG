@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
 
+import { AdminAuthError, requireAdminContext } from "@/lib/admin-auth";
 import { saveEntrataError, testEntrataConnection } from "@/lib/entrata";
 
 export async function POST(request: Request) {
+  try {
+    await requireAdminContext(request);
+  } catch (caught) {
+    return NextResponse.json(
+      { error: caught instanceof Error ? caught.message : "Sign in is required." },
+      { status: caught instanceof AdminAuthError ? caught.status : 500 }
+    );
+  }
+
   const body = (await request.json()) as {
     domain?: string;
     apiKey?: string;

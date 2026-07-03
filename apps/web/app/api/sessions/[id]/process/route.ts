@@ -84,6 +84,7 @@ export async function POST(_request: Request, context: Context) {
         type: "recording",
         description: `Recording from session "${session.title}"${session.prospectName ? ` with ${session.prospectName}` : ""}. Score: ${analysis.overallScore}/100.`,
         sessionId: id,
+        propertyId: session.propertyId,
         parsedText: transcriptPreview || undefined
       });
     }

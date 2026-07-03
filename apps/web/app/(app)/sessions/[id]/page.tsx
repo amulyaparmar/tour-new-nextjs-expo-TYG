@@ -16,14 +16,16 @@ import { ReprocessButton } from "./ReprocessButton";
 import { SessionNotesPanel } from "./SessionNotesPanel";
 import { SessionReviewClient } from "./SessionReviewClient";
 import { UploadAndProcess, type NoteAsset, type SessionDetailDefaults } from "./UploadAndProcess";
+import { requireTourWorkspace } from "@/lib/tour-auth";
 
 type Props = { params: Promise<{ id: string }> };
 
 export default async function SessionDetailPage({ params }: Props) {
+  const workspace = await requireTourWorkspace();
   const { id } = await params;
   const session = await getSessionById(id);
 
-  if (!session) {
+  if (!session || session.propertyId !== workspace.community.id) {
     return (
       <>
         <Link href="/sessions" className="back-link">&larr; Sessions</Link>

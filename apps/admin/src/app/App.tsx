@@ -9,6 +9,7 @@ import { Settings } from "./components/Settings";
 import { Sessions } from "./components/Sessions";
 import { Login } from "./components/Login";
 import { AdminDataProvider } from "./data/AdminDataContext";
+import { AdminAuthProvider, useAdminAuth } from "./data/AdminAuthContext";
 
 type View = "login" | "dashboard" | "session" | "sessions" | "analytics" | "team" | "rubrics" | "prospects" | "settings";
 
@@ -52,8 +53,9 @@ function pushRoute(path: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-export default function App() {
+function AdminApp() {
   const [route, setRoute] = useState<RouteState>(() => parseRoute());
+  const { workspace, loading } = useAdminAuth();
 
   useEffect(() => {
     const syncRoute = () => setRoute(parseRoute());
@@ -74,12 +76,30 @@ export default function App() {
     pushRoute(VIEW_PATHS[next] ?? "/");
   };
 
+  useEffect(() => {
+    if (!loading && !workspace && route.view !== "login") {
+      pushRoute("/login");
+    }
+    if (!loading && workspace && route.view === "login") {
+      pushRoute("/");
+    }
+  }, [loading, route.view, workspace]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-sm font-semibold text-muted-foreground">Restoring your workspace...</div>
+      </div>
+    );
+  }
+
+  if (!workspace) {
+    return <Login />;
+  }
+
   return (
     <AdminDataProvider>
     <div className="size-full">
-      {route.view === "login" && (
-        <Login onLogin={() => navigate("dashboard")} />
-      )}
       {route.view === "dashboard" && (
         <Dashboard onSelectSession={goToSession} onNavigate={navigate} />
       )}
@@ -106,5 +126,13 @@ export default function App() {
       )}
     </div>
     </AdminDataProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <AdminAuthProvider>
+      <AdminApp />
+    </AdminAuthProvider>
   );
 }

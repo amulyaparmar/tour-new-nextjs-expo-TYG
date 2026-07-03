@@ -5,7 +5,7 @@ import {
   AlertCircle, ExternalLink, X, Eye, EyeOff, Zap, RefreshCw,
   CheckCircle2, Clock, Building2, Users, FileText, Settings as SettingsIcon,
 } from "lucide-react";
-import { useAdminData } from "../data/AdminDataContext";
+import { useAdminAuth } from "../data/AdminAuthContext";
 
 type SettingsTab = "profile" | "integrations" | "notifications" | "security";
 type EntraStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -15,6 +15,9 @@ type EntrataStats = {
   followUpNotesPushed?: number;
   propertiesSynced?: number;
   unitsSynced?: number;
+  eventsSynced?: number;
+  scheduledTours?: number;
+  cancelledTours?: number;
 };
 
 function apiUrl(path: string) {
@@ -239,7 +242,7 @@ export function Settings({ onNavigate, onSelectSession }: {
   onNavigate: (view: string) => void;
   onSelectSession: (id: string) => void;
 }) {
-  const { sessions, agents, properties } = useAdminData();
+  const { workspace, switchCommunity, logout } = useAdminAuth();
   const initialParams = new URLSearchParams(window.location.search);
   const [activeTab, setActiveTab] = useState<SettingsTab>((initialParams.get("tab") as SettingsTab | null) ?? "profile");
   const [entraStatus, setEntraStatus] = useState<EntraStatus>("disconnected");
@@ -253,10 +256,10 @@ export function Settings({ onNavigate, onSelectSession }: {
   const [saved, setSaved] = useState(false);
 
   // Profile state
-  const [name, setName] = useState("Rachel Park");
-  const [email, setEmail] = useState("rachel.park@themeridianmgmt.com");
-  const [role, setRole] = useState("Regional Manager");
-  const [company, setCompany] = useState("Meridian Management Group");
+  const [name, setName] = useState(workspace?.user.fullName ?? "");
+  const [email] = useState(workspace?.user.email ?? "");
+  const [role] = useState(workspace?.membership.role ?? "member");
+  const [company] = useState(workspace?.membership.companyName ?? "");
 
   // Notification prefs
   const [notifs, setNotifs] = useState({
@@ -283,7 +286,11 @@ export function Settings({ onNavigate, onSelectSession }: {
 
   useEffect(() => {
     void loadIntegrations();
-  }, []);
+  }, [workspace?.community.id]);
+
+  useEffect(() => {
+    setName(workspace?.user.fullName ?? workspace?.user.email.split("@")[0] ?? "");
+  }, [workspace?.user.email, workspace?.user.fullName]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -299,6 +306,7 @@ export function Settings({ onNavigate, onSelectSession }: {
       const response = await fetch(apiUrl("/api/admin/integrations/entrata/sync"), { method: "POST" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Sync failed");
+      setEntraStatus("connected");
       setEntrataStats(data.integration?.stats ?? {});
       setEntrataLastSync(data.integration?.lastSyncedAt ?? new Date().toISOString());
     } catch (caught) {
@@ -386,32 +394,40 @@ export function Settings({ onNavigate, onSelectSession }: {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       {[
-                        { label: "Full name", value: name, setter: setName },
-                        { label: "Email address", value: email, setter: setEmail },
-                        { label: "Role / title", value: role, setter: setRole },
-                        { label: "Company", value: company, setter: setCompany },
-                      ].map(({ label, value, setter }) => (
+                        { label: "Full name", value: name, editable: true },
+                        { label: "Email address", value: email, editable: false },
+                        { label: "Portal role", value: role, editable: false },
+                        { label: "Company", value: company, editable: false },
+                      ].map(({ label, value, editable }) => (
                         <div key={label}>
                           <label className="block text-xs font-semibold text-muted-foreground mb-1.5">{label}</label>
-                          <input value={value} onChange={e => setter(e.target.value)}
-                            className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                          <input value={value} onChange={e => editable && setName(e.target.value)} readOnly={!editable}
+                            className="w-full px-3 py-2.5 rounded-lg border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-ring read-only:text-muted-foreground" />
                         </div>
                       ))}
                     </div>
                   </div>
 
                   <div className="rounded-2xl border border-border bg-card p-6 mb-5">
-                    <h3 className="font-semibold text-foreground mb-4">Properties managed</h3>
+                    <h3 className="font-semibold text-foreground mb-4">Community access</h3>
                     <div className="space-y-2">
-                      {properties.map(p => (
+                      {workspace?.communities.map(p => (
                         <div key={p.id} className="flex items-center justify-between py-2.5 border-b border-border last:border-0">
                           <div className="flex items-center gap-2.5">
                             <Building2 className="w-4 h-4 text-muted-foreground" />
                             <span className="text-sm font-medium text-foreground">{p.name}</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">{agents.filter(a => a.propertyId === p.id).length} agents</span>
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground border border-border">Admin</span>
+                            {p.id === workspace.community.id ? (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">Current</span>
+                            ) : (
+                              <button
+                                onClick={() => void switchCommunity(p.id)}
+                                className="text-xs px-2 py-1 rounded-md border border-border text-foreground hover:bg-secondary"
+                              >
+                                Open
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -473,9 +489,9 @@ export function Settings({ onNavigate, onSelectSession }: {
                           </button>
                         </div>
                       ) : (
-                        <button onClick={() => setShowEntraModal(true)}
+                        <button onClick={() => void syncEntrata()} disabled={syncingEntrata}
                           className="shrink-0 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-all">
-                          Connect
+                          {syncingEntrata ? "Connecting..." : "Reconnect"}
                         </button>
                       )}
                     </div>
@@ -484,9 +500,9 @@ export function Settings({ onNavigate, onSelectSession }: {
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
                         className="mt-5 pt-5 border-t border-border/50 grid grid-cols-2 sm:grid-cols-4 gap-4">
                         {[
-                          { label: "Guest cards synced", value: String(entrataStats.guestCardsSynced ?? 0) },
-                          { label: "Properties synced", value: String(entrataStats.propertiesSynced ?? 0) },
-                          { label: "Units synced", value: String(entrataStats.unitsSynced ?? 0) },
+                          { label: "Events synced", value: String(entrataStats.eventsSynced ?? 0) },
+                          { label: "Scheduled tours", value: String(entrataStats.scheduledTours ?? 0) },
+                          { label: "Cancelled tours", value: String(entrataStats.cancelledTours ?? 0) },
                           { label: "Last sync", value: entrataLastSync ? new Date(entrataLastSync).toLocaleString() : "Not synced" },
                         ].map(({ label, value }) => (
                           <div key={label}>
@@ -624,11 +640,10 @@ export function Settings({ onNavigate, onSelectSession }: {
                   </div>
 
                   <div className="rounded-2xl border border-border bg-card p-6">
-                    <h3 className="font-semibold text-foreground mb-4">Active sessions</h3>
+                    <h3 className="font-semibold text-foreground mb-4">Current session</h3>
                     <div className="space-y-3">
                       {[
-                        { device: "MacBook Pro — Chrome", location: "Chicago, IL", time: "Active now", current: true },
-                        { device: "iPhone 16 Pro — Safari", location: "Chicago, IL", time: "2 hours ago", current: false },
+                        { device: "This browser", location: workspace?.community.name ?? "Community", time: "Active now", current: true },
                       ].map((s, i) => (
                         <div key={i} className="flex items-center justify-between py-2.5 border-b border-border last:border-0">
                           <div>
@@ -638,9 +653,7 @@ export function Settings({ onNavigate, onSelectSession }: {
                             </div>
                             <div className="text-xs text-muted-foreground">{s.location} · {s.time}</div>
                           </div>
-                          {!s.current && (
-                            <button className="text-xs text-red-500 hover:text-red-600 font-medium">Sign out</button>
-                          )}
+                          <button onClick={() => void logout()} className="text-xs text-red-500 hover:text-red-600 font-medium">Sign out</button>
                         </div>
                       ))}
                     </div>

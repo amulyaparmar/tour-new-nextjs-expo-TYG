@@ -15,7 +15,11 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.leasemagnets.tournewtouryou.tyg",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "Allow Tour to record leasing conversations for session analysis and coaching.",
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
@@ -29,7 +33,14 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-video"
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Tour to record leasing conversations for session analysis and coaching."
+        }
+      ],
+      "expo-video",
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {

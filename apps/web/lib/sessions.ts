@@ -43,6 +43,9 @@ type SessionRow = {
   agent_id?: string | null;
   property_id?: string | null;
   unit_label?: string | null;
+  external_provider?: string | null;
+  external_event_id?: string | null;
+  external_application_id?: string | null;
   overall_score: number | null;
   notes: string | null;
   video_url: string | null;
@@ -52,7 +55,7 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS =
-  "id,title,prospect_name,scheduled_at,location,status,source,leads,rubric_id,agent_id,property_id,unit_label,overall_score,notes,video_url,audio_url,duration,created_at";
+  "id,title,prospect_name,scheduled_at,location,status,source,leads,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at";
 
 type AnalysisRow = {
   id: string;
@@ -80,6 +83,7 @@ export type ListSessionsParams = {
   statuses?: SessionStatus[];
   search?: string;
   sort?: "newest" | "oldest" | "score_desc" | "score_asc";
+  propertyId?: string;
 };
 
 export type PaginatedSessions = {
@@ -110,6 +114,10 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
       query = query.eq("status", params.status);
     } else if (params?.statuses?.length) {
       query = query.in("status", params.statuses);
+    }
+
+    if (params?.propertyId) {
+      query = query.eq("property_id", params.propertyId);
     }
 
     if (params?.search) {
@@ -260,6 +268,7 @@ export async function updateSession(
     notes?: string | null;
     videoUrl?: string | null;
     audioUrl?: string | null;
+    duration?: number | null;
     rubricId?: string | null;
     agentId?: string | null;
     propertyId?: string | null;
@@ -276,6 +285,7 @@ export async function updateSession(
     if (fields.notes !== undefined) row.notes = fields.notes;
     if (fields.videoUrl !== undefined) row.video_url = fields.videoUrl;
     if (fields.audioUrl !== undefined) row.audio_url = fields.audioUrl;
+    if (fields.duration !== undefined) row.duration = fields.duration;
     if (fields.rubricId !== undefined) row.rubric_id = fields.rubricId;
     if (fields.agentId !== undefined) row.agent_id = fields.agentId;
     if (fields.propertyId !== undefined) row.property_id = fields.propertyId;

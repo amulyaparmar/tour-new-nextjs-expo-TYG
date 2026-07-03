@@ -1,21 +1,35 @@
 import { listSessions } from "@/lib/sessions";
 import { SmartSessionForm } from "../SmartSessionForm";
 import { CalendarView } from "./CalendarView";
+import { requireTourWorkspace } from "@/lib/tour-auth";
+import {
+  getCommunityCalendarIntegration,
+  listCommunityCalendarEvents,
+} from "@/lib/tour-calendar";
+import { EntrataCalendarSync } from "./EntrataCalendarSync";
 
 export const dynamic = "force-dynamic";
 
 export default async function CalendarPage() {
-  const sessions = await listSessions();
+  const workspace = await requireTourWorkspace();
+  const [sessions, entrataEvents, integration] = await Promise.all([
+    listSessions({ propertyId: workspace.community.id }),
+    listCommunityCalendarEvents(workspace),
+    getCommunityCalendarIntegration(workspace),
+  ]);
 
   return (
     <>
-      <div className="page-header">
-        <div className="page-header-row">
-          <div>
-            <h1>Sessions</h1>
-            <p>Schedule, browse, and manage your tour sessions</p>
-          </div>
+      <div className="page-header calendar-page-header">
+        <div>
+          <h1>Calendar</h1>
+          <p>Local sessions and Entrata tours for {workspace.community.name}</p>
         </div>
+        <EntrataCalendarSync
+          status={integration.status}
+          lastSyncedAt={integration.lastSyncedAt}
+          stats={integration.stats}
+        />
       </div>
 
       <details className="card create-session-collapse">
@@ -28,7 +42,7 @@ export default async function CalendarPage() {
       </details>
 
       {/* ── Calendar + session list ── */}
-      <CalendarView sessions={sessions} />
+      <CalendarView sessions={sessions} entrataEvents={entrataEvents} />
     </>
   );
 }

@@ -10,6 +10,7 @@ import {
   teamRadar as fallbackTeamRadar,
   trendData as fallbackTrendData,
 } from "./mockData";
+import { useAdminAuth } from "./AdminAuthContext";
 
 export type AdminProperty = typeof fallbackProperties[number];
 export type AdminAgent = typeof fallbackAgents[number];
@@ -80,6 +81,18 @@ const fallbackData = {
   teamRadar: fallbackTeamRadar,
 };
 
+const emptyData: typeof fallbackData = {
+  properties: [],
+  agents: [],
+  sessions: [],
+  prospects: [],
+  rubrics: [],
+  trendData: [],
+  scoreDistribution: [],
+  funnelData: [],
+  teamRadar: [],
+};
+
 const AdminDataContext = createContext<AdminData | null>(null);
 
 function apiUrl(path: string) {
@@ -88,24 +101,40 @@ function apiUrl(path: string) {
 }
 
 export function AdminDataProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState(fallbackData);
+  const { workspace } = useAdminAuth();
+  const [data, setData] = useState(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl("/api/admin/bootstrap"));
-      if (!response.ok) throw new Error(`Admin API returned ${response.status}`);
-      const next = await response.json();
+      let response: Response | null = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        response = await fetch(apiUrl("/api/admin/bootstrap"), {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (response.ok || response.status < 500) break;
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+      if (!response) throw new Error("Admin API did not respond.");
+      const next = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          typeof next.error === "string"
+            ? next.error
+            : `Admin API returned ${response.status}`
+        );
+      }
       setData({
-        ...fallbackData,
+        ...emptyData,
         ...next,
-        sessions: (next.sessions ?? fallbackData.sessions).map((session: AdminSession) => ({
+        sessions: (next.sessions ?? []).map((session: AdminSession) => ({
           ...session,
           id: String(session.id),
         })),
-        prospects: (next.prospects ?? fallbackData.prospects).map((prospect: AdminProspect) => ({
+        prospects: (next.prospects ?? []).map((prospect: AdminProspect) => ({
           ...prospect,
           tourSessionId: String(prospect.tourSessionId),
         })),
@@ -120,7 +149,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [workspace?.community.id]);
 
   const value = useMemo<AdminData>(() => ({
     ...data,
@@ -131,7 +160,27 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AdminDataContext.Provider value={value}>
-      {children}
+      {loading && data.sessions.length === 0 ? (
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <div className="text-sm font-semibold text-muted-foreground">Loading workspace data...</div>
+        </div>
+      ) : (
+        <>
+          {error && (
+            <div className="fixed left-1/2 top-4 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-md border border-red-200 bg-white px-4 py-3 shadow-lg">
+              <span className="text-sm font-semibold text-red-700">{error}</span>
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                className="text-sm font-bold text-primary hover:underline"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {children}
+        </>
+      )}
     </AdminDataContext.Provider>
   );
 }

@@ -194,7 +194,7 @@ function CreationFlow({
       })),
       notes: `Assigned properties: ${selectedProperties.join(", ")}${draft ? " (draft)" : ""}`,
     };
-    await fetch(apiUrl(initialRubric ? `/api/rubrics/${initialRubric.id}` : "/api/rubrics"), {
+    await fetch(apiUrl(initialRubric ? `/api/admin/rubrics/${initialRubric.id}` : "/api/admin/rubrics"), {
       method: initialRubric ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, definition, isDefault: initialRubric?.isDefault ?? (!draft && saveAsDraft === false) }),

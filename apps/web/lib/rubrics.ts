@@ -96,6 +96,20 @@ export async function listRubrics(): Promise<Rubric[]> {
   }
 }
 
+export async function listRubricsForCommunity(communityId: string): Promise<Rubric[]> {
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("rubric_communities")
+    .select("rubric_id")
+    .eq("property_id", communityId);
+  if (error) throw new Error(error.message);
+  const ids = new Set(
+    ((data ?? []) as unknown as Array<{ rubric_id: string }>)
+      .map((row) => String(row.rubric_id))
+  );
+  return (await listRubrics()).filter((rubric) => ids.has(rubric.id));
+}
+
 export async function getRubricById(rubricId: string): Promise<Rubric | null> {
   try {
     const supabase = getSupabaseServiceClient();

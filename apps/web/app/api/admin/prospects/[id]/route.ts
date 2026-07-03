@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { AdminAuthError, requireAdminContext } from "@/lib/admin-auth";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
 type Context = { params: Promise<{ id: string }> };
@@ -8,6 +9,7 @@ export async function PATCH(request: Request, context: Context) {
   const { id } = await context.params;
 
   try {
+    const workspace = await requireAdminContext(request);
     const [sessionId, leadIndexRaw] = decodeURIComponent(id).split(":");
     const leadIndex = Number.parseInt(leadIndexRaw ?? "0", 10) || 0;
     if (!sessionId) {
@@ -22,6 +24,15 @@ export async function PATCH(request: Request, context: Context) {
     };
 
     const supabase = getSupabaseServiceClient();
+    const { data: session, error: sessionError } = await supabase
+      .from("sessions")
+      .select("id")
+      .eq("id", sessionId)
+      .eq("property_id", workspace.community.id)
+      .maybeSingle();
+    if (sessionError) throw new Error(sessionError.message);
+    if (!session) throw new AdminAuthError("Prospect not found in this community.", 403);
+
     const { data: existing } = await supabase
       .from("prospect_follow_ups")
       .select("notes")
@@ -59,7 +70,7 @@ export async function PATCH(request: Request, context: Context) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to update prospect." },
-      { status: 500 }
+      { status: error instanceof AdminAuthError ? error.status : 500 }
     );
   }
 }

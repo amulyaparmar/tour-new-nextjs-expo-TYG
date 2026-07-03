@@ -3,11 +3,13 @@ import { SESSION_STATUS_LABELS } from "@tour/shared";
 import { listSessions } from "@/lib/sessions";
 import { ContactCardPanel } from "./ContactCardPanel";
 import { SmartSessionModalButton } from "./SmartSessionForm";
+import { requireTourWorkspace } from "@/lib/tour-auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const sessions = await listSessions({ limit: 100 });
+  const workspace = await requireTourWorkspace();
+  const sessions = await listSessions({ limit: 100, propertyId: workspace.community.id });
   const now = Date.now();
   const oneDayMs = 24 * 60 * 60 * 1000;
   const inProgressStatuses = ["uploaded", "transcribing", "extracting_screenshots", "analyzing"];
@@ -52,7 +54,7 @@ export default async function DashboardPage() {
       <div className="page-header">
         <div className="page-header-row">
           <div>
-            <h1>{greeting}, Alex</h1>
+            <h1>{greeting}, {workspace.user.fullName?.split(" ")[0] ?? workspace.user.email.split("@")[0]}</h1>
             <p>Here&apos;s your sessions for today</p>
           </div>
           <span style={{ fontSize: 13, color: "var(--slate-400)", fontWeight: 500 }}>

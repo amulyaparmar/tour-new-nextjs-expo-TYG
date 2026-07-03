@@ -24,9 +24,15 @@ export async function POST(request: Request, context: Context) {
     }
 
     const url = await storeRecording(id, file);
+    const parsedDuration = Number(formData.get("durationSec"));
 
     const isVideo = isVideoMime(file.type);
-    await updateSession(id, isVideo ? { videoUrl: url } : { audioUrl: url });
+    await updateSession(id, {
+      ...(isVideo ? { videoUrl: url } : { audioUrl: url }),
+      ...(Number.isFinite(parsedDuration) && parsedDuration > 0
+        ? { duration: Math.round(parsedDuration) }
+        : {}),
+    });
     await setSessionStatus(id, "uploaded");
 
     return NextResponse.json({ url, status: "uploaded" }, { status: 200 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import type { SessionStatus } from "@tour/shared";
+import { hasAdminSession, requireAdminContext } from "@/lib/admin-auth";
 import { createSession, listSessionsPaginated } from "@/lib/sessions";
 
 const VALID_STATUSES: SessionStatus[] = [
@@ -28,7 +29,18 @@ export async function GET(request: NextRequest) {
       ? sortParam as (typeof VALID_SORTS)[number]
       : undefined;
 
-    const result = await listSessionsPaginated({ page, limit, search, status, statuses, sort });
+    const workspace = hasAdminSession(request)
+      ? await requireAdminContext(request)
+      : null;
+    const result = await listSessionsPaginated({
+      page,
+      limit,
+      search,
+      status,
+      statuses,
+      sort,
+      propertyId: workspace?.community.id,
+    });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
@@ -40,6 +52,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: Request) {
   try {
+    const workspace = hasAdminSession(request)
+      ? await requireAdminContext(request)
+      : null;
     const body = (await request.json()) as {
       title?: string;
       scheduledAt?: string | null;
@@ -64,7 +79,7 @@ export async function POST(request: Request) {
       notes: body.notes ?? null,
       rubricId: body.rubricId ?? null,
       agentId: body.agentId ?? null,
-      propertyId: body.propertyId ?? null,
+      propertyId: workspace?.community.id ?? body.propertyId ?? null,
       unitLabel: body.unitLabel ?? null
     });
 

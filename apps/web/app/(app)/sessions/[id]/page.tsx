@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Copy, Download, FileText, Image as ImageIcon, Link2, MessageSquare, Send, ShieldAlert, ShieldCheck, Video } from "lucide-react";
+import { Copy, Download, ExternalLink, FileText, Image as ImageIcon, Link2, MessageSquare, Paperclip, Plus, Send, ShieldAlert, ShieldCheck, Video } from "lucide-react";
 
 import { SESSION_STATUS_LABELS } from "@tour/shared";
 
@@ -123,6 +123,7 @@ export default async function SessionDetailPage({ params }: Props) {
                   <FollowupCardTab
                     actions={actions}
                     analysis={analysis}
+                    noteAssets={noteAssets}
                     recordingUrl={recordingUrl}
                     screenshots={screenshots}
                     session={session}
@@ -430,12 +431,14 @@ function ActionsTab({ actions, sessionId, prospectName }: { actions: Awaited<Ret
 function FollowupCardTab({
   actions,
   analysis,
+  noteAssets,
   recordingUrl,
   screenshots,
   session,
 }: {
   actions: Awaited<ReturnType<typeof listFollowUpActions>>;
   analysis: NonNullable<Awaited<ReturnType<typeof getAnalysisBySessionId>>>;
+  noteAssets: NoteAsset[];
   recordingUrl: string | null;
   screenshots: SessionScreenshot[];
   session: NonNullable<Awaited<ReturnType<typeof getSessionById>>>;
@@ -449,6 +452,7 @@ function FollowupCardTab({
   const message = suggestedMessages[0] ?? buildDefaultFollowupMessage(prospectName, session.location, analysis.suggestedRewrite);
   const cardUrl = `/sessions/${session.id}/followup-card`;
   const mediaItems = screenshots.slice(0, 6);
+  const tourAssets = noteAssets.filter((asset): asset is NoteAsset & { url: string } => !!asset.url);
 
   return (
     <div className="fc-layout">
@@ -519,8 +523,55 @@ function FollowupCardTab({
 
         <div className="fc-media-section">
           <div className="fc-section-head">
-            <span className="fc-mini-label">Media in card</span>
-            <button className="btn btn-ghost" type="button">Add media</button>
+            <span className="fc-mini-label">Tour elements in card</span>
+            <Link className="btn btn-ghost" href="/materials"><Plus size={14} /> Add media</Link>
+          </div>
+
+          {tourAssets.length > 0 ? (
+            <div className="fc-tour-elements">
+              {tourAssets.map((asset, index) => {
+                const icon = getAssetIcon(asset.url);
+                return (
+                  <div className="fc-tour-element" key={asset.id}>
+                    <label className="fc-tour-element-select">
+                      <input type="checkbox" defaultChecked={index < 4} />
+                      <span className="fc-tour-element-check" aria-hidden="true" />
+                      <span className="sr-only">Include {asset.name}</span>
+                    </label>
+                    <div className="fc-tour-element-icon" aria-hidden="true">
+                      {icon === "video" ? <Video size={16} /> : icon === "image" ? <ImageIcon size={16} /> : <Paperclip size={16} />}
+                    </div>
+                    <div className="fc-tour-element-copy">
+                      <strong>{asset.name}</strong>
+                      <small>{asset.description || summarizeUrl(asset.url)}</small>
+                    </div>
+                    <a className="fc-tour-element-link" href={asset.url} target="_blank" rel="noreferrer" aria-label={`Open ${asset.name}`}>
+                      <ExternalLink size={13} />
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="fc-empty-media">
+              <Paperclip size={18} />
+              <span>No tour media is available yet. Add property media, floor plans, clips, or amenity links before sending.</span>
+            </div>
+          )}
+
+          <details className="fc-add-media-box">
+            <summary><Plus size={14} /> Add a custom follow-up item</summary>
+            <div className="fc-custom-media-fields">
+              <input className="form-input" placeholder="Paste a media URL, floor plan, application link, or video clip" />
+              <input className="form-input" placeholder="Label for the prospect" />
+              <button className="btn btn-outline btn-sm" type="button">Include link</button>
+            </div>
+          </details>
+        </div>
+
+        <div className="fc-media-section">
+          <div className="fc-section-head">
+            <span className="fc-mini-label">Captured screenshots</span>
           </div>
           {mediaItems.length > 0 ? (
             <div className="fc-media-grid">
@@ -563,6 +614,26 @@ function formatSeconds(seconds: number) {
   const safe = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
   const mins = Math.floor(safe / 60);
   return `${mins}:${String(safe % 60).padStart(2, "0")}`;
+}
+
+function getAssetIcon(url: string): "video" | "image" | "link" {
+  const clean = url.toLowerCase().split("?")[0] ?? "";
+  if (/\.(mp4|mov|webm|m4v)$/.test(clean) || clean.includes("youtube.com") || clean.includes("youtu.be") || clean.includes("vimeo.com")) {
+    return "video";
+  }
+  if (/\.(png|jpe?g|gif|webp|avif|svg)$/.test(clean)) {
+    return "image";
+  }
+  return "link";
+}
+
+function summarizeUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
 /* ── Helpers ─────────────────────────────────────────────── */

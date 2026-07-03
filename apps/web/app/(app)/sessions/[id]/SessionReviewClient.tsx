@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { AnalysisResult } from "@tour/shared";
-import { Pause, Play, SkipForward, Volume2 } from "lucide-react";
+import { CheckSquare, ChevronRight, MessageSquare, Pause, Play, Scissors, Share2, SkipForward, Volume2 } from "lucide-react";
 import { TranscriptReader } from "./TranscriptReader";
 
 type TranscriptSegment = {
@@ -167,7 +167,7 @@ export function SessionReviewClient({
       return currentTime >= m.timestamp && (!next || currentTime < next.timestamp);
     });
     if (idx >= 0) {
-      const el = momentsListRef.current.children[idx + 1] as HTMLElement | undefined;
+      const el = momentsListRef.current.querySelector(`[data-moment-id="${allMoments[idx]?.id}"]`) as HTMLElement | undefined;
       el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
   }, [currentTime, allMoments]);
@@ -519,30 +519,61 @@ function TimelineMoments({
   refObject: RefObject<HTMLDivElement | null>;
   selectedMomentId: string | null;
 }) {
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+
   if (moments.length === 0) return null;
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   return (
     <div ref={refObject} className="sr-moments-list">
       <h3 className="sr-moments-heading">Timeline Moments</h3>
+      {selectedIds.size > 0 && (
+        <div className="sr-moment-bulkbar">
+          <span>{selectedIds.size} selected</span>
+          <button type="button"><MessageSquare size={13} /> Leave comment</button>
+          <button type="button"><Scissors size={13} /> Select as clip</button>
+          <button type="button" onClick={() => setSelectedIds(new Set())}>Clear</button>
+        </div>
+      )}
       {moments.map((m) => {
         const isActive = selectedMomentId === m.id;
         const isNearPlayhead = Math.abs(m.timestamp - currentTime) < 3;
+        const isSelected = selectedIds.has(m.id);
+        const menuOpen = openMenuId === m.id;
+        const commentType = m.sectionScore != null && m.sectionScore < 50 ? "Coach" : "Default";
         return (
-          <button
+          <div
             key={m.id}
-            type="button"
-            onClick={() => onMomentClick(m)}
-            className={`sr-moment-row ${isActive ? "sr-moment-row--active" : ""} ${isNearPlayhead ? "sr-moment-row--near" : ""}`}
+            data-moment-id={m.id}
+            className={`sr-moment-row ${isActive ? "sr-moment-row--active" : ""} ${isNearPlayhead ? "sr-moment-row--near" : ""} ${isSelected ? "sr-moment-row--selected" : ""}`}
           >
-            <span className="sr-moment-row-time">{formatTime(m.timestamp)}</span>
-            <div className="sr-moment-row-body">
+            <button
+              type="button"
+              className="sr-moment-row-main"
+              onClick={() => onMomentClick(m)}
+            >
+              <span className="sr-moment-row-time">{formatTime(m.timestamp)}</span>
+              <span className="sr-moment-row-body">
               <span className="sr-moment-row-label">{m.label}</span>
-              {m.transcriptQuote && (
-                <span className="sr-moment-row-quote">
-                  &ldquo;{m.transcriptQuote.slice(0, 100)}{m.transcriptQuote.length > 100 ? "..." : ""}&rdquo;
-                </span>
-              )}
-            </div>
+                {m.transcriptQuote && (
+                  <span className="sr-moment-row-quote">
+                    &ldquo;{m.transcriptQuote.slice(0, 100)}{m.transcriptQuote.length > 100 ? "..." : ""}&rdquo;
+                  </span>
+                )}
+              </span>
+            </button>
             {m.screenshot && (
               <img src={m.screenshot.imageUrl} alt="" className="sr-moment-row-thumb" />
             )}
@@ -551,7 +582,33 @@ function TimelineMoments({
                 {Math.round(m.sectionScore / 10)}/10
               </span>
             )}
-          </button>
+            <div className="sr-moment-side-rail">
+              <span className={`sr-moment-comment-pill ${commentType === "Coach" ? "sr-moment-comment-pill--coach" : ""}`}>
+                {commentType}
+              </span>
+              <button
+                type="button"
+                className="sr-moment-menu-trigger"
+                aria-label={`Open actions for ${formatTime(m.timestamp)}`}
+                aria-expanded={menuOpen}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setOpenMenuId((current) => current === m.id ? null : m.id);
+                }}
+              >
+                <ChevronRight size={15} />
+              </button>
+            </div>
+            {menuOpen && (
+              <div className="sr-moment-action-popover">
+                <button type="button"><MessageSquare size={14} /> Leave a comment</button>
+                <button type="button"><Share2 size={14} /> Share as a clip</button>
+                <button type="button"><Scissors size={14} /> Cut as a clip</button>
+                <button type="button" onClick={() => toggleSelected(m.id)}><CheckSquare size={14} /> Select as a clip</button>
+                <button type="button" onClick={() => toggleSelected(m.id)}><CheckSquare size={14} /> {isSelected ? "Deselect" : "Select"}</button>
+              </div>
+            )}
+          </div>
         );
       })}
     </div>

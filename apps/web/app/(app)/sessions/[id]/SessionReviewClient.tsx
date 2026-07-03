@@ -194,35 +194,34 @@ export function SessionReviewClient({
 
   return (
     <div className="sr-client">
-      <PlayerController
-        allMoments={allMoments}
-        currentTime={currentTime}
-        duration={effectiveDuration}
-        isPlaying={isPlaying}
-        isVideo={isVideo}
-        mediaRef={mediaRef}
-        onError={() => setMediaError(true)}
-        onLoadedDuration={setLoadedDuration}
-        onMomentClick={handleMomentClick}
-        onPlaybackRate={cyclePlaybackRate}
-        onPlayingChange={setIsPlaying}
-        onSeek={seekTo}
-        onTimeChange={setCurrentTime}
-        playbackRate={playbackRate}
-        selectedMomentId={selectedMoment?.id ?? null}
-        src={src}
-        togglePlayback={togglePlayback}
-      />
+      <div className="sr-player-combined">
+        <PlayerController
+          currentTime={currentTime}
+          duration={effectiveDuration}
+          isPlaying={isPlaying}
+          isVideo={isVideo}
+          mediaRef={mediaRef}
+          onError={() => setMediaError(true)}
+          onLoadedDuration={setLoadedDuration}
+          onPlaybackRate={cyclePlaybackRate}
+          onPlayingChange={setIsPlaying}
+          onSeek={seekTo}
+          onTimeChange={setCurrentTime}
+          playbackRate={playbackRate}
+          src={src}
+          togglePlayback={togglePlayback}
+        />
 
-      <SessionTimeline
-        allMoments={allMoments}
-        analysis={analysis}
-        currentTime={currentTime}
-        duration={effectiveDuration}
-        onMomentClick={handleMomentClick}
-        onSeek={seekTo}
-        selectedMomentId={selectedMoment?.id ?? null}
-      />
+        <SessionTimeline
+          allMoments={allMoments}
+          analysis={analysis}
+          currentTime={currentTime}
+          duration={effectiveDuration}
+          onMomentClick={handleMomentClick}
+          onSeek={seekTo}
+          selectedMomentId={selectedMoment?.id ?? null}
+        />
+      </div>
 
       {selectedMoment && (
         <MomentDetail moment={selectedMoment} onClose={() => setSelectedMoment(null)} />
@@ -250,7 +249,6 @@ export function SessionReviewClient({
 }
 
 function PlayerController({
-  allMoments,
   currentTime,
   duration,
   isPlaying,
@@ -258,17 +256,14 @@ function PlayerController({
   mediaRef,
   onError,
   onLoadedDuration,
-  onMomentClick,
   onPlaybackRate,
   onPlayingChange,
   onSeek,
   onTimeChange,
   playbackRate,
-  selectedMomentId,
   src,
   togglePlayback,
 }: {
-  allMoments: Moment[];
   currentTime: number;
   duration: number;
   isPlaying: boolean;
@@ -276,13 +271,11 @@ function PlayerController({
   mediaRef: RefObject<HTMLVideoElement | HTMLAudioElement | null>;
   onError: () => void;
   onLoadedDuration: (duration: number) => void;
-  onMomentClick: (moment: Moment) => void;
   onPlaybackRate: () => void;
   onPlayingChange: (isPlaying: boolean) => void;
   onSeek: (seconds: number, options?: { play?: boolean }) => void;
   onTimeChange: (seconds: number) => void;
   playbackRate: number;
-  selectedMomentId: string | null;
   src: string;
   togglePlayback: () => void;
 }) {
@@ -314,15 +307,12 @@ function PlayerController({
               <track kind="captions" />
             </video>
             <UnifiedControls
-              allMoments={allMoments}
               currentTime={currentTime}
               duration={duration}
               isPlaying={isPlaying}
-              onMomentClick={onMomentClick}
               onPlaybackRate={onPlaybackRate}
               onSeek={onSeek}
               playbackRate={playbackRate}
-              selectedMomentId={selectedMomentId}
               togglePlayback={togglePlayback}
             />
           </>
@@ -343,15 +333,12 @@ function PlayerController({
               onTimeUpdate={(e) => onTimeChange(e.currentTarget.currentTime)}
             />
             <UnifiedControls
-              allMoments={allMoments}
               currentTime={currentTime}
               duration={duration}
               isPlaying={isPlaying}
-              onMomentClick={onMomentClick}
               onPlaybackRate={onPlaybackRate}
               onSeek={onSeek}
               playbackRate={playbackRate}
-              selectedMomentId={selectedMomentId}
               togglePlayback={togglePlayback}
             />
           </div>
@@ -362,26 +349,20 @@ function PlayerController({
 }
 
 function UnifiedControls({
-  allMoments,
   currentTime,
   duration,
   isPlaying,
-  onMomentClick,
   onPlaybackRate,
   onSeek,
   playbackRate,
-  selectedMomentId,
   togglePlayback,
 }: {
-  allMoments: Moment[];
   currentTime: number;
   duration: number;
   isPlaying: boolean;
-  onMomentClick: (moment: Moment) => void;
   onPlaybackRate: () => void;
   onSeek: (seconds: number, options?: { play?: boolean }) => void;
   playbackRate: number;
-  selectedMomentId: string | null;
   togglePlayback: () => void;
 }) {
   return (
@@ -406,20 +387,6 @@ function UnifiedControls({
         }}
       >
         <div className="sr-progress-fill" style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : "0%" }} />
-        {allMoments.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            aria-label={`Jump to ${formatTime(m.timestamp)}: ${m.label}`}
-            title={`${formatTime(m.timestamp)} - ${m.label}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onMomentClick(m);
-            }}
-            className={`sr-audio-marker ${selectedMomentId === m.id ? "sr-audio-marker--active" : ""}`}
-            style={{ left: `${clampPct(m.timestamp, duration)}%` }}
-          />
-        ))}
       </div>
 
       <span className="sr-time">{formatTime(duration)}</span>
@@ -457,17 +424,6 @@ function SessionTimeline({
 
   return (
     <div className="vtl">
-      <div className="vtl-sections">
-        {analysis.sectionScores.map((sec) => {
-          const c = scoreColor(sec.score);
-          return (
-            <div key={sec.section} className={`vtl-sec vtl-sec--${c}`} title={`${sec.section}: ${Math.round(sec.score / 10)}/10`}>
-              <span className="vtl-sec-label">{abbreviate(sec.section)}</span>
-            </div>
-          );
-        })}
-      </div>
-
       <div className="vtl-bar" onClick={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
         const pct = (e.clientX - rect.left) / rect.width;
@@ -485,6 +441,22 @@ function SessionTimeline({
             onClick={(e) => { e.stopPropagation(); onMomentClick(m); }}
           />
         ))}
+      </div>
+
+      <div className="vtl-sections">
+        {analysis.sectionScores.map((sec, index) => {
+          const c = scoreColor(sec.score);
+          return (
+            <div
+              key={sec.section}
+              className={`vtl-sec vtl-sec--${c}`}
+              style={{ flex: timelineSectionFlex(sec.section, index, analysis.sectionScores.length) }}
+              title={`${sec.section}: ${Math.round(sec.score / 10)}/10`}
+            >
+              <span className="vtl-sec-label">{formatTimelineSectionLabel(sec.section)}</span>
+            </div>
+          );
+        })}
       </div>
 
       <div className="vtl-times">
@@ -608,19 +580,27 @@ function clampPct(time: number, dur: number) {
   return Math.min(Math.max((time / dur) * 100, 0), 100);
 }
 
-function abbreviate(name: string): string {
-  const map: Record<string, string> = {
-    "Greeting & Introduction": "Greeting",
-    "Greeting": "Greeting",
-    "Needs Discovery": "Discovery",
-    "Tour & Demonstration": "Tour",
-    "Personalization": "Personal.",
-    "Objection Handling": "Objection",
-    "Closing": "Closing",
-    "Follow-Up": "Follow-Up",
-    "Compliance / Fair Housing": "Compliance"
-  };
-  return map[name] ?? name.split(" ")[0] ?? name;
+function formatTimelineSectionLabel(name: string): string {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("greeting") || normalized.includes("introduction")) return "THE GREETING";
+  if (normalized.includes("property") || normalized.includes("tour") || normalized.includes("demonstration")) return "PROPERTY TOUR";
+  if (normalized.includes("closing")) return "CLOSING";
+  if (normalized.includes("follow")) return "FOLLOW UP";
+  if (normalized.includes("compliance") || normalized.includes("fair housing")) return "COMPLIANCE";
+  return name.toUpperCase();
+}
+
+function timelineSectionFlex(name: string, index: number, sectionCount: number): string {
+  if (sectionCount === 4) {
+    const normalized = name.toLowerCase();
+    if (normalized.includes("greeting") || normalized.includes("introduction")) return "1.25 1 0";
+    if (normalized.includes("property") || normalized.includes("tour") || normalized.includes("demonstration")) return "4 1 0";
+    if (normalized.includes("closing")) return "2 1 0";
+    if (normalized.includes("follow")) return "1.1 1 0";
+    return `${index === 1 ? 4 : 1.5} 1 0`;
+  }
+
+  return "1 1 0";
 }
 
 function findSectionForTimestamp(

@@ -253,10 +253,6 @@ function OverviewTab({
         screenshots={screenshots}
       />
 
-      <SessionNotesPanel analysis={analysis} />
-
-      {/* Fair Housing */}
-      <FairHousingBanner flags={analysis.fairHousingFlags} />
     </div>
   );
 }
@@ -269,6 +265,8 @@ function RubricTab({ analysis, sessionId }: { analysis: NonNullable<Awaited<Retu
 
   return (
     <div className="sa-rubric">
+      <SessionNotesPanel analysis={analysis} />
+
       {!anyQuestions && (
         <div style={{
           padding: "16px 20px",

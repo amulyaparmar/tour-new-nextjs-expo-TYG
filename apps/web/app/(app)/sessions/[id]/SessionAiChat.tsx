@@ -14,6 +14,8 @@ import {
   type SessionAiPrompt,
 } from "./session-ai-prompts";
 
+type SessionAiMessages = ReturnType<typeof useChat>["messages"];
+
 function messageText(parts: { type: string; text?: string }[]) {
   return parts
     .filter((part) => part.type === "text" && part.text)
@@ -33,6 +35,7 @@ export function SessionAiChat({
   const [input, setInput] = useState("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [savedMessages, setSavedMessages] = useState<SessionAiMessages | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -41,10 +44,11 @@ export function SessionAiChat({
     [sessionId]
   );
 
-  const { messages, sendMessage, status, error } = useChat({ transport });
+  const { messages, setMessages, sendMessage, status, error } = useChat({ transport });
 
   const isBusy = status === "submitted" || status === "streaming";
   const mentionOptions = mentionQuery != null ? filterMentionPrompts(mentionQuery) : [];
+  const storageKey = `tour-session-ai-chat:${sessionId}`;
 
   const coachingPoints = useMemo(
     () => [
@@ -71,6 +75,31 @@ export function SessionAiChat({
   }, [messages, status, scrollToBottom]);
 
   useEffect(() => {
+    try {
+      const rawMessages = window.sessionStorage.getItem(storageKey);
+      if (!rawMessages) {
+        setSavedMessages(null);
+        return;
+      }
+
+      const parsedMessages = JSON.parse(rawMessages) as SessionAiMessages;
+      setSavedMessages(Array.isArray(parsedMessages) && parsedMessages.length > 0 ? parsedMessages : null);
+    } catch {
+      setSavedMessages(null);
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (messages.length === 0) return;
+    try {
+      window.sessionStorage.setItem(storageKey, JSON.stringify(messages));
+      setSavedMessages(messages);
+    } catch {
+      // Local chat recovery is best-effort only.
+    }
+  }, [messages, storageKey]);
+
+  useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
@@ -87,6 +116,22 @@ export function SessionAiChat({
     },
     [isBusy, sendMessage]
   );
+
+  const clearConversation = useCallback(() => {
+    setMessages([]);
+    setInput("");
+    setMentionQuery(null);
+    setMentionIndex(0);
+    setSavedMessages(null);
+    window.sessionStorage.removeItem(storageKey);
+    inputRef.current?.focus();
+  }, [setMessages, storageKey]);
+
+  const resumeSavedConversation = useCallback(() => {
+    if (!savedMessages?.length) return;
+    setMessages(savedMessages);
+    inputRef.current?.focus();
+  }, [savedMessages, setMessages]);
 
   const insertPrompt = useCallback((prompt: SessionAiPrompt) => {
     if (mentionQuery != null) {
@@ -151,11 +196,31 @@ export function SessionAiChat({
     <div className={styles.aiPanel}>
       <div className={styles.sidebarSectionHead}>
         <h2>Tour AI</h2>
+        {messages.length > 0 && (
+          <button
+            type="button"
+            className={styles.aiChatClear}
+            disabled={isBusy}
+            onClick={clearConversation}
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       <div className={styles.aiChatList} ref={listRef}>
         {messages.length === 0 ? (
           <div className={styles.aiStarter}>
+            {savedMessages && (
+              <button
+                type="button"
+                className={styles.aiResumeCard}
+                onClick={resumeSavedConversation}
+              >
+                <span>Continue last chat</span>
+                <strong>{savedMessages.length} messages</strong>
+              </button>
+            )}
             {coachingPoints.map((point) => (
               <div key={point.title} className={styles.aiCard}>
                 <strong>{point.title}</strong>

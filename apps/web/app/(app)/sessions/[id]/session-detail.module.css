@@ -1307,8 +1307,8 @@
 .commentsPanel {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1728,17 +1728,30 @@
   cursor: not-allowed;
 }
 
-.sidebarBody:has(.commentsPanel),
-.sidebarBody:has(.aiPanel) {
+.sidebarBody {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
-.sidebarBody {
+.sidebarPanel {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  display: none;
+  flex-direction: column;
+}
+
+.sidebarPanelActive {
+  display: flex;
+}
+
+.sidebarPanelActive > .rubricPanel {
   flex: 1;
   min-height: 0;
+  height: 100%;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
 }
 
 .sidebarSectionHead {
@@ -1773,10 +1786,35 @@
 .aiPanel {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  flex: 1;
+  min-height: 0;
   height: 100%;
   overflow: hidden;
   padding-bottom: 0;
+}
+
+.aiChatClear {
+  border: 1px solid var(--slate-200);
+  border-radius: 999px;
+  background: white;
+  color: var(--slate-500);
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.aiChatClear:hover:not(:disabled) {
+  border-color: #c7d2fe;
+  color: #4338ca;
+  background: #eef2ff;
+}
+
+.aiChatClear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .aiChatList {
@@ -1793,6 +1831,42 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.aiResumeCard {
+  width: 100%;
+  border: 1px solid var(--slate-200);
+  border-radius: 12px;
+  background: var(--slate-50);
+  color: var(--slate-700);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+
+.aiResumeCard:hover {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  transform: translateY(-1px);
+}
+
+.aiResumeCard span {
+  color: var(--slate-900);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.aiResumeCard strong {
+  color: var(--slate-400);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .aiCard {
@@ -2229,17 +2303,20 @@
   min-height: 190px;
   max-height: 250px;
   filter: drop-shadow(0 16px 28px rgba(79, 70, 229, 0.12));
+}
+
+.rubricInsightRadarAnimate {
   animation: rubricRadarShellIn 0.42s ease-out both;
 }
 
-.rubricInsightRadar :global(.recharts-polar-grid-angle line),
-.rubricInsightRadar :global(.recharts-polar-grid-concentric path) {
+.rubricInsightRadarAnimate :global(.recharts-polar-grid-angle line),
+.rubricInsightRadarAnimate :global(.recharts-polar-grid-concentric path) {
   animation: rubricRadarGridIn 0.52s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   transform-box: fill-box;
   transform-origin: center;
 }
 
-.rubricInsightRadar :global(.recharts-radar-polygon) {
+.rubricInsightRadarAnimate :global(.recharts-radar-polygon) {
   animation: rubricRadarPolygonPop 0.72s cubic-bezier(0.16, 1, 0.3, 1) both;
   transform-box: fill-box;
   transform-origin: center;

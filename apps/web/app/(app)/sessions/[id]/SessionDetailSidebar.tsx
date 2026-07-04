@@ -2,7 +2,7 @@
 
 import type { AnalysisResult } from "@tour/shared";
 import { CheckCircle2, MessageSquare } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
 
 import { SidebarCommentsPanel } from "./SidebarCommentsPanel";
@@ -78,8 +78,16 @@ export function SessionDetailSidebar({
       </div>
 
       <div className={styles.sidebarBody}>
-        {tab === "rubric" && <SessionRubricPanel analysis={analysis} sessionId={sessionId} />}
-        {tab === "comments" && (
+        <div
+          className={`${styles.sidebarPanel} ${tab === "rubric" ? styles.sidebarPanelActive : ""}`}
+          hidden={tab !== "rubric"}
+        >
+          <SessionRubricPanel analysis={analysis} sessionId={sessionId} />
+        </div>
+        <div
+          className={`${styles.sidebarPanel} ${tab === "comments" ? styles.sidebarPanelActive : ""}`}
+          hidden={tab !== "comments"}
+        >
           <div className={styles.commentsPanel}>
             <div className={styles.sidebarSectionHead}>
               <h2>Comments</h2>
@@ -95,10 +103,13 @@ export function SessionDetailSidebar({
               onCommentSelect={onCommentSelect}
             />
           </div>
-        )}
-        {tab === "ai" && (
+        </div>
+        <div
+          className={`${styles.sidebarPanel} ${tab === "ai" ? styles.sidebarPanelActive : ""}`}
+          hidden={tab !== "ai"}
+        >
           <SessionAiChat sessionId={sessionId} analysis={analysis} onSeek={onAiSeek} />
-        )}
+        </div>
       </div>
     </aside>
   );
@@ -251,6 +262,7 @@ function RubricStrengthRadar({
   activeSection: string | null;
   onSectionSelect: (sectionName: string) => void;
 }) {
+  const [shouldAnimate, setShouldAnimate] = useState(true);
   const radarData = sections.length
     ? sections.map((section) => ({
       axis: shortAxisLabel(section.section),
@@ -258,12 +270,20 @@ function RubricStrengthRadar({
       section: section.section,
     }))
     : [{ axis: "Score", score: 0, section: "Score" }];
-  const animationKey = radarData.map((item) => `${item.axis}:${item.score}`).join("|");
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setShouldAnimate(false), 1200);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   return (
-    <div className={styles.rubricInsightRadar} role="img" aria-label="Rubric strength radar">
+    <div
+      className={`${styles.rubricInsightRadar} ${shouldAnimate ? styles.rubricInsightRadarAnimate : ""}`}
+      role="img"
+      aria-label="Rubric strength radar"
+    >
       <ResponsiveContainer width="100%" height="100%">
-        <RadarChart key={animationKey} data={radarData} margin={{ top: 18, right: 28, bottom: 18, left: 28 }}>
+        <RadarChart data={radarData} margin={{ top: 18, right: 28, bottom: 18, left: 28 }}>
           <PolarGrid stroke="#e4e4e7" />
           <PolarAngleAxis
             dataKey="axis"
@@ -282,7 +302,7 @@ function RubricStrengthRadar({
             fill="#4f46e5"
             fillOpacity={0.2}
             strokeWidth={2.4}
-            isAnimationActive
+            isAnimationActive={shouldAnimate}
             animationBegin={120}
             animationDuration={900}
             animationEasing="ease-out"

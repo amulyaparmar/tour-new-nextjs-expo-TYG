@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import type { AnalysisResult } from "@tour/shared";
-import { CheckCircle2, MessageSquare } from "lucide-react";
+import { CheckCircle2, ExternalLink, MessageSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
 
@@ -17,6 +18,7 @@ export type SidebarTab = "rubric" | "comments" | "ai";
 export function SessionDetailSidebar({
   sessionId,
   analysis,
+  rubric,
   tab,
   onTabChange,
   currentTime,
@@ -29,6 +31,10 @@ export function SessionDetailSidebar({
 }: {
   sessionId: string;
   analysis: AnalysisResult;
+  rubric: {
+    id: string;
+    name: string | null;
+  } | null;
   tab: SidebarTab;
   onTabChange: (tab: SidebarTab) => void;
   currentTime: number;
@@ -82,7 +88,7 @@ export function SessionDetailSidebar({
           className={`${styles.sidebarPanel} ${tab === "rubric" ? styles.sidebarPanelActive : ""}`}
           hidden={tab !== "rubric"}
         >
-          <SessionRubricPanel analysis={analysis} sessionId={sessionId} />
+          <SessionRubricPanel analysis={analysis} sessionId={sessionId} rubric={rubric} />
         </div>
         <div
           className={`${styles.sidebarPanel} ${tab === "comments" ? styles.sidebarPanelActive : ""}`}
@@ -115,7 +121,18 @@ export function SessionDetailSidebar({
   );
 }
 
-function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult; sessionId: string }) {
+function SessionRubricPanel({
+  analysis,
+  sessionId,
+  rubric,
+}: {
+  analysis: AnalysisResult;
+  sessionId: string;
+  rubric: {
+    id: string;
+    name: string | null;
+  } | null;
+}) {
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [openRubricSection, setOpenRubricSection] = useState<string | null>(null);
   const sectionRefs = useRef<Record<string, HTMLDetailsElement | null>>({});
@@ -138,7 +155,22 @@ function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult;
     <div className={styles.rubricPanel}>
       <div className={styles.sidebarSectionHead}>
         <h2>Rubric</h2>
-        <span className={styles.sidebarScore}>{analysis.overallScore}%</span>
+        <div className={styles.rubricHeaderActions}>
+          {rubric ? (
+            <Link
+              href={`/rubrics/${encodeURIComponent(rubric.id)}`}
+              className={styles.rubricSourceLink}
+              title={`Open rubric ${rubric.name ?? rubric.id}`}
+            >
+              <span className={styles.rubricSourceName}>{rubric.name ?? "Rubric"}</span>
+              <span className={styles.rubricSourceId}>{shortRubricId(rubric.id)}</span>
+              <ExternalLink size={12} />
+            </Link>
+          ) : (
+            <span className={styles.rubricSourceMuted}>Default rubric</span>
+          )}
+          <span className={styles.sidebarScore}>{analysis.overallScore}%</span>
+        </div>
       </div>
 
       {!anyQuestions && (
@@ -251,6 +283,11 @@ function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult;
       })}
     </div>
   );
+}
+
+function shortRubricId(id: string) {
+  if (id.length <= 12) return id;
+  return `${id.slice(0, 6)}...${id.slice(-4)}`;
 }
 
 function RubricStrengthRadar({

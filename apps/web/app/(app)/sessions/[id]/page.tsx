@@ -5,6 +5,7 @@ import { SESSION_STATUS_LABELS } from "@tour/shared";
 
 import { getScreenshotsForSession, getTranscriptForSession } from "@/lib/evidence";
 import { listVisibleMaterials } from "@/lib/materials";
+import { getRubricForSession } from "@/lib/rubrics";
 import { getAnalysisBySessionId, getSessionById } from "@/lib/sessions";
 import { getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
 import { DeleteSessionButton } from "./DeleteSessionButton";
@@ -32,17 +33,31 @@ export default async function SessionDetailPage({ params }: Props) {
   }
 
   const analysis = await getAnalysisBySessionId(id);
-  const transcript = await getTranscriptForSession(id);
-  const screenshots = await getScreenshotsForSession(id);
-  const noteAssets = await getNoteAssets();
-  const defaults = getSessionDetailDefaults(session);
 
   const isScheduled = session.status === "scheduled" || session.status === "in_progress";
   const hasRecording = !isScheduled;
   const hasAnalysis = !!analysis;
   const isProcessing = ["uploaded", "transcribing", "extracting_screenshots", "analyzing"].includes(session.status);
+  const defaults = !hasAnalysis ? getSessionDetailDefaults(session) : null;
+  const noteAssetsPromise = !hasAnalysis ? getNoteAssets() : Promise.resolve<NoteAsset[]>([]);
+  const detailDataPromise: Promise<[
+    Awaited<ReturnType<typeof getTranscriptForSession>>,
+    Awaited<ReturnType<typeof getScreenshotsForSession>>,
+    string | null,
+    Awaited<ReturnType<typeof getRubricForSession>> | null,
+  ]> = hasAnalysis
+    ? Promise.all([
+      getTranscriptForSession(id),
+      getScreenshotsForSession(id),
+      resolveRecordingUrl(id, session.videoUrl, session.audioUrl),
+      getRubricForSession(session.rubricId),
+    ])
+    : Promise.resolve([[], [], null, null]);
 
-  const recordingUrl = await resolveRecordingUrl(id, session.videoUrl, session.audioUrl);
+  const [noteAssets, [transcript, screenshots, recordingUrl, rubric]] = await Promise.all([
+    noteAssetsPromise,
+    detailDataPromise,
+  ]);
 
   return (
     <div className={hasAnalysis ? `${styles.page} ${styles.pageExperience}` : styles.page}>
@@ -71,11 +86,11 @@ export default async function SessionDetailPage({ params }: Props) {
       </div>
 
       {!hasAnalysis && isScheduled && (
-        <UploadAndProcess sessionId={id} hasRecording={false} variant="new-session" defaults={defaults} noteAssets={noteAssets} />
+        <UploadAndProcess sessionId={id} hasRecording={false} variant="new-session" defaults={defaults ?? undefined} noteAssets={noteAssets} />
       )}
 
       {!hasAnalysis && !isScheduled && (
-        <UploadAndProcess sessionId={id} hasRecording={hasRecording} defaults={defaults} noteAssets={noteAssets} />
+        <UploadAndProcess sessionId={id} hasRecording={hasRecording} defaults={defaults ?? undefined} noteAssets={noteAssets} />
       )}
 
       {hasAnalysis && (
@@ -90,6 +105,7 @@ export default async function SessionDetailPage({ params }: Props) {
             videoUrl={session.videoUrl}
             audioUrl={session.audioUrl}
             duration={session.duration ?? estimateDuration(analysis.exactMoments)}
+            rubric={rubric ? { id: rubric.id, name: rubric.name } : null}
           />
         </>
       )}

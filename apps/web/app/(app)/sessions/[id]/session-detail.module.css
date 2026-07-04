@@ -1779,6 +1779,63 @@
   padding: 4px 10px;
 }
 
+.rubricHeaderActions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.rubricSourceLink,
+.rubricSourceMuted {
+  min-width: 0;
+  max-width: 180px;
+  border: 1px solid var(--slate-200);
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.72);
+  color: var(--slate-500);
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.rubricSourceLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.rubricSourceLink:hover,
+.rubricSourceLink:focus-visible {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
+  outline: none;
+}
+
+.rubricSourceName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rubricSourceId {
+  flex-shrink: 0;
+  color: var(--slate-400);
+  font-weight: 800;
+}
+
+.rubricSourceMuted {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
 .rubricPanel {
   padding-bottom: 16px;
 }
@@ -2275,10 +2332,7 @@
   gap: 8px;
   padding: 38px 16px 16px;
   border-bottom: 1px solid var(--slate-200);
-  background:
-    radial-gradient(circle at 50% 44%, rgba(79, 70, 229, 0.16), transparent 45%),
-    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.9), transparent 60%),
-    linear-gradient(180deg, #f8fafc, #eef2ff);
+  background: #f8fbff;
   text-align: center;
 }
 

@@ -36,6 +36,10 @@ type Props = {
   videoUrl: string | null;
   audioUrl: string | null;
   duration: number;
+  rubric: {
+    id: string;
+    name: string | null;
+  } | null;
 };
 
 const SIDEBAR_DEFAULT_WIDTH = 360;
@@ -62,6 +66,7 @@ export function SessionDetailExperience({
   videoUrl,
   audioUrl,
   duration,
+  rubric,
 }: Props) {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -420,6 +425,7 @@ export function SessionDetailExperience({
       <SessionDetailSidebar
         sessionId={sessionId}
         analysis={analysis}
+        rubric={rubric}
         tab={sidebarTab}
         onTabChange={setSidebarTab}
         currentTime={currentTime}

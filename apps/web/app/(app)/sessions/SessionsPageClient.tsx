@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { SESSION_STATUS_LABELS, type SessionSummary } from "@tour/shared";
@@ -35,6 +36,7 @@ export function SessionsPageClient({
   currentAgentId: string | null;
   properties: PropertyOption[];
 }) {
+  const router = useRouter();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -64,6 +66,10 @@ export function SessionsPageClient({
     [properties]
   );
   const showPropertyInRows = properties.length > 1;
+
+  const prefetchSession = useCallback((sessionId: string) => {
+    router.prefetch(`/sessions/${sessionId}`);
+  }, [router]);
 
   const openYouMenu = () => {
     clearTimeout(closeTimerRef.current);
@@ -239,7 +245,13 @@ export function SessionsPageClient({
         ) : (
           <>
             {sessions.map((s) => (
-              <Link key={s.id} href={`/sessions/${s.id}`} className="session-row">
+              <Link
+                key={s.id}
+                href={`/sessions/${s.id}`}
+                className="session-row"
+                onFocus={() => prefetchSession(s.id)}
+                onPointerEnter={() => prefetchSession(s.id)}
+              >
                 <div className="session-row-info">
                   <div className="session-row-title">{s.title}</div>
                   <div className="session-row-meta">

@@ -2,7 +2,8 @@
 
 import type { AnalysisResult } from "@tour/shared";
 import { CheckCircle2, MessageSquare } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
 
 import { SidebarCommentsPanel } from "./SidebarCommentsPanel";
 import { SessionAiChat } from "./SessionAiChat";
@@ -105,6 +106,8 @@ export function SessionDetailSidebar({
 
 function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult; sessionId: string }) {
   const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const [openRubricSection, setOpenRubricSection] = useState<string | null>(null);
+  const sectionRefs = useRef<Record<string, HTMLDetailsElement | null>>({});
   const anyQuestions = analysis.sectionScores.some((section) => section.questions?.length);
   const sortedSections = [...analysis.sectionScores].sort((a, b) => a.score - b.score);
   const focusSection = sortedSections[0] ?? analysis.sectionScores[0];
@@ -113,6 +116,12 @@ function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult;
     analysis.totalPointsEarned ??
     Math.round((analysis.overallScore / 100) * (analysis.totalPointsPossible ?? 200));
   const totalMax = analysis.totalPointsPossible ?? 200;
+  const selectRubricSection = (sectionName: string) => {
+    setOpenRubricSection((current) => current === sectionName ? null : sectionName);
+    window.requestAnimationFrame(() => {
+      sectionRefs.current[sectionName]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  };
 
   return (
     <div className={styles.rubricPanel}>
@@ -141,10 +150,33 @@ function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult;
         }}
         aria-expanded={summaryExpanded}
       >
-        <div className={styles.rubricInsightGridPanel} aria-hidden="true">
-          <span className={styles.rubricInsightLabel}>Strengths</span>
-          <RubricStrengthRadar sections={analysis.sectionScores} />
-          <span className={styles.rubricInsightScore}>{analysis.overallScore}%</span>
+        <div
+          className={styles.rubricInsightGridPanel}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <div className={styles.rubricInsightGraphHead}>
+            <span className={styles.rubricInsightLabel}>Strengths</span>
+          </div>
+          <RubricStrengthRadar
+            sections={analysis.sectionScores}
+            activeSection={openRubricSection}
+            onSectionSelect={selectRubricSection}
+          />
+          <div className={styles.rubricInsightStrengthScores}>
+            {analysis.sectionScores.map((section) => (
+              <button
+                key={section.section}
+                type="button"
+                className={`${styles.rubricInsightStrengthScore} ${openRubricSection === section.section ? styles.rubricInsightStrengthScoreActive : ""}`}
+                onClick={() => selectRubricSection(section.section)}
+                aria-pressed={openRubricSection === section.section}
+              >
+                <span>{shortAxisLabel(section.section)}</span>
+                <strong>{Math.round(section.score)}%</strong>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className={styles.rubricInsightSummary}>
@@ -167,8 +199,18 @@ function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult;
         const passCount = questions.filter((question) => question.passed).length;
 
         return (
-          <details key={section.section} className={styles.rubricSection}>
-            <summary>
+          <details
+            key={section.section}
+            ref={(node) => { sectionRefs.current[section.section] = node; }}
+            className={`${styles.rubricSection} ${openRubricSection === section.section ? styles.rubricSectionActive : ""}`}
+            open={openRubricSection === section.section}
+          >
+            <summary
+              onClick={(event) => {
+                event.preventDefault();
+                selectRubricSection(section.section);
+              }}
+            >
               <span>{section.section}</span>
               <span className={`${styles.rubricPct} ${rubricPctByColor[color]}`}>
                 {questions.length ? `${passCount}/${questions.length}` : `${section.score}%`}
@@ -200,85 +242,101 @@ function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult;
   );
 }
 
-function RubricStrengthRadar({ sections }: { sections: AnalysisResult["sectionScores"] }) {
-  const entries = sections.length
+function RubricStrengthRadar({
+  sections,
+  activeSection,
+  onSectionSelect,
+}: {
+  sections: AnalysisResult["sectionScores"];
+  activeSection: string | null;
+  onSectionSelect: (sectionName: string) => void;
+}) {
+  const radarData = sections.length
     ? sections.map((section) => ({
-      label: shortAxisLabel(section.section),
+      axis: shortAxisLabel(section.section),
       score: Math.max(0, Math.min(100, section.score)),
+      section: section.section,
     }))
-    : [{ label: "Score", score: 0 }];
-
-  const cx = 70;
-  const cy = 60;
-  const radius = 30;
-  const axisPoints = entries.map((_, index) => pointFor(index, entries.length, radius, cx, cy));
-  const scorePoints = entries.map((entry, index) => pointFor(index, entries.length, radius * (entry.score / 100), cx, cy));
-  const labelPoints = entries.map((_, index) => pointFor(index, entries.length, radius + 28, cx, cy));
-  const polygon = scorePoints.map((point) => `${point.x},${point.y}`).join(" ");
+    : [{ axis: "Score", score: 0, section: "Score" }];
+  const animationKey = radarData.map((item) => `${item.axis}:${item.score}`).join("|");
 
   return (
-    <svg className={styles.rubricInsightRadar} viewBox="0 0 140 120" role="img" aria-label="Rubric strength radar">
-      {[0.33, 0.66, 1].map((scale) => (
-        <polygon
-          key={scale}
-          points={axisPointsFor(entries.length, radius * scale, cx, cy)}
-          className={styles.rubricInsightRadarGrid}
-        />
-      ))}
-      {axisPoints.map((point, index) => (
-        <line
-          key={`axis-${entries[index]?.label ?? index}`}
-          x1={cx}
-          y1={cy}
-          x2={point.x}
-          y2={point.y}
-          className={styles.rubricInsightRadarAxis}
-        />
-      ))}
-      <polygon points={polygon} className={styles.rubricInsightRadarArea} />
-      <polyline points={`${polygon} ${scorePoints[0]?.x ?? cx},${scorePoints[0]?.y ?? cy}`} className={styles.rubricInsightRadarLine} />
-      {scorePoints.map((point, index) => (
-        <circle
-          key={`score-${entries[index]?.label ?? index}`}
-          cx={point.x}
-          cy={point.y}
-          r="2.4"
-          className={styles.rubricInsightRadarDot}
-        />
-      ))}
-      {labelPoints.map((point, index) => (
-        <text
-          key={`label-${entries[index]?.label ?? index}`}
-          x={point.x}
-          y={point.y}
-          textAnchor={textAnchorFor(point.x, cx)}
-          dominantBaseline="middle"
-          className={styles.rubricInsightRadarLabel}
-        >
-          {entries[index]?.label}
-        </text>
-      ))}
-    </svg>
+    <div className={styles.rubricInsightRadar} role="img" aria-label="Rubric strength radar">
+      <ResponsiveContainer width="100%" height="100%">
+        <RadarChart key={animationKey} data={radarData} margin={{ top: 18, right: 28, bottom: 18, left: 28 }}>
+          <PolarGrid stroke="#e4e4e7" />
+          <PolarAngleAxis
+            dataKey="axis"
+            tick={(props) => (
+              <RubricRadarTick
+                {...props}
+                sections={sections}
+                activeSection={activeSection}
+                onSectionSelect={onSectionSelect}
+              />
+            )}
+          />
+          <Radar
+            dataKey="score"
+            stroke="#4f46e5"
+            fill="#4f46e5"
+            fillOpacity={0.2}
+            strokeWidth={2.4}
+            isAnimationActive
+            animationBegin={120}
+            animationDuration={900}
+            animationEasing="ease-out"
+          />
+        </RadarChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
-function axisPointsFor(count: number, radius: number, cx: number, cy: number) {
-  return Array.from({ length: count }, (_, index) => pointFor(index, count, radius, cx, cy))
-    .map((point) => `${point.x},${point.y}`)
-    .join(" ");
-}
+function RubricRadarTick({
+  payload,
+  x,
+  y,
+  textAnchor,
+  sections,
+  activeSection,
+  onSectionSelect,
+}: {
+  payload?: { value?: string };
+  x?: number;
+  y?: number;
+  textAnchor?: "start" | "middle" | "end";
+  sections: AnalysisResult["sectionScores"];
+  activeSection: string | null;
+  onSectionSelect: (sectionName: string) => void;
+}) {
+  const label = String(payload?.value ?? "");
+  const section = sections.find((item) => shortAxisLabel(item.section) === label);
+  if (!section) return null;
+  const isActive = activeSection === section.section;
 
-function pointFor(index: number, count: number, radius: number, cx: number, cy: number) {
-  const angle = -Math.PI / 2 + (index * 2 * Math.PI) / count;
-  return {
-    x: Number((cx + radius * Math.cos(angle)).toFixed(2)),
-    y: Number((cy + radius * Math.sin(angle)).toFixed(2)),
-  };
-}
-
-function textAnchorFor(x: number, cx: number) {
-  if (Math.abs(x - cx) < 4) return "middle";
-  return x > cx ? "end" : "start";
+  return (
+    <g
+      className={`${styles.rubricInsightRadarTick} ${isActive ? styles.rubricInsightRadarTickActive : ""}`}
+      role="button"
+      tabIndex={0}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSectionSelect(section.section);
+      }}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSectionSelect(section.section);
+      }}
+      aria-label={`Open ${section.section} rubric section`}
+    >
+      <text x={x} y={y} textAnchor={textAnchor} dominantBaseline="middle">
+        {label}
+      </text>
+    </g>
+  );
 }
 
 function shortAxisLabel(label: string) {

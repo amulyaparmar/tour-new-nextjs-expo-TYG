@@ -1,6 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
 import type { AnalysisResult } from "@tour/shared";
 
 import { FloatingSessionPlayer } from "./FloatingSessionPlayer";
@@ -28,6 +37,10 @@ type Props = {
   audioUrl: string | null;
   duration: number;
 };
+
+const SIDEBAR_DEFAULT_WIDTH = 360;
+const SIDEBAR_MIN_WIDTH = 320;
+const SIDEBAR_MAX_WIDTH = 720;
 
 function sortNavigableComments(comments: SessionComment[]) {
   return [...comments].sort((a, b) => {
@@ -61,8 +74,17 @@ export function SessionDetailExperience({
   const [comments, setComments] = useState<SessionComment[]>([]);
   const [mediaError, setMediaError] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("rubric");
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [chatScrollRequest, setChatScrollRequest] = useState<{ key: number; seconds: number } | null>(null);
   const chatScrollKeyRef = useRef(0);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--sd-sidebar-width", `${sidebarWidth}px`);
+    return () => {
+      document.documentElement.style.removeProperty("--sd-sidebar-width");
+    };
+  }, [sidebarWidth]);
 
   const discussionComments = useMemo(
     () => comments.filter(isDiscussionComment),
@@ -138,6 +160,56 @@ export function SessionDetailExperience({
     setChatScrollRequest({ key: chatScrollKeyRef.current, seconds });
   }, [seekTo]);
 
+  const resizeSidebarToClientX = useCallback((clientX: number) => {
+    const viewportWidth = window.innerWidth;
+    const maxWidth = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, viewportWidth - 420));
+    const nextWidth = Math.round(Math.min(maxWidth, Math.max(SIDEBAR_MIN_WIDTH, viewportWidth - clientX)));
+    setSidebarWidth(nextWidth);
+  }, []);
+
+  const startSidebarResize = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (window.innerWidth <= 960) return;
+    event.preventDefault();
+    setIsResizingSidebar(true);
+    resizeSidebarToClientX(event.clientX);
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      resizeSidebarToClientX(moveEvent.clientX);
+    };
+    const onPointerUp = () => {
+      setIsResizingSidebar(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp, { once: true });
+  }, [resizeSidebarToClientX]);
+
+  const handleSidebarResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    if (event.key === "Home") {
+      setSidebarWidth(SIDEBAR_MIN_WIDTH);
+      return;
+    }
+    if (event.key === "End") {
+      const maxWidth = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, window.innerWidth - 420));
+      setSidebarWidth(maxWidth);
+      return;
+    }
+    const delta = event.shiftKey ? 40 : 20;
+    setSidebarWidth((current) => {
+      const maxWidth = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, window.innerWidth - 420));
+      const next = event.key === "ArrowLeft" ? current + delta : current - delta;
+      return Math.min(maxWidth, Math.max(SIDEBAR_MIN_WIDTH, next));
+    });
+  }, []);
+
   const refreshComments = useCallback(() => {
     void fetch(`/api/sessions/${sessionId}/comments`)
       .then((res) => res.ok ? res.json() : Promise.reject(new Error("Failed")))
@@ -167,15 +239,15 @@ export function SessionDetailExperience({
   const handleMomentSelect = useCallback((moment: SessionMoment) => {
     const idx = moments.findIndex((item) => item.id === moment.id);
     if (idx >= 0) setSelectedMomentIndex(idx);
-    seekTo(moment.timestamp, { play: true });
-  }, [moments, seekTo]);
+    seekTo(moment.timestamp, { play: isPlaying });
+  }, [isPlaying, moments, seekTo]);
 
   const navigateMoment = useCallback((direction: -1 | 1) => {
     if (moments.length === 0) return;
     const nextIndex = (selectedMomentIndex + direction + moments.length) % moments.length;
     setSelectedMomentIndex(nextIndex);
-    seekTo(moments[nextIndex]!.timestamp, { play: true });
-  }, [moments, selectedMomentIndex, seekTo]);
+    seekTo(moments[nextIndex]!.timestamp, { play: isPlaying });
+  }, [isPlaying, moments, selectedMomentIndex, seekTo]);
 
   const navigateComment = useCallback((direction: -1 | 1) => {
     if (navigableComments.length === 0) return;
@@ -274,7 +346,7 @@ export function SessionDetailExperience({
   }
 
   return (
-    <div className={styles.shell}>
+    <div className={`${styles.shell} ${isResizingSidebar ? styles.shellResizingSidebar : ""}`}>
       <HiddenMedia
         isVideo={isVideo}
         mediaRef={mediaRef}
@@ -331,6 +403,19 @@ export function SessionDetailExperience({
           togglePlayback={togglePlayback}
         />
       </div>
+
+      <button
+        type="button"
+        role="separator"
+        className={`${styles.sidebarResizeHandle} ${isResizingSidebar ? styles.sidebarResizeHandleActive : ""}`}
+        onPointerDown={startSidebarResize}
+        onKeyDown={handleSidebarResizeKeyDown}
+        aria-label="Resize right panel"
+        aria-orientation="vertical"
+        aria-valuemin={SIDEBAR_MIN_WIDTH}
+        aria-valuemax={SIDEBAR_MAX_WIDTH}
+        aria-valuenow={sidebarWidth}
+      />
 
       <SessionDetailSidebar
         sessionId={sessionId}

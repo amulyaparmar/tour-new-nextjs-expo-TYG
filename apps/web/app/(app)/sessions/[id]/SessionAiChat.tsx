@@ -48,7 +48,6 @@ export function SessionAiChat({
 
   const isBusy = status === "submitted" || status === "streaming";
   const mentionOptions = mentionQuery != null ? filterMentionPrompts(mentionQuery) : [];
-  const storageKey = `tour-session-ai-chat:${sessionId}`;
 
   const coachingPoints = useMemo(
     () => [
@@ -70,38 +69,22 @@ export function SessionAiChat({
     el.scrollTop = el.scrollHeight;
   }, []);
 
+  const resetInputHeight = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el || el.offsetParent === null) return;
+      el.style.height = "auto";
+    });
+  }, []);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages, status, scrollToBottom]);
 
   useEffect(() => {
-    try {
-      const rawMessages = window.sessionStorage.getItem(storageKey);
-      if (!rawMessages) {
-        setSavedMessages(null);
-        return;
-      }
-
-      const parsedMessages = JSON.parse(rawMessages) as SessionAiMessages;
-      setSavedMessages(Array.isArray(parsedMessages) && parsedMessages.length > 0 ? parsedMessages : null);
-    } catch {
-      setSavedMessages(null);
-    }
-  }, [storageKey]);
-
-  useEffect(() => {
-    if (messages.length === 0) return;
-    try {
-      window.sessionStorage.setItem(storageKey, JSON.stringify(messages));
-      setSavedMessages(messages);
-    } catch {
-      // Local chat recovery is best-effort only.
-    }
-  }, [messages, storageKey]);
-
-  useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
+    if (el.offsetParent === null) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [input]);
@@ -113,19 +96,23 @@ export function SessionAiChat({
       void sendMessage({ text: trimmed });
       setInput("");
       setMentionQuery(null);
+      resetInputHeight();
     },
-    [isBusy, sendMessage]
+    [isBusy, resetInputHeight, sendMessage]
   );
 
   const clearConversation = useCallback(() => {
+    const chatToResume = messages.length > 0 ? messages : savedMessages;
+    if (chatToResume?.length) {
+      setSavedMessages(chatToResume);
+    }
     setMessages([]);
     setInput("");
     setMentionQuery(null);
     setMentionIndex(0);
-    setSavedMessages(null);
-    window.sessionStorage.removeItem(storageKey);
+    resetInputHeight();
     inputRef.current?.focus();
-  }, [setMessages, storageKey]);
+  }, [messages, resetInputHeight, savedMessages, setMessages]);
 
   const resumeSavedConversation = useCallback(() => {
     if (!savedMessages?.length) return;
@@ -211,16 +198,6 @@ export function SessionAiChat({
       <div className={styles.aiChatList} ref={listRef}>
         {messages.length === 0 ? (
           <div className={styles.aiStarter}>
-            {savedMessages && (
-              <button
-                type="button"
-                className={styles.aiResumeCard}
-                onClick={resumeSavedConversation}
-              >
-                <span>Continue last chat</span>
-                <strong>{savedMessages.length} messages</strong>
-              </button>
-            )}
             {coachingPoints.map((point) => (
               <div key={point.title} className={styles.aiCard}>
                 <strong>{point.title}</strong>
@@ -268,6 +245,17 @@ export function SessionAiChat({
       </div>
 
       <div className={styles.aiChatComposer}>
+        {messages.length === 0 && savedMessages && (
+          <button
+            type="button"
+            className={styles.aiResumeInline}
+            onClick={resumeSavedConversation}
+          >
+            <span>Continue last chat</span>
+            <strong>{savedMessages.length} messages</strong>
+          </button>
+        )}
+
         <div className={styles.aiPrompts}>
           {SESSION_AI_DEFAULT_PROMPTS.map((prompt) => (
             <button

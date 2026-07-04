@@ -1833,38 +1833,38 @@
   gap: 10px;
 }
 
-.aiResumeCard {
-  width: 100%;
+.aiResumeInline {
+  align-self: flex-start;
   border: 1px solid var(--slate-200);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--slate-50);
   color: var(--slate-700);
-  padding: 12px 14px;
-  display: flex;
+  padding: 7px 9px;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: center;
+  gap: 8px;
   cursor: pointer;
   font-family: inherit;
   text-align: left;
   transition: border-color 0.15s, background 0.15s, transform 0.15s;
 }
 
-.aiResumeCard:hover {
+.aiResumeInline:hover {
   border-color: #c7d2fe;
   background: #eef2ff;
   transform: translateY(-1px);
 }
 
-.aiResumeCard span {
+.aiResumeInline span {
   color: var(--slate-900);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 800;
 }
 
-.aiResumeCard strong {
+.aiResumeInline strong {
   color: var(--slate-400);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -2123,7 +2123,7 @@
 .aiChatInputWrap {
   position: relative;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
   padding: 8px 8px 8px 12px;
   border: 1px solid var(--slate-200);
@@ -2149,8 +2149,11 @@
   line-height: 1.45;
   color: var(--slate-800);
   font-family: inherit;
+  box-sizing: border-box;
+  min-height: 40px;
   max-height: 120px;
-  padding: 4px 0;
+  overflow-y: auto;
+  padding: 10px 0 8px;
 }
 
 .aiChatInput::placeholder {

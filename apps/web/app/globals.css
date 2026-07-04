@@ -425,6 +425,14 @@ img { display: block; max-width: 100%; }
   overflow-y: auto;
 }
 
+.main-content:has([data-no-bottom-nav]) {
+  padding: 0;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
 /* ── Page headers ─────────────────────────────────────── */
 .page-header {
   margin-bottom: 20px;
@@ -839,52 +847,6 @@ button { border: 0; font: inherit; cursor: pointer; }
 
 .tab:hover { color: var(--slate-700); }
 .tab[data-active="true"] { color: var(--indigo-600); border-bottom-color: var(--indigo-600); }
-
-/* ── Session detail header ────────────────────────────── */
-.sd-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.sd-header-left { min-width: 0; flex: 1; }
-.sd-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--slate-800);
-  margin: 0;
-  line-height: 1.2;
-}
-.sd-meta {
-  font-size: 12px;
-  color: var(--slate-500);
-  margin-top: 2px;
-}
-.sd-header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-.sd-download-btn {
-  display: inline-flex !important;
-  align-items: center;
-  gap: 5px;
-}
-.sd-delete-btn {
-  color: var(--red-700);
-  border-color: var(--red-200);
-}
-.sd-delete-btn:hover:not(:disabled) {
-  background: var(--red-50);
-}
-@media (max-width: 480px) {
-  .sd-header { flex-direction: column; }
-  .sd-header-right { justify-content: flex-start; }
-}
 
 /* ── Overview layout ─────────────────────────────────── */
 .ov-video-section { margin-bottom: 16px; }
@@ -3903,6 +3865,36 @@ button { border: 0; font: inherit; cursor: pointer; }
 }
 .sa-comment-submit:hover { background: var(--indigo-700); }
 .sa-comment-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.sa-comment-use-time {
+  background: none; border: none; cursor: pointer; font-size: 11px; font-weight: 700;
+  color: var(--indigo-600); padding: 0 4px; white-space: nowrap;
+}
+.sa-comment-link-ts {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; color: var(--slate-500); cursor: pointer; white-space: nowrap;
+}
+.sa-comment-link-ts input { accent-color: var(--indigo-600); }
+.sa-comment-general-badge {
+  font-size: 10px; font-weight: 700; color: var(--slate-500);
+  background: var(--slate-100); padding: 2px 7px; border-radius: 99px;
+}
+.sa-comment--selected {
+  border-color: var(--indigo-300);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+.sa-comments--sidebar {
+  display: flex; flex-direction: column; min-height: 100%; height: 100%;
+  margin-top: 0; padding: 0 16px 16px;
+}
+.sa-comments-sidebar-list {
+  flex: 1; min-height: 0; overflow-y: auto; padding-top: 4px;
+}
+.sa-comments-sidebar-compose {
+  flex-shrink: 0; padding-top: 12px; border-top: 1px solid var(--slate-200);
+  background: white; position: sticky; bottom: 0;
+}
+.sa-comments-sidebar-compose .sa-comment-form { margin-bottom: 0; }
+.sa-comments--sidebar .sa-comment-form-actions { flex-wrap: wrap; }
 
 /* ── Error text ───────────────────────────────────────── */
 .error-text { color: var(--red-700); font-size: 13px; }
@@ -3911,6 +3903,9 @@ button { border: 0; font: inherit; cursor: pointer; }
 .sl-toolbar {
   display: flex; flex-direction: column; gap: 10px;
   margin-bottom: 16px;
+}
+.sl-toolbar-row {
+  flex-direction: row; align-items: center; justify-content: space-between;
 }
 .sl-search {
   display: flex; align-items: center; gap: 8px;
@@ -3945,8 +3940,70 @@ button { border: 0; font: inherit; cursor: pointer; }
 .sl-chip-active {
   background: var(--indigo-50); border-color: var(--indigo-200); color: var(--indigo-700);
 }
+.sl-filter-controls {
+  display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0;
+}
+.sl-you-picker {
+  position: relative;
+}
+.sl-you-bubble {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 28px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--slate-200); background: white;
+  font-size: 12px; font-weight: 700; color: var(--slate-600);
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  font-family: inherit;
+}
+.sl-you-bubble:hover,
+.sl-you-picker-open .sl-you-bubble,
+.sl-you-bubble-active {
+  background: #eef2ff; border-color: #c7d2fe; color: #4338ca;
+}
+.sl-you-chevron {
+  color: currentColor; opacity: 0.75; transition: transform 0.15s;
+}
+.sl-you-chevron-open { transform: rotate(180deg); }
+.sl-you-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+  width: 210px; padding: 4px;
+  border-radius: 12px; border: 1px solid var(--slate-200);
+  background: white; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+}
+.sl-you-menu::before {
+  content: ""; position: absolute; top: -8px; left: 0; right: 0; height: 8px;
+}
+.sl-you-menu-list {
+  display: flex; flex-direction: column; gap: 1px;
+  max-height: 220px; overflow-y: auto;
+}
+.sl-you-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 8px; border: none; border-radius: 8px; background: transparent;
+  text-align: left; cursor: pointer; transition: background 0.15s;
+  font-family: inherit;
+}
+.sl-you-menu-item:hover { background: var(--slate-50); }
+.sl-you-menu-item-active { background: #eef2ff; }
+.sl-you-menu-item-active:hover { background: #e0e7ff; }
+.sl-you-avatar {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 999px; flex-shrink: 0;
+  background: linear-gradient(135deg, #6366f1, #818cf8);
+  color: white; font-size: 10px; font-weight: 800; letter-spacing: 0.02em;
+}
+.sl-you-menu-name {
+  flex: 1; min-width: 0;
+  font-size: 12px; font-weight: 600; color: var(--slate-800);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sl-you-menu-meta {
+  font-size: 12px; font-weight: 600; color: var(--indigo-600);
+}
+.sl-you-menu-check {
+  flex-shrink: 0; color: var(--indigo-600);
+}
 .sl-sort-select {
-  margin-left: auto; height: 28px; padding: 0 8px; border-radius: 8px;
+  height: 28px; padding: 0 8px; border-radius: 8px;
   border: 1px solid var(--slate-200); font-size: 12px; font-weight: 600;
   color: var(--slate-600); background: white; cursor: pointer; outline: none;
   font-family: inherit;
@@ -3991,3 +4048,4 @@ button { border: 0; font: inherit; cursor: pointer; }
 .main-content:has(.manager-page) {
   max-width: 1120px;
 }
+

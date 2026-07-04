@@ -63,8 +63,14 @@ const tabs = [
   }
 ];
 
+function isSessionDetailPath(pathname: string) {
+  return /^\/sessions\/[^/]+$/.test(pathname);
+}
+
 export function BottomNav() {
   const pathname = usePathname();
+
+  if (isSessionDetailPath(pathname)) return null;
 
   return (
     <nav className="bottom-nav">

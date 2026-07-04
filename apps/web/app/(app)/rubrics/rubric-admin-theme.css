@@ -1,0 +1,36 @@
+/* Admin rubric dashboard tokens (matches apps/admin theme) */
+.rubric-admin {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --muted-foreground: #71717a;
+  --border: #e4e4e7;
+  --input-background: #f9f9fb;
+  --ring: #4f46e5;
+  background: #fafafa;
+  color: var(--foreground);
+  min-height: 100%;
+}
+
+.rubric-admin .bg-background { background-color: var(--background); }
+.rubric-admin .bg-card { background-color: var(--card); }
+.rubric-admin .bg-primary { background-color: var(--primary); }
+.rubric-admin .bg-primary\/10 { background-color: rgb(79 70 229 / 0.1); }
+.rubric-admin .bg-secondary { background-color: var(--secondary); }
+.rubric-admin .bg-secondary\/30 { background-color: rgb(244 244 245 / 0.3); }
+.rubric-admin .bg-secondary\/40 { background-color: rgb(244 244 245 / 0.4); }
+.rubric-admin .bg-secondary\/50 { background-color: rgb(244 244 245 / 0.5); }
+.rubric-admin .bg-input-background { background-color: var(--input-background); }
+.rubric-admin .text-foreground { color: var(--foreground); }
+.rubric-admin .text-primary { color: var(--primary); }
+.rubric-admin .text-primary-foreground { color: var(--primary-foreground); }
+.rubric-admin .text-muted-foreground { color: var(--muted-foreground); }
+.rubric-admin .border-border { border-color: var(--border); }
+.rubric-admin .hover\:border-primary\/50:hover { border-color: rgb(79 70 229 / 0.5); }
+.rubric-admin .hover\:text-primary:hover { color: var(--primary); }
+.rubric-admin .focus\:ring-ring:focus { --tw-ring-color: var(--ring); }
+.rubric-admin .focus\:ring-1:focus { box-shadow: 0 0 0 1px var(--ring); }
+.rubric-admin .focus\:ring-2:focus { box-shadow: 0 0 0 2px var(--ring); }

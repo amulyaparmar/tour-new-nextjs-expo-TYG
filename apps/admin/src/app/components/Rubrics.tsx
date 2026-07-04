@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Play, Plus, Upload, Sparkles, ChevronRight, Edit3, Trash2, GripVertical,
@@ -20,28 +20,42 @@ type Category = {
   criteria: RubricItem[];
 };
 
-type TemplateCategory = Omit<Category, "criteria"> & { criteria: string[] };
+type ExtractedDefinition = {
+  sections: Array<{
+    name: string;
+    items: Array<{
+      id: string;
+      text: string;
+      points: number;
+      note?: string;
+    }>;
+  }>;
+  notes?: string;
+};
 
-const TEMPLATE_EXTRACTED: TemplateCategory[] = [
-  { name: "Opening & Rapport", weight: 15, description: "Warmth of greeting, use of prospect's name, establishing comfort.", criteria: ["Greets prospect by name within first 30 seconds", "Makes genuine personal connection before discussing property", "Sets clear agenda for the tour"] },
-  { name: "Needs Discovery", weight: 20, description: "Depth of questions around timeline, lifestyle, and priorities.", criteria: ["Asks about move-in timeline", "Identifies must-have vs nice-to-have features", "Explores lifestyle context", "Listens actively and reflects back"] },
-  { name: "Property Showcase", weight: 25, description: "Quality of unit and amenity presentation tied to prospect needs.", criteria: ["Highlights at least 3 amenities with specific benefits", "Connects features to stated prospect needs", "Uses sensory language and storytelling"] },
-  { name: "Objection Handling", weight: 20, description: "Skillful acknowledgment and resolution of price, size, or timeline objections.", criteria: ["Validates objection before responding", "Offers an alternative or reframe", "Does not drop price without offering value first"] },
-  { name: "Closing", weight: 10, description: "Directness in asking for commitment or next steps.", criteria: ["Explicitly asks about interest level", "Proposes a clear next step"] },
-  { name: "Follow-up Setup", weight: 10, description: "Locking in a specific follow-up date and action before leaving.", criteria: ["Sets a specific follow-up date", "Summarizes what will be sent or shared"] },
-];
-
-function createRubricItem(text = "", points = 1, note = ""): RubricItem {
-  const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+function createRubricItem(text = "", points = 1, note = "", id?: string): RubricItem {
+  const random = id ?? globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return { id: random, text, points, note };
 }
 
-function editableTemplateCategory(category: TemplateCategory): Category {
-  const points = Math.max(1, Math.round(category.weight / Math.max(category.criteria.length, 1)));
-  return {
-    ...category,
-    criteria: category.criteria.map((criterion) => createRubricItem(criterion, points, category.description)),
-  };
+function categoriesTotalPoints(categories: Category[]): number {
+  return categories.reduce(
+    (sum, category) => sum + category.criteria.reduce((sectionSum, item) => sectionSum + (Number(item.points) || 0), 0),
+    0
+  );
+}
+
+function definitionToCategories(definition: ExtractedDefinition): Category[] {
+  return definition.sections.map((section) => {
+    const sectionPoints = section.items.reduce((sum, item) => sum + (item.points || 0), 0);
+    const description = section.items.find((item) => item.note)?.note ?? definition.notes ?? "";
+    return {
+      name: section.name,
+      description,
+      weight: sectionPoints,
+      criteria: section.items.map((item) => createRubricItem(item.text, item.points || 1, item.note ?? description, item.id)),
+    };
+  });
 }
 
 function editableRubricCategory(category: AdminRubric["categories"][number]): Category {
@@ -129,25 +143,79 @@ function CreationFlow({
   onSave: () => void;
 }) {
   const isEditing = Boolean(initialRubric);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>(initialRubric ? 2 : 1);
   const [uploading, setUploading] = useState(false);
-  const [extracted, setExtracted] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [pastedText, setPastedText] = useState("");
   const [fileName, setFileName] = useState("");
-  const [categories, setCategories] = useState<Category[]>(
-    initialRubric ? initialRubric.categories.map(editableRubricCategory) : TEMPLATE_EXTRACTED.map(editableTemplateCategory)
+  const initialCategories = initialRubric ? initialRubric.categories.map(editableRubricCategory) : [];
+  const [categories, setCategories] = useState<Category[]>(initialCategories);
+  const [baselineTotalPoints, setBaselineTotalPoints] = useState<number | null>(
+    initialRubric ? categoriesTotalPoints(initialCategories) : null
   );
   const [expandedCat, setExpandedCat] = useState<number | null>(0);
   const [selectedProperties, setSelectedProperties] = useState<string[]>(initialRubric?.propertyIds ?? []);
   const [rubricName, setRubricName] = useState(initialRubric?.name ?? "");
   const [saveAsDraft, setSaveAsDraft] = useState(false);
 
-  const totalWeight = categories.reduce((sum, c) => sum + c.weight, 0);
-  const weightOk = totalWeight === 100;
+  const totalPoints = categoriesTotalPoints(categories);
+  const pointsMatch = baselineTotalPoints === null || totalPoints === baselineTotalPoints;
 
-  const simulateExtract = () => {
+  const extractWithAi = async () => {
+    if (uploading || (!selectedFile && !pastedText.trim())) return;
+
     setUploading(true);
-    setTimeout(() => { setUploading(false); setExtracted(true); setStep(2); }, 1800);
+    setExtractError(null);
+
+    try {
+      const response = selectedFile
+        ? await fetch(apiUrl("/api/admin/rubrics/extract"), {
+          method: "POST",
+          credentials: "include",
+          body: (() => {
+            const formData = new FormData();
+            formData.append("file", selectedFile);
+            return formData;
+          })(),
+        })
+        : await fetch(apiUrl("/api/admin/rubrics/extract"), {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: pastedText.trim(), fileName: "pasted-rubric.txt" }),
+        });
+
+      const body = await response.json().catch(() => ({})) as {
+        error?: string;
+        name?: string;
+        definition?: ExtractedDefinition;
+      };
+
+      if (!response.ok) {
+        throw new Error(body.error ?? "Rubric extraction failed.");
+      }
+
+      if (!body.definition?.sections?.length) {
+        throw new Error("AI could not extract any rubric categories from that document.");
+      }
+
+      const nextCategories = definitionToCategories(body.definition);
+      setBaselineTotalPoints(categoriesTotalPoints(nextCategories));
+      setCategories(nextCategories);
+      if (body.name?.trim()) {
+        setRubricName(body.name.trim());
+      }
+      setExpandedCat(0);
+      setStep(2);
+    } catch (caught) {
+      setExtractError(caught instanceof Error ? caught.message : "Rubric extraction failed.");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const updateCategory = (i: number, field: keyof Omit<Category, "criteria">, value: string | number) => {
@@ -155,18 +223,38 @@ function CreationFlow({
   };
 
   const updateCriterion = (catIdx: number, critIdx: number, field: keyof RubricItem, value: string | number) => {
-    setCategories(prev => prev.map((c, i) => i === catIdx ? {
-      ...c,
-      criteria: c.criteria.map((cr, j) => j === critIdx ? { ...cr, [field]: value } : cr)
-    } : c));
+    setCategories(prev => prev.map((c, i) => {
+      if (i !== catIdx) return c;
+      const criteria = c.criteria.map((cr, j) => j === critIdx ? { ...cr, [field]: value } : cr);
+      const weight = field === "points"
+        ? criteria.reduce((sum, item) => sum + (Number(item.points) || 0), 0)
+        : c.weight;
+      return { ...c, criteria, weight };
+    }));
   };
 
   const addCriterion = (catIdx: number) => {
-    setCategories(prev => prev.map((c, i) => i === catIdx ? { ...c, criteria: [...c.criteria, createRubricItem("", 1, c.description)] } : c));
+    setCategories(prev => prev.map((c, i) => {
+      if (i !== catIdx) return c;
+      const criteria = [...c.criteria, createRubricItem("", 1, c.description)];
+      return {
+        ...c,
+        criteria,
+        weight: criteria.reduce((sum, item) => sum + (Number(item.points) || 0), 0),
+      };
+    }));
   };
 
   const removeCriterion = (catIdx: number, critIdx: number) => {
-    setCategories(prev => prev.map((c, i) => i === catIdx ? { ...c, criteria: c.criteria.filter((_, j) => j !== critIdx) } : c));
+    setCategories(prev => prev.map((c, i) => {
+      if (i !== catIdx) return c;
+      const criteria = c.criteria.filter((_, j) => j !== critIdx);
+      return {
+        ...c,
+        criteria,
+        weight: criteria.reduce((sum, item) => sum + (Number(item.points) || 0), 0),
+      };
+    }));
   };
 
   const removeCategory = (i: number) => setCategories(prev => prev.filter((_, idx) => idx !== i));
@@ -179,27 +267,46 @@ function CreationFlow({
   const toggleProperty = (id: string) => setSelectedProperties(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
 
   const saveRubric = async (draft: boolean) => {
-    const name = rubricName.trim() || "Untitled rubric";
-    const definition = {
-      sections: categories.map((category, index) => ({
-        name: category.name,
-        items: category.criteria
-          .filter((criterion) => criterion.text.trim())
-          .map((criterion, criterionIndex) => ({
-            id: criterion.id || `R${index + 1}.${criterionIndex + 1}`,
-            text: criterion.text.trim(),
-            points: Math.max(0, Number(criterion.points) || 0),
-            note: criterion.note.trim() || category.description || undefined,
-          })),
-      })),
-      notes: `Assigned properties: ${selectedProperties.join(", ")}${draft ? " (draft)" : ""}`,
-    };
-    await fetch(apiUrl(initialRubric ? `/api/admin/rubrics/${initialRubric.id}` : "/api/admin/rubrics"), {
-      method: initialRubric ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, definition, isDefault: initialRubric?.isDefault ?? (!draft && saveAsDraft === false) }),
-    }).catch(() => {});
-    onSave();
+    if (saving) return;
+
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      const name = rubricName.trim() || "Untitled rubric";
+      const definition = {
+        sections: categories.map((category, index) => ({
+          name: category.name,
+          items: category.criteria
+            .filter((criterion) => criterion.text.trim())
+            .map((criterion, criterionIndex) => ({
+              id: criterion.id || `R${index + 1}.${criterionIndex + 1}`,
+              text: criterion.text.trim(),
+              points: Math.max(0, Number(criterion.points) || 0),
+              note: criterion.note.trim() || category.description || undefined,
+            })),
+        })),
+        notes: `Assigned properties: ${selectedProperties.join(", ")}${draft ? " (draft)" : ""}`,
+      };
+
+      const response = await fetch(apiUrl(initialRubric ? `/api/admin/rubrics/${initialRubric.id}` : "/api/admin/rubrics"), {
+        method: initialRubric ? "PATCH" : "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, definition, isDefault: initialRubric?.isDefault ?? (!draft && saveAsDraft === false) }),
+      });
+
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? "Failed to save rubric.");
+      }
+
+      onSave();
+    } catch (caught) {
+      setSaveError(caught instanceof Error ? caught.message : "Failed to save rubric.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -244,7 +351,18 @@ function CreationFlow({
                       <p className="text-sm font-semibold text-foreground">Drop your rubric file here</p>
                       <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, or TXT — up to 10 MB</p>
                     </div>
-                    <input type="file" className="hidden" onChange={() => setFileName("Leasing_Rubric_Template_v2.pdf")} />
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.txt,.md,.csv,.json,text/*,application/pdf"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] ?? null;
+                        setSelectedFile(file);
+                        setFileName(file?.name ?? "");
+                        setExtractError(null);
+                      }}
+                    />
                   </label>
                 ) : (
                   <div className="border border-border rounded-xl p-4 flex items-center gap-3 mb-4">
@@ -253,17 +371,34 @@ function CreationFlow({
                     </div>
                     <div className="flex-1">
                       <div className="text-sm font-medium text-foreground">{fileName}</div>
-                      <div className="text-xs text-muted-foreground">2.4 MB · PDF</div>
+                      <div className="text-xs text-muted-foreground">
+                        {selectedFile ? `${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB` : "Selected file"}
+                      </div>
                     </div>
-                    <button onClick={() => setFileName("")} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedFile(null);
+                        setFileName("");
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
                 )}
                 <div className="relative mb-4">
                   <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border" /></div>
                   <div className="relative flex justify-center"><span className="bg-white px-3 text-xs text-muted-foreground">or paste rubric text</span></div>
                 </div>
-                <textarea value={pastedText} onChange={e => setPastedText(e.target.value)} placeholder="Paste your rubric content here…" rows={5}
+                <textarea value={pastedText} onChange={e => { setPastedText(e.target.value); setExtractError(null); }} placeholder="Paste your rubric content here…" rows={5}
                   className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground" />
+                {extractError && (
+                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {extractError}
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -274,9 +409,11 @@ function CreationFlow({
                     <Sparkles className="w-4 h-4 text-primary" />
                     <span className="text-sm font-semibold text-foreground">{isEditing ? "Edit" : "AI extracted"} {categories.length} categories</span>
                   </div>
-                  <div className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${weightOk ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
-                    {weightOk ? <Check className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                    Total weight: {totalWeight}%
+                  <div className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${pointsMatch ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                    {pointsMatch ? <Check className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                    {baselineTotalPoints === null
+                      ? `Total points: ${totalPoints}`
+                      : `Total points: ${totalPoints} / ${baselineTotalPoints} from rubric`}
                   </div>
                 </div>
                 <div className="space-y-2 mb-4">
@@ -291,11 +428,10 @@ function CreationFlow({
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <div className="flex items-center gap-1">
-                            <input type="number" value={cat.weight} min={0} max={100}
-                              onClick={e => e.stopPropagation()}
-                              onChange={e => updateCategory(i, "weight", parseInt(e.target.value) || 0)}
-                              className="w-12 text-center px-1 py-0.5 rounded-lg border border-border bg-white text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
-                            <span className="text-xs text-muted-foreground">%</span>
+                            <span className="w-12 text-center px-1 py-0.5 rounded-lg border border-border bg-white text-xs font-bold text-foreground">
+                              {cat.criteria.reduce((sum, item) => sum + (Number(item.points) || 0), 0)}
+                            </span>
+                            <span className="text-xs text-muted-foreground">pts</span>
                           </div>
                           <button onClick={e => { e.stopPropagation(); removeCategory(i); }} className="p-1 text-muted-foreground hover:text-red-500 transition-colors">
                             <Trash2 className="w-3.5 h-3.5" />
@@ -393,10 +529,18 @@ function CreationFlow({
                       ))}
                     </div>
                   </div>
-                  {!weightOk && (
+                  {baselineTotalPoints !== null && !pointsMatch && (
                     <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200">
                       <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <p className="text-xs text-amber-700">Category weights total {totalWeight}%, not 100%. Go back to step 2 to adjust.</p>
+                      <p className="text-xs text-amber-700">
+                        Current total is {totalPoints} pts but the uploaded rubric defines {baselineTotalPoints} pts.
+                        Adjust item points in step 2 before activating.
+                      </p>
+                    </div>
+                  )}
+                  {saveError && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                      {saveError}
                     </div>
                   )}
                 </div>
@@ -413,8 +557,9 @@ function CreationFlow({
           </button>
           {step === 1 && (
             <button
-              onClick={simulateExtract}
-              disabled={!fileName && !pastedText.trim()}
+              type="button"
+              onClick={() => void extractWithAi()}
+              disabled={uploading || (!fileName && !pastedText.trim())}
               className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               {uploading ? (
@@ -425,19 +570,36 @@ function CreationFlow({
             </button>
           )}
           {step === 2 && (
-            <button onClick={() => setStep(3)}
-              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-all">
+            <button
+              type="button"
+              onClick={() => setStep(3)}
+              disabled={categories.length === 0}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
               Continue <ChevronRight className="w-4 h-4" />
             </button>
           )}
           {step === 3 && (
             <div className="flex gap-2">
-              <button onClick={() => void saveRubric(true)} className="px-4 py-2 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors">
-                Save as draft
+              <button
+                type="button"
+                onClick={() => void saveRubric(true)}
+                disabled={saving}
+                className="px-4 py-2 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {saving ? "Saving..." : "Save as draft"}
               </button>
-              <button onClick={() => void saveRubric(false)} disabled={!rubricName || selectedProperties.length === 0 || !weightOk}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-                <CheckCircle2 className="w-4 h-4" /> {isEditing ? "Update rubric" : "Activate rubric"}
+              <button
+                type="button"
+                onClick={() => void saveRubric(false)}
+                disabled={saving || !rubricName || selectedProperties.length === 0 || !pointsMatch}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                {saving ? (
+                  <><div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving...</>
+                ) : (
+                  <><CheckCircle2 className="w-4 h-4" /> {isEditing ? "Update rubric" : "Activate rubric"}</>
+                )}
               </button>
             </div>
           )}
@@ -466,6 +628,39 @@ export function Rubrics({
   const [selectedRubric, setSelectedRubric] = useState<AdminRubric | null>(null);
   const [rubricView, setRubricView] = useState<RubricView>("list");
   const [expandedCat, setExpandedCat] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const deleteRubric = async (rubric: AdminRubric) => {
+    if (rubric.isDefault) return;
+    if (!confirm(`Delete "${rubric.name}"? Sessions using it will fall back to the default rubric.`)) return;
+
+    setDeletingId(rubric.id);
+    setDeleteError(null);
+
+    try {
+      const response = await fetch(apiUrl(`/api/admin/rubrics/${rubric.id}`), {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? "Failed to delete rubric.");
+      }
+
+      if (selectedRubric?.id === rubric.id) {
+        setSelectedRubric(null);
+        setRubricView("list");
+        onBackToRubrics();
+      }
+
+      await refresh();
+    } catch (caught) {
+      setDeleteError(caught instanceof Error ? caught.message : "Failed to delete rubric.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     if (!selectedRubricId) {
@@ -507,6 +702,12 @@ export function Rubrics({
               </button>
             </div>
 
+            {deleteError && (
+              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {deleteError}
+              </div>
+            )}
+
             <div className="rounded-2xl border border-border overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
@@ -529,7 +730,29 @@ export function Rubrics({
                       <td className="px-5 py-4 text-muted-foreground">{rubric.sessionCount}</td>
                       <td className="px-5 py-4"><StatusBadge status={rubric.status} /></td>
                       <td className="px-5 py-4 text-muted-foreground text-xs">{rubric.lastUpdated}</td>
-                      <td className="px-5 py-4"><ChevronRight className="w-4 h-4 text-muted-foreground/50 group-hover:text-primary transition-colors" /></td>
+                      <td className="px-5 py-4">
+                        <div className="flex items-center justify-end gap-1">
+                          {!rubric.isDefault && (
+                            <button
+                              type="button"
+                              aria-label={`Delete ${rubric.name}`}
+                              disabled={deletingId === rubric.id}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void deleteRubric(rubric);
+                              }}
+                              className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                            >
+                              {deletingId === rubric.id ? (
+                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-red-200 border-t-red-600" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          )}
+                          <ChevronRight className="w-4 h-4 text-muted-foreground/50 group-hover:text-primary transition-colors" />
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -555,9 +778,29 @@ export function Rubrics({
                   <button onClick={() => { setEditingRubric(selectedRubric); setShowCreate(true); }} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-secondary transition-colors">
                     <Edit3 className="w-3.5 h-3.5" /> Edit
                   </button>
+                  {!selectedRubric.isDefault && (
+                    <button
+                      type="button"
+                      disabled={deletingId === selectedRubric.id}
+                      onClick={() => void deleteRubric(selectedRubric)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40"
+                    >
+                      {deletingId === selectedRubric.id ? (
+                        <><div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-red-200 border-t-red-600" /> Deleting...</>
+                      ) : (
+                        <><Trash2 className="w-3.5 h-3.5" /> Delete</>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
+
+            {deleteError && (
+              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {deleteError}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5">
               <div className="space-y-3">
@@ -568,7 +811,7 @@ export function Rubrics({
                       <div className="flex-1 text-left">
                         <div className="flex items-center gap-3">
                           <span className="font-semibold text-sm text-foreground">{cat.name}</span>
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground border border-border font-medium">{cat.weight}%</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground border border-border font-medium">{cat.weight} pts</span>
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">{cat.description}</p>
                       </div>

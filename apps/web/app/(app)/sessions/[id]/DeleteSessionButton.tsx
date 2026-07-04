@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 
+import styles from "./session-detail.module.css";
+
 export function DeleteSessionButton({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
@@ -31,7 +33,7 @@ export function DeleteSessionButton({ sessionId }: { sessionId: string }) {
   return (
     <button
       type="button"
-      className="btn btn-outline btn-sm sd-delete-btn"
+      className={`btn btn-outline btn-sm ${styles.deleteBtn}`}
       onClick={handleDelete}
       disabled={deleting}
     >

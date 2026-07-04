@@ -84,6 +84,9 @@ export type ListSessionsParams = {
   search?: string;
   sort?: "newest" | "oldest" | "score_desc" | "score_asc";
   propertyId?: string;
+  propertyIds?: string[];
+  agentId?: string;
+  excludeScheduled?: boolean;
 };
 
 export type PaginatedSessions = {
@@ -116,8 +119,18 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
       query = query.in("status", params.statuses);
     }
 
+    if (params?.excludeScheduled) {
+      query = query.neq("status", "scheduled");
+    }
+
     if (params?.propertyId) {
       query = query.eq("property_id", params.propertyId);
+    } else if (params?.propertyIds?.length) {
+      query = query.in("property_id", params.propertyIds);
+    }
+
+    if (params?.agentId) {
+      query = query.eq("agent_id", params.agentId);
     }
 
     if (params?.search) {
@@ -153,8 +166,37 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
 
     return { sessions, total, page, limit, hasMore: offset + sessions.length < total };
   } catch {
-    const all = await listLocalSessions();
-    return { sessions: all, total: all.length, page: 1, limit: all.length, hasMore: false };
+    let all = await listLocalSessions();
+
+    if (params?.excludeScheduled) {
+      all = all.filter((session) => session.status !== "scheduled");
+    }
+    if (params?.status) {
+      all = all.filter((session) => session.status === params.status);
+    } else if (params?.statuses?.length) {
+      all = all.filter((session) => params.statuses!.includes(session.status));
+    }
+    if (params?.propertyId) {
+      all = all.filter((session) => session.propertyId === params.propertyId);
+    } else if (params?.propertyIds?.length) {
+      all = all.filter((session) => session.propertyId && params.propertyIds!.includes(session.propertyId));
+    }
+    if (params?.agentId) {
+      all = all.filter((session) => session.agentId === params.agentId);
+    }
+    if (params?.search) {
+      const term = params.search.toLowerCase();
+      all = all.filter((session) =>
+        session.title.toLowerCase().includes(term) ||
+        session.prospectName?.toLowerCase().includes(term) ||
+        session.location?.toLowerCase().includes(term)
+      );
+    }
+
+    const total = all.length;
+    const offset = (page - 1) * limit;
+    const sessions = all.slice(offset, offset + limit);
+    return { sessions, total, page, limit, hasMore: offset + sessions.length < total };
   }
 }
 

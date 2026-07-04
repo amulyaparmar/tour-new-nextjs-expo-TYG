@@ -2,12 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ClipboardList, Loader2, Upload } from "lucide-react";
+import { ClipboardList, Loader2 } from "lucide-react";
 
 import type { Rubric } from "@tour/shared";
 import { rubricItemCount, rubricTotalPoints } from "@tour/shared";
-
-import { RubricUploadForm } from "./rubrics/RubricUploadForm";
 
 type RubricSelectorProps = {
   name?: string;
@@ -26,7 +24,6 @@ export function RubricSelector({
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(value ?? "");
   const [error, setError] = useState<string | null>(null);
-  const [showUpload, setShowUpload] = useState(false);
 
   const loadRubrics = useCallback(async () => {
     const res = await fetch("/api/admin/rubrics");
@@ -65,17 +62,9 @@ export function RubricSelector({
     return () => { cancelled = true; };
   }, [value, onChange, loadRubrics]);
 
-  function handleChange(next: string) {
+  async function handleChange(next: string) {
     setSelected(next);
     onChange?.(next);
-  }
-
-  async function handleUploaded(rubric: Rubric) {
-    const list = await loadRubrics();
-    setRubrics(list);
-    setSelected(rubric.id);
-    onChange?.(rubric.id);
-    setShowUpload(false);
   }
 
   const selectedRubric = rubrics.find((r) => r.id === selected);
@@ -88,28 +77,13 @@ export function RubricSelector({
           Evaluation rubric
         </label>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            style={{ padding: "4px 8px", fontSize: 12, fontWeight: 600, color: "var(--indigo-600)" }}
-            onClick={() => setShowUpload((open) => !open)}
-          >
-            <Upload size={12} style={{ display: "inline", marginRight: 4, verticalAlign: "-2px" }} />
-            {showUpload ? "Hide upload" : "Upload rubric"}
-          </button>
           {showManageLink && (
             <Link href="/rubrics" style={{ fontSize: 12, fontWeight: 600, color: "var(--indigo-600)" }}>
-              Manage all
+              Create or manage rubrics
             </Link>
           )}
         </div>
       </div>
-
-      {showUpload && (
-        <div style={{ marginTop: 10, padding: 12, border: "1px solid var(--slate-200)", borderRadius: "var(--radius-md)", background: "var(--slate-50)" }}>
-          <RubricUploadForm compact onUploaded={handleUploaded} />
-        </div>
-      )}
 
       {loading ? (
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--slate-500)", padding: "10px 0" }}>

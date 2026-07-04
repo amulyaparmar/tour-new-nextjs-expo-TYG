@@ -13,6 +13,8 @@
     "clean": "rm -rf .next"
   },
   "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^5.0.10",
+    "@ai-sdk/react": "^4.0.15",
     "@aws-sdk/client-s3": "^3.700.0",
     "@aws-sdk/client-transcribe": "^3.700.0",
     "@schedule-x/calendar": "^4.6.0",
@@ -22,10 +24,14 @@
     "@schedule-x/theme-default": "^4.6.0",
     "@supabase/supabase-js": "^2.108.1",
     "@tour/shared": "*",
+    "ai": "^7.0.14",
     "lucide-react": "^0.468.0",
+    "motion": "^12.23.24",
     "next": "^16.0.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "server-only": "^0.0.1",
     "temporal-polyfill": "^0.3.0",
     "twilio": "^5.10.3"

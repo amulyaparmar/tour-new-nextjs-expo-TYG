@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import type { SessionStatus } from "@tour/shared";
 import { hasAdminSession, requireAdminContext } from "@/lib/admin-auth";
+import { listTeamAgents } from "@/lib/agents";
 import { createSession, listSessionsPaginated } from "@/lib/sessions";
 
 const VALID_STATUSES: SessionStatus[] = [
@@ -32,6 +33,30 @@ export async function GET(request: NextRequest) {
     const workspace = hasAdminSession(request)
       ? await requireAdminContext(request)
       : null;
+
+    const propertyParam = sp.get("propertyId");
+    const accessiblePropertyIds = workspace?.communities.map((community) => community.id) ?? [];
+    let propertyId: string | undefined;
+    let propertyIds: string[] | undefined;
+
+    if (propertyParam && propertyParam !== "all") {
+      if (accessiblePropertyIds.includes(propertyParam)) {
+        propertyId = propertyParam;
+      }
+    } else if (accessiblePropertyIds.length > 0) {
+      propertyIds = accessiblePropertyIds;
+    }
+
+    const agentParam = sp.get("agentId")?.trim();
+    let agentId: string | undefined;
+    if (agentParam && workspace) {
+      const propertyIds = workspace.communities.map((community) => community.id);
+      const teamAgents = await listTeamAgents(workspace.membership.companyId, propertyIds);
+      if (teamAgents.some((agent) => agent.id === agentParam)) {
+        agentId = agentParam;
+      }
+    }
+
     const result = await listSessionsPaginated({
       page,
       limit,
@@ -39,7 +64,10 @@ export async function GET(request: NextRequest) {
       status,
       statuses,
       sort,
-      propertyId: workspace?.community.id,
+      propertyId,
+      propertyIds,
+      agentId,
+      excludeScheduled: true,
     });
     return NextResponse.json(result);
   } catch (error) {
@@ -78,8 +106,8 @@ export async function POST(request: Request) {
       prospectName: body.prospectName ?? null,
       notes: body.notes ?? null,
       rubricId: body.rubricId ?? null,
-      agentId: body.agentId ?? null,
-      propertyId: workspace?.community.id ?? body.propertyId ?? null,
+      agentId: body.agentId ?? (workspace ? `user:${workspace.user.id}` : null),
+      propertyId: body.propertyId ?? workspace?.community.id ?? null,
       unitLabel: body.unitLabel ?? null
     });
 

@@ -42,7 +42,7 @@ export function SessionsPageClient({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const [scope, setScope] = useState<AgentScope>(currentAgentId ? "agent" : "team");
+  const [scope, setScope] = useState<AgentScope>("team");
   const [selectedAgentId, setSelectedAgentId] = useState(currentAgentId ?? agents[0]?.id ?? "");
   const [sort, setSort] = useState<SortOption>("newest");
   const [youMenuOpen, setYouMenuOpen] = useState(false);

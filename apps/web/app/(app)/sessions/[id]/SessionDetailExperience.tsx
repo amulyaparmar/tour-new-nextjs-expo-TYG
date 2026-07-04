@@ -60,7 +60,7 @@ export function SessionDetailExperience({
   const [showComments, setShowComments] = useState(true);
   const [comments, setComments] = useState<SessionComment[]>([]);
   const [mediaError, setMediaError] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("ai");
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("rubric");
   const [chatScrollRequest, setChatScrollRequest] = useState<{ key: number; seconds: number } | null>(null);
   const chatScrollKeyRef = useRef(0);
 

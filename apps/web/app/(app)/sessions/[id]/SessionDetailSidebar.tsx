@@ -2,6 +2,7 @@
 
 import type { AnalysisResult } from "@tour/shared";
 import { CheckCircle2, MessageSquare } from "lucide-react";
+import { useState } from "react";
 
 import { SidebarCommentsPanel } from "./SidebarCommentsPanel";
 import { SessionAiChat } from "./SessionAiChat";
@@ -103,7 +104,15 @@ export function SessionDetailSidebar({
 }
 
 function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult; sessionId: string }) {
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
   const anyQuestions = analysis.sectionScores.some((section) => section.questions?.length);
+  const sortedSections = [...analysis.sectionScores].sort((a, b) => a.score - b.score);
+  const focusSection = sortedSections[0] ?? analysis.sectionScores[0];
+  const strongestSection = sortedSections[sortedSections.length - 1] ?? focusSection;
+  const totalPts =
+    analysis.totalPointsEarned ??
+    Math.round((analysis.overallScore / 100) * (analysis.totalPointsPossible ?? 200));
+  const totalMax = analysis.totalPointsPossible ?? 200;
 
   return (
     <div className={styles.rubricPanel}>
@@ -119,8 +128,37 @@ function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult;
         </div>
       )}
 
-      <div className={styles.rubricSummary}>
-        <p>{analysis.summary}</p>
+      <div
+        role="button"
+        tabIndex={0}
+        className={`${styles.rubricInsightCard} ${summaryExpanded ? styles.rubricInsightCardExpanded : ""}`}
+        onClick={() => setSummaryExpanded((value) => !value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setSummaryExpanded((value) => !value);
+          }
+        }}
+        aria-expanded={summaryExpanded}
+      >
+        <div className={styles.rubricInsightGridPanel} aria-hidden="true">
+          <span className={styles.rubricInsightLabel}>Strengths</span>
+          <RubricStrengthRadar sections={analysis.sectionScores} />
+          <span className={styles.rubricInsightScore}>{analysis.overallScore}%</span>
+        </div>
+
+        <div className={styles.rubricInsightSummary}>
+          <span className={styles.rubricInsightEyebrow}>Summary</span>
+          <p className={styles.rubricInsightQuick}>
+            {strongestSection && focusSection
+              ? `Strongest in ${strongestSection.section}; biggest opportunity is ${focusSection.section}.`
+              : `${totalPts}/${totalMax} points captured.`}
+          </p>
+          <p className={styles.rubricInsightBody}>{analysis.summary}</p>
+          <span className={styles.rubricInsightHint}>
+            {summaryExpanded ? "Click to compact" : "Click to expand"}
+          </span>
+        </div>
       </div>
 
       {analysis.sectionScores.map((section) => {
@@ -129,7 +167,7 @@ function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult;
         const passCount = questions.filter((question) => question.passed).length;
 
         return (
-          <details key={section.section} className={styles.rubricSection} open>
+          <details key={section.section} className={styles.rubricSection}>
             <summary>
               <span>{section.section}</span>
               <span className={`${styles.rubricPct} ${rubricPctByColor[color]}`}>
@@ -160,4 +198,101 @@ function SessionRubricPanel({ analysis, sessionId }: { analysis: AnalysisResult;
       })}
     </div>
   );
+}
+
+function RubricStrengthRadar({ sections }: { sections: AnalysisResult["sectionScores"] }) {
+  const entries = sections.length
+    ? sections.map((section) => ({
+      label: shortAxisLabel(section.section),
+      score: Math.max(0, Math.min(100, section.score)),
+    }))
+    : [{ label: "Score", score: 0 }];
+
+  const cx = 70;
+  const cy = 60;
+  const radius = 30;
+  const axisPoints = entries.map((_, index) => pointFor(index, entries.length, radius, cx, cy));
+  const scorePoints = entries.map((entry, index) => pointFor(index, entries.length, radius * (entry.score / 100), cx, cy));
+  const labelPoints = entries.map((_, index) => pointFor(index, entries.length, radius + 28, cx, cy));
+  const polygon = scorePoints.map((point) => `${point.x},${point.y}`).join(" ");
+
+  return (
+    <svg className={styles.rubricInsightRadar} viewBox="0 0 140 120" role="img" aria-label="Rubric strength radar">
+      {[0.33, 0.66, 1].map((scale) => (
+        <polygon
+          key={scale}
+          points={axisPointsFor(entries.length, radius * scale, cx, cy)}
+          className={styles.rubricInsightRadarGrid}
+        />
+      ))}
+      {axisPoints.map((point, index) => (
+        <line
+          key={`axis-${entries[index]?.label ?? index}`}
+          x1={cx}
+          y1={cy}
+          x2={point.x}
+          y2={point.y}
+          className={styles.rubricInsightRadarAxis}
+        />
+      ))}
+      <polygon points={polygon} className={styles.rubricInsightRadarArea} />
+      <polyline points={`${polygon} ${scorePoints[0]?.x ?? cx},${scorePoints[0]?.y ?? cy}`} className={styles.rubricInsightRadarLine} />
+      {scorePoints.map((point, index) => (
+        <circle
+          key={`score-${entries[index]?.label ?? index}`}
+          cx={point.x}
+          cy={point.y}
+          r="2.4"
+          className={styles.rubricInsightRadarDot}
+        />
+      ))}
+      {labelPoints.map((point, index) => (
+        <text
+          key={`label-${entries[index]?.label ?? index}`}
+          x={point.x}
+          y={point.y}
+          textAnchor={textAnchorFor(point.x, cx)}
+          dominantBaseline="middle"
+          className={styles.rubricInsightRadarLabel}
+        >
+          {entries[index]?.label}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+function axisPointsFor(count: number, radius: number, cx: number, cy: number) {
+  return Array.from({ length: count }, (_, index) => pointFor(index, count, radius, cx, cy))
+    .map((point) => `${point.x},${point.y}`)
+    .join(" ");
+}
+
+function pointFor(index: number, count: number, radius: number, cx: number, cy: number) {
+  const angle = -Math.PI / 2 + (index * 2 * Math.PI) / count;
+  return {
+    x: Number((cx + radius * Math.cos(angle)).toFixed(2)),
+    y: Number((cy + radius * Math.sin(angle)).toFixed(2)),
+  };
+}
+
+function textAnchorFor(x: number, cx: number) {
+  if (Math.abs(x - cx) < 4) return "middle";
+  return x > cx ? "end" : "start";
+}
+
+function shortAxisLabel(label: string) {
+  const clean = label.replace(/\s*&\s*/g, " ").replace(/\s+/g, " ").trim();
+  const normalized = clean.toLowerCase();
+  if (normalized.includes("greeting")) return "Greeting";
+  if (normalized.includes("property") || normalized.includes("tour")) return "Property";
+  if (normalized.includes("closing")) return "Closing";
+  if (normalized.includes("follow")) return "Follow up";
+  const words = clean.split(" ");
+  if (words.length === 1) return words[0]!.slice(0, 10);
+  return words
+    .filter((word) => !["the", "and", "of"].includes(word.toLowerCase()))
+    .slice(0, 2)
+    .map((word) => word.length > 8 ? word.slice(0, 8) : word)
+    .join(" ");
 }

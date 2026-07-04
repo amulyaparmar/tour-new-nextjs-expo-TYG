@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, MessageSquare, Reply, Send, Trash2 } from "lucide-react";
+import { Clock, MessageSquare, MoreHorizontal, Pencil, Reply, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import styles from "./session-detail.module.css";
@@ -46,6 +46,7 @@ export function SidebarCommentsPanel({
   const [timestampSec, setTimestampSec] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [openMenuCommentId, setOpenMenuCommentId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -71,6 +72,13 @@ export function SidebarCommentsPanel({
     if (!selectedCommentId || !selectedRef.current) return;
     selectedRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedCommentId]);
+
+  useEffect(() => {
+    if (!openMenuCommentId) return;
+    const closeMenu = () => setOpenMenuCommentId(null);
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, [openMenuCommentId]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -126,6 +134,53 @@ export function SidebarCommentsPanel({
     }
   }
 
+  function renderCommentMenu(commentId: string) {
+    const isOpen = openMenuCommentId === commentId;
+    return (
+      <div
+        className={`${styles.sidebarCommentMenuWrap} ${isOpen ? styles.commentMenuWrapOpen : ""}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          className={styles.sidebarCommentMore}
+          aria-label="Comment options"
+          aria-expanded={isOpen}
+          onClick={() => setOpenMenuCommentId(isOpen ? null : commentId)}
+        >
+          <MoreHorizontal size={15} />
+        </button>
+        {isOpen && (
+          <div className={styles.commentMenu} role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setEditingCommentId(commentId);
+                setOpenMenuCommentId(null);
+              }}
+            >
+              <Pencil size={13} />
+              Edit
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.commentMenuDanger}
+              onClick={() => {
+                setOpenMenuCommentId(null);
+                void handleDelete(commentId);
+              }}
+            >
+              <Trash2 size={13} />
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={styles.sidebarComments}>
       <div className={styles.sidebarCommentsList}>
@@ -171,6 +226,7 @@ export function SidebarCommentsPanel({
                 ) : (
                   <span className={styles.sidebarCommentGeneral}>General</span>
                 )}
+                {renderCommentMenu(comment.id)}
               </div>
               {editingCommentId === comment.id ? (
                 <InlineCommentEditor
@@ -207,16 +263,6 @@ export function SidebarCommentsPanel({
                   <Reply size={13} />
                   Reply
                 </button>
-                <button
-                  type="button"
-                  className={styles.sidebarCommentDelete}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void handleDelete(comment.id);
-                  }}
-                >
-                  <Trash2 size={13} />
-                </button>
               </div>
 
               {replies(comment.id).map((reply) => (
@@ -229,6 +275,7 @@ export function SidebarCommentsPanel({
                       <strong>{reply.authorName}</strong>
                       <span>{relativeTime(reply.createdAt)}</span>
                     </div>
+                    {renderCommentMenu(reply.id)}
                   </div>
                   {editingCommentId === reply.id ? (
                     <InlineCommentEditor

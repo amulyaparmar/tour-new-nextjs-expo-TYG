@@ -7,6 +7,7 @@ import { getSupabaseServiceClient } from "./supabase";
 export const ADMIN_ACCESS_COOKIE = "tour_admin_access_token";
 export const ADMIN_REFRESH_COOKIE = "tour_admin_refresh_token";
 export const ADMIN_COMMUNITY_COOKIE = "tour_admin_community";
+const DEFAULT_TOUR_COMMUNITY_ID = "community:548";
 
 export type AdminRole = "admin" | "manager" | "member";
 
@@ -55,6 +56,27 @@ type CommunityRow = {
   entrata_property_id: string | null;
   company_id: string;
 };
+
+const fallbackCommunityRows: CommunityRow[] = [
+  {
+    id: "community:548",
+    name: "40Fifty Lofts",
+    tour_community_id: 548,
+    gmb_id: null,
+    alias: "4050lofts",
+    entrata_property_id: null,
+    company_id: "company:leasemagnets-demo",
+  },
+  {
+    id: "community:517",
+    name: "20 Hawley",
+    tour_community_id: 517,
+    gmb_id: null,
+    alias: "20hawley",
+    entrata_property_id: null,
+    company_id: "company:leasemagnets-demo",
+  },
+];
 
 export class AdminAuthError extends Error {
   constructor(message: string, public status: 401 | 403 = 401) {
@@ -195,6 +217,45 @@ export async function resolveAdminContextForUser(
   };
 }
 
+export async function resolveFallbackAdminContext(
+  requestedCommunityId?: string | null
+): Promise<AdminWorkspace> {
+  const communityRows = await listFallbackCommunities();
+  const community =
+    communityRows.find((row) => row.id === requestedCommunityId) ??
+    communityRows.find((row) => row.id === DEFAULT_TOUR_COMMUNITY_ID) ??
+    communityRows[0] ??
+    fallbackCommunityRows[0]!;
+
+  return {
+    user: {
+      id: "tour-demo-user",
+      email: "lease@tour.video",
+      fullName: "LeaseMagnets",
+    },
+    membership: {
+      id: "tour-demo-membership",
+      role: "admin",
+      companyId: community.company_id,
+      companyName: "LeaseMagnets",
+    },
+    community: {
+      id: community.id,
+      name: community.name,
+      tourCommunityId: community.tour_community_id,
+      gmbId: community.gmb_id,
+      alias: community.alias,
+      entrataPropertyId: community.entrata_property_id,
+    },
+    communities: communityRows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      gmbId: row.gmb_id,
+      alias: row.alias,
+    })),
+  };
+}
+
 export function adminCookieOptions(maxAge: number) {
   return {
     httpOnly: true,
@@ -216,6 +277,24 @@ function readCookie(request: Request, name: string) {
     }
   }
   return null;
+}
+
+async function listFallbackCommunities(): Promise<CommunityRow[]> {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("communities")
+      .select("id,name,tour_community_id,gmb_id,alias,entrata_property_id,company_id")
+      .eq("portal_enabled", true)
+      .order("name", { ascending: true })
+      .limit(100);
+
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as CommunityRow[];
+    return rows.length > 0 ? rows : fallbackCommunityRows;
+  } catch {
+    return fallbackCommunityRows;
+  }
 }
 
 function readBearerToken(request: Request) {

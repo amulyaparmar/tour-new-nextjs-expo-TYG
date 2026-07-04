@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import type { SessionStatus } from "@tour/shared";
-import { hasAdminSession, requireAdminContext } from "@/lib/admin-auth";
+import {
+  ADMIN_COMMUNITY_COOKIE,
+  hasAdminSession,
+  readAdminCookie,
+  requireAdminContext,
+  resolveFallbackAdminContext,
+} from "@/lib/admin-auth";
 import { listTeamAgents } from "@/lib/agents";
 import { createSession, listSessionsPaginated } from "@/lib/sessions";
 
@@ -32,7 +38,7 @@ export async function GET(request: NextRequest) {
 
     const workspace = hasAdminSession(request)
       ? await requireAdminContext(request)
-      : null;
+      : await resolveFallbackAdminContext(readAdminCookie(request, ADMIN_COMMUNITY_COOKIE));
 
     const propertyParam = sp.get("propertyId");
     const accessiblePropertyIds = workspace?.communities.map((community) => community.id) ?? [];
@@ -82,7 +88,7 @@ export async function POST(request: Request) {
   try {
     const workspace = hasAdminSession(request)
       ? await requireAdminContext(request)
-      : null;
+      : await resolveFallbackAdminContext(readAdminCookie(request, ADMIN_COMMUNITY_COOKIE));
     const body = (await request.json()) as {
       title?: string;
       scheduledAt?: string | null;
@@ -106,8 +112,8 @@ export async function POST(request: Request) {
       prospectName: body.prospectName ?? null,
       notes: body.notes ?? null,
       rubricId: body.rubricId ?? null,
-      agentId: body.agentId ?? (workspace ? `user:${workspace.user.id}` : null),
-      propertyId: body.propertyId ?? workspace?.community.id ?? null,
+      agentId: body.agentId ?? `user:${workspace.user.id}`,
+      propertyId: body.propertyId ?? workspace.community.id,
       unitLabel: body.unitLabel ?? null
     });
 

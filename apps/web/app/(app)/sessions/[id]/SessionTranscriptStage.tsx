@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, MessageSquare, Search, Tag } from "lucide-react";
+import { ChevronDown, ChevronUp, MessageSquare, MoreHorizontal, Pencil, Search, Tag, Trash2 } from "lucide-react";
 
 import styles from "./session-detail.module.css";
 import { InlineCommentComposer } from "./InlineCommentComposer";
@@ -87,6 +87,7 @@ export function SessionTranscriptStage({
   const [inlineCompose, setInlineCompose] = useState<InlineCompose | null>(null);
   const [keyMomentCompose, setKeyMomentCompose] = useState<KeyMomentCompose | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [openCommentMenuId, setOpenCommentMenuId] = useState<string | null>(null);
 
   const useCommentLayout = showComments || inlineCompose != null || keyMomentCompose != null;
 
@@ -100,6 +101,21 @@ export function SessionTranscriptStage({
     setInlineCompose(null);
     setKeyMomentCompose({ segmentId: segment.id, timestampSec: Math.floor(currentTime) });
   }, [currentTime]);
+
+  const handleDeleteComment = useCallback(async (commentId: string) => {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/comments`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commentId }),
+      });
+      if (!res.ok) throw new Error("Failed to delete comment");
+      setOpenCommentMenuId(null);
+      onCommentsUpdated();
+    } catch {
+      setOpenCommentMenuId(null);
+    }
+  }, [sessionId, onCommentsUpdated]);
 
   const speakerMap = useMemo(() => {
     const speakers = Array.from(new Set(transcript.map((seg) => seg.speaker || "Speaker")));
@@ -224,6 +240,13 @@ export function SessionTranscriptStage({
       break;
     }
   }, [activeCommentId, commentsBySegment]);
+
+  useEffect(() => {
+    if (!openCommentMenuId) return;
+    const closeMenu = () => setOpenCommentMenuId(null);
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, [openCommentMenuId]);
 
   useEffect(() => () => {
     if (scrollRafRef.current != null) window.cancelAnimationFrame(scrollRafRef.current);
@@ -381,11 +404,18 @@ export function SessionTranscriptStage({
                           onCancel={() => setEditingCommentId(null)}
                         />
                       ) : (
-                        <button
+                        <div
                           key={comment.id}
-                          type="button"
+                          role="button"
+                          tabIndex={0}
                           className={`${styles.floatingComment} ${activeCommentId === comment.id ? styles.floatingCommentActive : ""}`}
                           onClick={() => {
+                            if (comment.timestampSec != null) seekTo(comment.timestampSec);
+                            onCommentSelect(comment.id);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
                             if (comment.timestampSec != null) seekTo(comment.timestampSec);
                             onCommentSelect(comment.id);
                           }}
@@ -399,9 +429,48 @@ export function SessionTranscriptStage({
                             <span className={styles.floatingCommentAvatar}>{initialsFor(comment.authorName)}</span>
                             <span className={styles.floatingCommentAuthor}>{comment.authorName}</span>
                             <span className={styles.floatingCommentTime}>{relativeTime(comment.createdAt)}</span>
+                            <span
+                              className={`${styles.floatingCommentMenuWrap} ${openCommentMenuId === comment.id ? styles.commentMenuWrapOpen : ""}`}
+                              onClick={(event) => event.stopPropagation()}
+                              onKeyDown={(event) => event.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                className={styles.floatingCommentMore}
+                                aria-label="Comment options"
+                                aria-expanded={openCommentMenuId === comment.id}
+                                onClick={() => setOpenCommentMenuId(openCommentMenuId === comment.id ? null : comment.id)}
+                              >
+                                <MoreHorizontal size={14} />
+                              </button>
+                              {openCommentMenuId === comment.id && (
+                                <span className={styles.commentMenu} role="menu">
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setEditingCommentId(comment.id);
+                                      setOpenCommentMenuId(null);
+                                    }}
+                                  >
+                                    <Pencil size={13} />
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    className={styles.commentMenuDanger}
+                                    onClick={() => void handleDeleteComment(comment.id)}
+                                  >
+                                    <Trash2 size={13} />
+                                    Delete
+                                  </button>
+                                </span>
+                              )}
+                            </span>
                           </div>
                           <p>{comment.body}</p>
-                        </button>
+                        </div>
                       )
                     )}
                   </div>

@@ -3,6 +3,7 @@ import { SESSION_STATUS_LABELS } from "@tour/shared";
 import { listSessions } from "@/lib/sessions";
 import { ContactCardPanel } from "./ContactCardPanel";
 import { SmartSessionModalButton } from "./SmartSessionForm";
+import { UserGreeting } from "./UserGreeting";
 import { requireTourWorkspace } from "@/lib/tour-auth";
 
 export const dynamic = "force-dynamic";
@@ -45,16 +46,14 @@ export default async function DashboardPage() {
   const recentSessions = sessions
     .filter((s) => analyzedOrActiveStatuses.includes(s.status))
     .slice(0, 4);
-
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const displayName = workspace.user.fullName ?? workspace.user.email.split("@")[0] ?? "LeaseMagnets";
 
   return (
     <>
       <div className="page-header">
         <div className="page-header-row">
           <div>
-            <h1>{greeting}, {workspace.user.fullName?.split(" ")[0] ?? workspace.user.email.split("@")[0]}</h1>
+            <UserGreeting initialName={displayName} />
             <p>Here&apos;s your sessions for today</p>
           </div>
           <span style={{ fontSize: 13, color: "var(--slate-400)", fontWeight: 500 }}>

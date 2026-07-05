@@ -1,10 +1,11 @@
-import { Platform } from "react-native";
 import { formatElapsed } from "./formatElapsed";
+import { supportsLiveActivities } from "../runtime";
 
 type LiveActivityModule = typeof import("expo-live-activity");
 
 let activityId: string | undefined;
 let recordingStartMs: number | undefined;
+let liveActivityAvailable: boolean | undefined;
 
 const LIVE_ACTIVITY_CONFIG = {
   backgroundColor: "B91C1C",
@@ -16,10 +17,13 @@ const LIVE_ACTIVITY_CONFIG = {
 };
 
 function getLiveActivity(): LiveActivityModule | null {
-  if (Platform.OS !== "ios") return null;
+  if (!supportsLiveActivities()) return null;
+  if (liveActivityAvailable === false) return null;
+
   try {
     return require("expo-live-activity") as LiveActivityModule;
   } catch {
+    liveActivityAvailable = false;
     return null;
   }
 }
@@ -43,30 +47,42 @@ function liveActivityState(elapsed: number, isPaused: boolean) {
   return state;
 }
 
-export function startRecordingLiveActivity(): void {
+function runLiveActivity(action: (LiveActivity: LiveActivityModule) => void): void {
   const LiveActivity = getLiveActivity();
   if (!LiveActivity) return;
 
-  recordingStartMs = Date.now();
-  const id = LiveActivity.startActivity(liveActivityState(0, false), LIVE_ACTIVITY_CONFIG);
-  activityId = id ?? undefined;
+  try {
+    action(LiveActivity);
+  } catch {
+    liveActivityAvailable = false;
+    activityId = undefined;
+    recordingStartMs = undefined;
+  }
+}
+
+export function startRecordingLiveActivity(): void {
+  runLiveActivity((LiveActivity) => {
+    recordingStartMs = Date.now();
+    const id = LiveActivity.startActivity(liveActivityState(0, false), LIVE_ACTIVITY_CONFIG);
+    activityId = id ?? undefined;
+  });
 }
 
 export function updateRecordingLiveActivity(elapsed: number, isPaused: boolean): void {
-  const LiveActivity = getLiveActivity();
-  if (!LiveActivity || !activityId) return;
-
-  LiveActivity.updateActivity(activityId, liveActivityState(elapsed, isPaused));
+  if (!activityId) return;
+  runLiveActivity((LiveActivity) => {
+    LiveActivity.updateActivity(activityId!, liveActivityState(elapsed, isPaused));
+  });
 }
 
 export function stopRecordingLiveActivity(elapsed: number): void {
-  const LiveActivity = getLiveActivity();
-  if (!LiveActivity || !activityId) return;
-
-  LiveActivity.stopActivity(activityId, {
-    title: "Tour Recording",
-    subtitle: `Saved · ${formatElapsed(elapsed)}`,
+  if (!activityId) return;
+  runLiveActivity((LiveActivity) => {
+    LiveActivity.stopActivity(activityId!, {
+      title: "Tour Recording",
+      subtitle: `Saved · ${formatElapsed(elapsed)}`,
+    });
+    activityId = undefined;
+    recordingStartMs = undefined;
   });
-  activityId = undefined;
-  recordingStartMs = undefined;
 }

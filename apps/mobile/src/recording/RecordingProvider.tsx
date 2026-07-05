@@ -12,6 +12,7 @@ import {
   stopRecordingLiveActivity,
   updateRecordingLiveActivity,
 } from "./recordingLiveActivity";
+import { supportsBackgroundRecording } from "../runtime";
 
 export type RecordingCtx = {
   isRecording: boolean;
@@ -44,13 +45,27 @@ const RECORDING_OPTIONS: RecordingOptions = {
 };
 
 async function configureRecordingAudioMode(active: boolean) {
-  await setAudioModeAsync({
+  const baseMode = {
     allowsRecording: active,
-    allowsBackgroundRecording: active,
-    shouldPlayInBackground: true,
+    shouldPlayInBackground: active,
     playsInSilentMode: true,
-    interruptionMode: "doNotMix",
-  });
+    interruptionMode: "doNotMix" as const,
+  };
+
+  if (supportsBackgroundRecording()) {
+    try {
+      await setAudioModeAsync({ ...baseMode, allowsBackgroundRecording: active });
+      return;
+    } catch {
+      // Dev client may reject background flags; fall back to foreground recording.
+    }
+  }
+
+  try {
+    await setAudioModeAsync(baseMode);
+  } catch {
+    // Ignore audio mode failures in Expo Go so recording can still be tested.
+  }
 }
 
 type RecordingProviderProps = {

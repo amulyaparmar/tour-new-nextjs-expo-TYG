@@ -236,6 +236,21 @@ export type Material = {
   };
 };
 
+export function materialUrl(material: Material) {
+  return material.media?.videoUrl ?? material.media?.iframeUrl ?? material.fileUrl ?? null;
+}
+
+export function assetNoteSnippet(asset: Material) {
+  const url = materialUrl(asset);
+  return [
+    `Follow-up asset: ${asset.name}`,
+    asset.description || null,
+    url ? `Link: ${url}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export type CalendarEvent = {
   id: string;
   session_id: string | null;

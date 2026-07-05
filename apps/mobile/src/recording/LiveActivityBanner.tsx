@@ -3,6 +3,7 @@ import React, { useEffect, useRef } from "react";
 import { Animated, Platform, StyleSheet, Text, View } from "react-native";
 import { formatElapsed } from "./formatElapsed";
 import { useRecording } from "./RecordingProvider";
+import { supportsBackgroundRecording } from "../runtime";
 
 const C = { red: "#b91c1c" } as const;
 
@@ -31,7 +32,9 @@ export function LiveActivityBanner() {
       <Text style={laSt.label}>Recording</Text>
       <Text style={laSt.timer}>{formatElapsed(elapsed)}</Text>
       <View style={laSt.spacer} />
-      <Text style={laSt.activeLabel}>Continues in background</Text>
+      <Text style={laSt.activeLabel}>
+        {supportsBackgroundRecording() ? "Continues in background" : "Expo Go — foreground only"}
+      </Text>
     </View>
   );
 }

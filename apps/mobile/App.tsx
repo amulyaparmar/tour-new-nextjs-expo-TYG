@@ -39,6 +39,7 @@ import {
   fetchAnalysis,
   fetchComments,
   fetchCalendarEvents,
+  assetNoteSnippet,
   fetchMaterials,
   fetchRubrics,
   fetchSession,
@@ -47,6 +48,7 @@ import {
   postComment,
   processSession,
   syncCalendar,
+  materialUrl,
   updateActionStatus,
   uploadRecording,
   uploadMaterial,
@@ -59,7 +61,7 @@ import { LoginScreen } from "./src/LoginScreen";
 import { SessionAiChat } from "./src/components/SessionAiChat";
 import { SessionFollowUpPanel } from "./src/components/SessionFollowUpPanel";
 import { TourLogo, TourMark } from "./src/components/TourLogo";
-import { LiveActivityBanner, RecordingProvider, useRecording } from "./src/recording";
+import { LiveActivityBanner, RecordingExperience, RecordingProvider, useRecording } from "./src/recording";
 
 const loginBackground = require("./assets/videos/login-bg.mp4");
 
@@ -155,10 +157,6 @@ function fmtSec(sec: number) {
   const m = Math.floor(sec / 60);
   const ss = Math.floor(sec % 60);
   return `${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-}
-
-function materialUrl(material: Material) {
-  return material.media?.videoUrl ?? material.media?.iframeUrl ?? material.fileUrl ?? null;
 }
 
 // ═══════════════════════════════════════
@@ -1208,7 +1206,6 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
   const [rubricId, setRubricId] = useState<string | null>(null);
   const [rubricOpen, setRubricOpen] = useState(false);
   const [assets, setAssets] = useState<Material[]>([]);
-  const [assetSheetOpen, setAssetSheetOpen] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -1312,17 +1309,10 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
     onCreated(sessionId);
   }
 
-  const fmtElapsed = `${String(Math.floor(rec.elapsed / 60)).padStart(2, "0")}:${String(rec.elapsed % 60).padStart(2, "0")}`;
-
   function addAsset(asset: Material) {
     if (selectedAssetIds.includes(asset.id)) return;
-    const url = materialUrl(asset);
-    const snippet = [
-      `Follow-up asset: ${asset.name}`,
-      asset.description || null,
-      url ? `Link: ${url}` : null,
-    ].filter(Boolean).join("\n");
-    setNotes((current) => current.trim() ? `${current.trim()}\n\n${snippet}` : snippet);
+    const snippet = assetNoteSnippet(asset);
+    setNotes((current) => (current.trim() ? `${current.trim()}\n\n${snippet}` : snippet));
     setSelectedAssetIds((current) => [...current, asset.id]);
     void Haptics.selectionAsync();
   }
@@ -1366,118 +1356,19 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
   // ── Audio recording (works in background) ──
   if (phase === "recording") {
     return (
-      <View style={st.callRecorder}>
-        <View style={st.callTopBar}>
-          <Pressable
-            accessibilityLabel="Cancel recording"
-            onPress={async () => { await rec.stop(); setPhase("choose"); }}
-            style={st.callTopButton}
-          >
-            <Ionicons name="chevron-down" size={22} color={C.text} />
-          </Pressable>
-          <View style={st.callLiveBadge}><View style={st.callLiveDot} /><Text style={st.callLiveText}>{rec.isPaused ? "PAUSED" : "RECORDING"}</Text></View>
-          <View style={st.callTopSpacer} />
-        </View>
-
-        <View style={st.recordingAssetGrid}>
-          {assets.slice(0, 2).map((asset) => (
-            <Pressable key={asset.id} onPress={() => addAsset(asset)} style={({ pressed }) => [st.recordingAssetCard, pressed && st.pressed]}>
-              <Ionicons name={asset.type === "training" ? "play-circle-outline" : "image-outline"} size={28} color={C.brand} />
-              <Text style={st.recordingAssetTitle} numberOfLines={2}>{asset.name}</Text>
-              {selectedAssetIds.includes(asset.id) && <Ionicons name="checkmark-circle" size={18} color={C.green} style={st.recordingAssetCheck} />}
-            </Pressable>
-          ))}
-          <Pressable onPress={() => setAssetSheetOpen(true)} style={({ pressed }) => [st.recordingAssetCard, pressed && st.pressed]}>
-            <Ionicons name="document-text-outline" size={24} color={C.brand} />
-            <Text style={st.recordingAssetTitle}>Notes</Text>
-            <Text style={st.recordingAssetSub} numberOfLines={2}>Add room details and follow-ups.</Text>
-          </Pressable>
-          <Pressable onPress={() => setAssetSheetOpen(true)} style={({ pressed }) => [st.recordingAssetCard, pressed && st.pressed]}>
-            <Ionicons name="attach-outline" size={24} color={C.brand} />
-            <Text style={st.recordingAssetTitle}>Assets</Text>
-            <Text style={st.recordingAssetSub} numberOfLines={2}>Add media from your library.</Text>
-          </Pressable>
-        </View>
-
-        <View style={st.callCenter}>
-          <Text style={st.callTitle} numberOfLines={1}>{title || "Tour conversation"}</Text>
-          <Text style={st.callCaption}>{rec.isPaused ? "Recording paused" : "Recording securely in the background"}</Text>
-        </View>
-
-        <View style={st.callControls}>
-          <View style={st.callAction}>
-            <Pressable onPress={() => setAssetSheetOpen(true)} style={({ pressed }) => [st.callActionButton, pressed && st.pressed]}>
-              <Ionicons name="attach" size={25} color={C.text} />
-              {selectedAssetIds.length > 0 && <View style={st.callActionCount}><Text style={st.callActionCountText}>{selectedAssetIds.length}</Text></View>}
-            </Pressable>
-            <Text style={st.callActionLabel}>Assets</Text>
-          </View>
-          <View style={[st.callAction, { flex: 1, width: undefined, flexDirection: "row", justifyContent: "center" }]}>
-            <View style={st.recordingWaveRow} accessibilityElementsHidden>
-              {[18, 30, 42, 24, 38, 28].map((height, index) => <View key={`left-${index}`} style={[st.waveBar, { height }]} />)}
-            </View>
-            <Pressable accessibilityLabel={rec.isPaused ? "Resume recording" : "Pause recording"} onPress={() => void rec.togglePause()} style={({ pressed }) => [st.callStopButton, pressed && st.pressed]}>
-              <Ionicons name={rec.isPaused ? "play" : "pause"} size={24} color="#fff" />
-            </Pressable>
-            <View style={st.recordingWaveRow} accessibilityElementsHidden>
-              {[34, 20, 44, 24, 32, 16].map((height, index) => <View key={`right-${index}`} style={[st.waveBar, { height }]} />)}
-            </View>
-          </View>
-          <View style={st.callAction}>
-            <Pressable onPress={() => setAssetSheetOpen(true)} style={({ pressed }) => [st.callActionButton, pressed && st.pressed]}>
-              <Ionicons name="create-outline" size={24} color={C.text} />
-            </Pressable>
-            <Text style={st.callActionLabel}>Notes</Text>
-          </View>
-        </View>
-        <Text style={st.callTimer}>{fmtElapsed}</Text>
-        <Pressable onPress={stopRecording} style={({ pressed }) => [st.finishRecording, pressed && st.pressed]}>
-          <Text style={st.finishRecordingText}>Finish recording</Text>
-        </Pressable>
-
-        <Modal visible={assetSheetOpen} transparent animationType="slide" onRequestClose={() => setAssetSheetOpen(false)}>
-          <View style={st.sheetBackdrop}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setAssetSheetOpen(false)} />
-            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={st.assetSheet}>
-              <View style={st.sheetHandle} />
-              <View style={st.sheetHeader}>
-                <View style={st.flex1}>
-                  <Text style={st.sheetTitle}>Follow-up assets</Text>
-                  <Text style={st.sheetSubtitle}>Add links while they are top of mind.</Text>
-                </View>
-                <Pressable accessibilityLabel="Close assets" onPress={() => setAssetSheetOpen(false)} style={st.iconButton}>
-                  <Ionicons name="close" size={20} color={C.text} />
-                </Pressable>
-              </View>
-              <ScrollView style={st.assetSheetList} contentContainerStyle={{ gap: 8 }} showsVerticalScrollIndicator={false}>
-                {assets.length ? assets.map((asset) => {
-                  const selected = selectedAssetIds.includes(asset.id);
-                  return (
-                    <Pressable key={asset.id} onPress={() => addAsset(asset)} style={[st.assetPickRow, selected && st.assetPickRowSelected]}>
-                      <View style={[st.materialIcon, { backgroundColor: selected ? C.greenBg : C.purpleBg }]}>
-                        <Ionicons name={selected ? "checkmark" : "document-attach-outline"} size={18} color={selected ? C.green : C.purple} />
-                      </View>
-                      <View style={st.flex1}>
-                        <Text style={st.assetPickTitle} numberOfLines={1}>{asset.name}</Text>
-                        <Text style={st.assetPickMeta} numberOfLines={1}>{asset.description || asset.type}</Text>
-                      </View>
-                      <Text style={[st.assetPickAction, selected && { color: C.green }]}>{selected ? "Added" : "Add"}</Text>
-                    </Pressable>
-                  );
-                }) : <EmptyState icon="folder-open-outline" title="No assets yet" subtitle="Add files from the Assets tab." />}
-              </ScrollView>
-              <TextInput
-                value={notes}
-                onChangeText={setNotes}
-                placeholder="Add a quick follow-up note"
-                placeholderTextColor={C.textMuted}
-                multiline
-                style={st.assetNotesInput}
-              />
-            </KeyboardAvoidingView>
-          </View>
-        </Modal>
-      </View>
+      <RecordingExperience
+        title={title || "Tour conversation"}
+        notes={notes}
+        onNotesChange={setNotes}
+        assets={assets}
+        selectedAssetIds={selectedAssetIds}
+        onAddAsset={addAsset}
+        onCancel={async () => {
+          await rec.stop();
+          setPhase("choose");
+        }}
+        onFinish={stopRecording}
+      />
     );
   }
 
@@ -1655,7 +1546,15 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
         </View>
 
         {/* Upload / Process section for non-analyzed sessions */}
-        {!hasAnalysis && <UploadProcessCard sessionId={sessionId} status={session.status} rubricId={session.rubricId} onDone={load} />}
+        {!hasAnalysis && (
+          <UploadProcessCard
+            sessionId={sessionId}
+            status={session.status}
+            rubricId={session.rubricId}
+            sessionTitle={session.title}
+            onDone={load}
+          />
+        )}
 
         {hasAnalysis && <ScoreHero analysis={analysis} />}
 
@@ -2086,7 +1985,19 @@ function RubricPicker({
 // Upload & Process Card
 // ═══════════════════════════════════════
 
-function UploadProcessCard({ sessionId, status, rubricId: initialRubricId, onDone }: { sessionId: string; status: string; rubricId: string | null; onDone: () => void }) {
+function UploadProcessCard({
+  sessionId,
+  status,
+  rubricId: initialRubricId,
+  sessionTitle,
+  onDone,
+}: {
+  sessionId: string;
+  status: string;
+  rubricId: string | null;
+  sessionTitle?: string;
+  onDone: () => void;
+}) {
   const rec = useRecording();
   const [phase, setPhase] = useState<"idle" | "uploading" | "details" | "processing" | "done" | "error">(
     PROCESSING_STATUSES.has(status) ? "processing" : "idle"
@@ -2101,6 +2012,8 @@ function UploadProcessCard({ sessionId, status, rubricId: initialRubricId, onDon
   const [dLocation, setDLocation] = useState("");
   const [dNotes, setDNotes] = useState("");
   const [recordingOpen, setRecordingOpen] = useState(false);
+  const [assets, setAssets] = useState<Material[]>([]);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
   const [rubricsLoaded, setRubricsLoaded] = useState(false);
   const [rubricId, setRubricId] = useState<string | null>(initialRubricId);
@@ -2108,9 +2021,13 @@ function UploadProcessCard({ sessionId, status, rubricId: initialRubricId, onDon
   const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
-    fetchRubrics()
-      .then(({ rubrics: list }) => {
+    Promise.all([
+      fetchRubrics(),
+      fetchMaterials().catch(() => ({ materials: [] as Material[] })),
+    ])
+      .then(([{ rubrics: list }, materialData]) => {
         setRubrics(list);
+        setAssets(materialData.materials.filter((material) => materialUrl(material)));
         if (!initialRubricId) {
           const fallbackRubricId = list.find((rubric) => rubric.isDefault)?.id ?? list[0]?.id ?? null;
           setRubricId(fallbackRubricId);
@@ -2131,6 +2048,14 @@ function UploadProcessCard({ sessionId, status, rubricId: initialRubricId, onDon
       setPhase("error");
     }
   }, [status]);
+
+  function addRecordingAsset(asset: Material) {
+    if (selectedAssetIds.includes(asset.id)) return;
+    const snippet = assetNoteSnippet(asset);
+    setDNotes((current) => (current.trim() ? `${current.trim()}\n\n${snippet}` : snippet));
+    setSelectedAssetIds((current) => [...current, asset.id]);
+    void Haptics.selectionAsync();
+  }
 
   async function selectRubric(nextRubricId: string) {
     const previous = rubricId;
@@ -2167,6 +2092,7 @@ function UploadProcessCard({ sessionId, status, rubricId: initialRubricId, onDon
   }
 
   async function stopSessionRecording() {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const result = await rec.stop();
     setRecordingOpen(false);
     if (!result?.uri) {
@@ -2195,6 +2121,7 @@ function UploadProcessCard({ sessionId, status, rubricId: initialRubricId, onDon
     try {
       if (rec.isRecording) await rec.stop();
       setRecordingOpen(false);
+      setSelectedAssetIds([]);
       const response = await authenticatedFetch(`/api/sessions/${sessionId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -2338,33 +2265,20 @@ function UploadProcessCard({ sessionId, status, rubricId: initialRubricId, onDon
             <Text style={st.cancelSessionText}>{cancelling ? "Cancelling..." : "Cancel active session"}</Text>
           </Pressable>
         )}
-        <Modal visible={recordingOpen} animationType="fade" onRequestClose={() => {}}>
-          <View style={st.callRecorder}>
-            <View style={st.callTopBar}>
-              <Pressable accessibilityLabel="Cancel recording" disabled={cancelling} onPress={confirmCancelSession} style={st.callTopButton}>
-                <Ionicons name="close" size={22} color="#fff" />
-              </Pressable>
-              <View style={st.callLiveBadge}><View style={st.callLiveDot} /><Text style={st.callLiveText}>LIVE RECORDING</Text></View>
-              <View style={st.callTopSpacer} />
-            </View>
-            <View style={st.callCenter}>
-              <View style={st.callMicHalo}><View style={st.callMicCore}><Ionicons name="mic" size={38} color="#fff" /></View></View>
-              <Text style={st.callTitle}>Tour conversation</Text>
-              <Text style={st.callTimer}>{fmtSec(rec.elapsed)}</Text>
-              <View style={st.waveform} accessibilityElementsHidden>
-                {[18, 30, 42, 24, 50, 34, 44, 22, 38, 28, 46, 20].map((height, index) => <View key={`${height}-${index}`} style={[st.waveBar, { height }]} />)}
-              </View>
-              <Text style={st.callCaption}>Recording to this Entrata session</Text>
-            </View>
-            <View style={st.callControls}>
-              <View style={st.callAction}>
-                <Pressable onPress={() => void stopSessionRecording()} style={({ pressed }) => [st.callStopButton, pressed && st.pressed]}>
-                  <View style={st.callStopSquare} />
-                </Pressable>
-                <Text style={st.callActionLabel}>Finish</Text>
-              </View>
-            </View>
-          </View>
+        <Modal visible={recordingOpen} animationType="slide" onRequestClose={() => {}}>
+          <RecordingExperience
+            title={dTitle || sessionTitle || "Tour conversation"}
+            caption="Recording to this session"
+            notes={dNotes}
+            onNotesChange={setDNotes}
+            assets={assets}
+            selectedAssetIds={selectedAssetIds}
+            onAddAsset={addRecordingAsset}
+            cancelIcon="close"
+            cancelDisabled={cancelling}
+            onCancel={confirmCancelSession}
+            onFinish={stopSessionRecording}
+          />
         </Modal>
       </View>
     );

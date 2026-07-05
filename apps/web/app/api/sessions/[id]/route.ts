@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 
 import type { SessionStatus } from "@tour/shared";
-import { deleteSession, getAnalysisBySessionId, getSessionById, setSessionStatus, updateSession } from "@/lib/sessions";
+import { deleteSession, getAnalysisBySessionId, getConversationPhases, getSessionById, setSessionStatus, updateSession } from "@/lib/sessions";
 import { getRecordingPlaybackPath, getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
 
 const VALID_STATUSES: SessionStatus[] = [
-  "scheduled", "in_progress", "uploaded", "transcribing", "extracting_screenshots",
+  "scheduled", "in_progress", "uploaded", "transcribing", "segmenting", "extracting_screenshots",
   "analyzing", "analysis_ready", "reviewed", "failed",
 ];
 
@@ -49,8 +49,9 @@ export async function GET(_request: Request, context: Context) {
     await attachPlaybackUrls(session);
 
     const analysis = await getAnalysisBySessionId(id);
+    const phases = await getConversationPhases(id);
 
-    return NextResponse.json({ session, analysis });
+    return NextResponse.json({ session, analysis, phases });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch session." },

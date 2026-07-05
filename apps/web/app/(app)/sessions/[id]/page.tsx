@@ -6,7 +6,7 @@ import { SESSION_STATUS_LABELS } from "@tour/shared";
 import { getScreenshotsForSession, getTranscriptForSession } from "@/lib/evidence";
 import { listVisibleMaterials } from "@/lib/materials";
 import { getRubricForSession } from "@/lib/rubrics";
-import { getAnalysisBySessionId, getSessionById } from "@/lib/sessions";
+import { getAnalysisBySessionId, getConversationPhases, getSessionById } from "@/lib/sessions";
 import { getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
 import { DeleteSessionButton } from "./DeleteSessionButton";
 import { EditSessionForm } from "./EditSessionForm";
@@ -37,7 +37,7 @@ export default async function SessionDetailPage({ params }: Props) {
   const isScheduled = session.status === "scheduled" || session.status === "in_progress";
   const hasRecording = !isScheduled;
   const hasAnalysis = !!analysis;
-  const isProcessing = ["uploaded", "transcribing", "extracting_screenshots", "analyzing"].includes(session.status);
+  const isProcessing = ["uploaded", "transcribing", "segmenting", "extracting_screenshots", "analyzing"].includes(session.status);
   const defaults = !hasAnalysis ? getSessionDetailDefaults(session) : null;
   const noteAssetsPromise = !hasAnalysis ? getNoteAssets() : Promise.resolve<NoteAsset[]>([]);
   const detailDataPromise: Promise<[
@@ -45,16 +45,18 @@ export default async function SessionDetailPage({ params }: Props) {
     Awaited<ReturnType<typeof getScreenshotsForSession>>,
     string | null,
     Awaited<ReturnType<typeof getRubricForSession>> | null,
+    Awaited<ReturnType<typeof getConversationPhases>>,
   ]> = hasAnalysis
     ? Promise.all([
       getTranscriptForSession(id),
       getScreenshotsForSession(id),
       resolveRecordingUrl(id, session.videoUrl, session.audioUrl),
       getRubricForSession(session.rubricId),
+      getConversationPhases(id),
     ])
-    : Promise.resolve([[], [], null, null]);
+    : Promise.resolve([[], [], null, null, null]);
 
-  const [noteAssets, [transcript, screenshots, recordingUrl, rubric]] = await Promise.all([
+  const [noteAssets, [transcript, screenshots, recordingUrl, rubric, phases]] = await Promise.all([
     noteAssetsPromise,
     detailDataPromise,
   ]);
@@ -105,6 +107,7 @@ export default async function SessionDetailPage({ params }: Props) {
             videoUrl={session.videoUrl}
             audioUrl={session.audioUrl}
             duration={session.duration ?? estimateDuration(analysis.exactMoments)}
+            phases={phases}
             rubric={rubric ? { id: rubric.id, name: rubric.name } : null}
           />
         </>

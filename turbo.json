@@ -26,6 +26,7 @@
         ".next/**",
         "dist/**",
         "build/**",
+        "app/.well-known/workflow/**",
         "!**/.next/cache/**"
       ]
     },

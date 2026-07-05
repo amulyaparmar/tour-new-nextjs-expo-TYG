@@ -1,4 +1,4 @@
-import type { AnalysisResult, FollowUpAction, Rubric, SessionDetail, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionDetail, SessionSummary } from "@tour/shared";
 
 import { authenticatedFetch } from "./auth";
 
@@ -59,7 +59,11 @@ export async function fetchSession(sessionId: string) {
   if (!res.ok) {
     throw new Error("Failed to fetch session detail.");
   }
-  return (await res.json()) as { session: SessionDetail };
+  return (await res.json()) as {
+    session: SessionDetail;
+    analysis?: AnalysisResult | null;
+    phases?: ConversationPhaseSegmentation | null;
+  };
 }
 
 export async function fetchRubrics() {
@@ -215,7 +219,27 @@ export async function processSession(sessionId: string) {
     const body = await res.json().catch(() => null) as { error?: string } | null;
     throw new Error(body?.error ?? "Processing failed.");
   }
-  return (await res.json()) as { ok: boolean; overallScore?: number };
+
+  const started = (await res.json()) as { ok: boolean; async?: boolean; overallScore?: number };
+  if (res.status === 202 || started.async) {
+    return waitForSessionProcessing(sessionId);
+  }
+  return started;
+}
+
+async function waitForSessionProcessing(sessionId: string, timeoutMs = 15 * 60 * 1000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const { session } = await fetchSession(sessionId);
+    if (session.status === "analysis_ready" || session.status === "reviewed") {
+      return { ok: true, overallScore: session.overallScore ?? undefined };
+    }
+    if (session.status === "failed") {
+      throw new Error("Session processing failed.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+  throw new Error("Processing timed out. Check back on the session page.");
 }
 
 export type Material = {

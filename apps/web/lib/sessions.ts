@@ -2,6 +2,7 @@ import "server-only";
 
 import type {
   AnalysisResult,
+  ConversationPhaseSegmentation,
   CreateSessionInput,
   FollowUpAction,
   SessionDetail,
@@ -17,11 +18,13 @@ import {
   deleteLocalSession,
   findOpenLocalQrSession,
   getLocalAnalysis,
+  getLocalConversationPhases,
   getLocalSessionById,
   getLocalTranscript,
   listLocalActions,
   listLocalSessions,
   replaceLocalActions,
+  saveLocalConversationPhases,
   saveLocalTranscript,
   setLocalSessionStatus,
   updateLocalActionStatus,
@@ -629,6 +632,47 @@ export async function getTranscript(sessionId: string): Promise<StoredTranscript
     return getLocalTranscript(sessionId);
   } catch {
     return getLocalTranscript(sessionId);
+  }
+}
+
+export async function saveConversationPhases(
+  sessionId: string,
+  segmentation: ConversationPhaseSegmentation
+) {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { error } = await supabase
+      .from("sessions")
+      .update({ conversation_phases_json: segmentation } as never)
+      .eq("id", sessionId);
+
+    if (error) throw error;
+  } catch {
+    await saveLocalConversationPhases(sessionId, segmentation);
+  }
+}
+
+export async function getConversationPhases(
+  sessionId: string
+): Promise<ConversationPhaseSegmentation | null> {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("sessions")
+      .select("conversation_phases_json")
+      .eq("id", sessionId)
+      .single<{ conversation_phases_json: ConversationPhaseSegmentation | null }>();
+
+    if (error) throw error;
+
+    const raw = data?.conversation_phases_json;
+    if (raw && Array.isArray(raw.spans)) {
+      return raw;
+    }
+
+    return getLocalConversationPhases(sessionId);
+  } catch {
+    return getLocalConversationPhases(sessionId);
   }
 }
 

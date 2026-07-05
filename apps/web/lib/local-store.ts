@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AnalysisResult, FollowUpAction, SessionDetail, SessionLead, SessionSource, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, ConversationPhaseSegmentation, FollowUpAction, SessionDetail, SessionLead, SessionSource, SessionSummary } from "@tour/shared";
 
 type TranscriptSegment = {
   id: string;
@@ -20,6 +20,7 @@ type StoreShape = {
   analyses: Record<string, AnalysisResult>;
   actions: FollowUpAction[];
   transcripts: Record<string, TranscriptSegment[]>;
+  conversationPhases: Record<string, ConversationPhaseSegmentation>;
 };
 
 const STORE_PATH = path.join(process.cwd(), ".codex", "local-session-store.json");
@@ -37,14 +38,16 @@ async function loadStore(): Promise<StoreShape> {
       })),
       analyses: parsed.analyses ?? {},
       actions: parsed.actions ?? [],
-      transcripts: parsed.transcripts ?? {}
+      transcripts: parsed.transcripts ?? {},
+      conversationPhases: parsed.conversationPhases ?? {}
     };
   } catch {
     return {
       sessions: [],
       analyses: {},
       actions: [],
-      transcripts: {}
+      transcripts: {},
+      conversationPhases: {}
     };
   }
 }
@@ -130,6 +133,7 @@ export async function deleteLocalSession(sessionId: string) {
   store.sessions = store.sessions.filter((item) => item.id !== sessionId);
   delete store.analyses[sessionId];
   delete store.transcripts[sessionId];
+  delete store.conversationPhases[sessionId];
   store.actions = store.actions.filter((action) => action.sessionId !== sessionId);
   await saveStore(store);
 }
@@ -234,4 +238,20 @@ export async function saveLocalTranscript(sessionId: string, segments: Transcrip
 export async function getLocalTranscript(sessionId: string): Promise<TranscriptSegment[]> {
   const store = await loadStore();
   return store.transcripts[sessionId] ?? [];
+}
+
+export async function saveLocalConversationPhases(
+  sessionId: string,
+  segmentation: ConversationPhaseSegmentation
+) {
+  const store = await loadStore();
+  store.conversationPhases[sessionId] = segmentation;
+  await saveStore(store);
+}
+
+export async function getLocalConversationPhases(
+  sessionId: string
+): Promise<ConversationPhaseSegmentation | null> {
+  const store = await loadStore();
+  return store.conversationPhases[sessionId] ?? null;
 }

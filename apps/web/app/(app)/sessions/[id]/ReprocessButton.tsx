@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { RotateCw } from "lucide-react";
 
+import { waitForSessionProcessing } from "@/lib/wait-for-session-processing";
+
 export function ReprocessButton({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -13,6 +15,9 @@ export function ReprocessButton({ sessionId }: { sessionId: string }) {
     try {
       const res = await fetch(`/api/sessions/${sessionId}/process`, { method: "POST" });
       if (!res.ok) throw new Error("Processing failed");
+      if (res.status === 202) {
+        await waitForSessionProcessing(sessionId);
+      }
       router.refresh();
     } catch {
       setLoading(false);

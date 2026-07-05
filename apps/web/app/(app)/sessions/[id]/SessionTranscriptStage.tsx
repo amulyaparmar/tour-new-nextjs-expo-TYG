@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ConversationPhaseSegmentation } from "@tour/shared";
+import { findPhaseForTimestamp, shortPhaseLabel } from "@tour/shared";
 import { ChevronDown, ChevronUp, MessageSquare, MoreHorizontal, Pencil, Search, Tag, Trash2 } from "lucide-react";
 
 import styles from "./session-detail.module.css";
@@ -22,6 +24,7 @@ import {
 type Props = {
   sessionId: string;
   transcript: TranscriptSegment[];
+  phases?: ConversationPhaseSegmentation | null;
   summary?: string | null;
   currentTime: number;
   duration: number;
@@ -60,6 +63,7 @@ function isEditableTarget(target: EventTarget | null) {
 export function SessionTranscriptStage({
   sessionId,
   transcript,
+  phases,
   summary,
   currentTime,
   duration,
@@ -328,6 +332,7 @@ export function SessionTranscriptStage({
               const active = activeSegment?.id === seg.id;
               const segMoments = momentsBySegment.get(seg.id) ?? [];
               const segComments = commentsBySegment.get(seg.id) ?? [];
+              const phase = findPhaseForTimestamp(seg.startTime, phases);
 
               return (
                 <div
@@ -363,6 +368,9 @@ export function SessionTranscriptStage({
                       <span className={styles.transcriptCopy}>
                         <span className={styles.transcriptMeta}>
                           <strong style={{ color: palette.color }}>{seg.speaker || "Speaker"}</strong>
+                          {phase && (
+                            <span className={styles.transcriptPhase}>{shortPhaseLabel(phase.label)}</span>
+                          )}
                           <span>{formatTime(seg.startTime)}</span>
                         </span>
                         <span className={styles.transcriptText}>{seg.text}</span>

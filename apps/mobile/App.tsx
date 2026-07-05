@@ -25,8 +25,15 @@ import {
   TextInput,
   View,
 } from "react-native";
-import type { AnalysisResult, FollowUpAction, Rubric, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionSummary } from "@tour/shared";
 import { rubricItemCount, rubricTotalPoints } from "@tour/shared";
+import {
+  buildPhaseTracks,
+  findPhaseForTimestamp,
+  PHASE_COLORS,
+  processingStatusMessage,
+  shortPhaseLabel,
+} from "./src/conversationPhases";
 import {
   type Material,
   type PaginatedSessions,
@@ -116,6 +123,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   in_progress: { bg: C.redBg, text: C.red },
   uploaded: { bg: C.amberBg, text: C.amber },
   transcribing: { bg: C.amberBg, text: C.amber },
+  segmenting: { bg: C.amberBg, text: C.amber },
   analyzing: { bg: C.amberBg, text: C.amber },
   extracting_screenshots: { bg: C.amberBg, text: C.amber },
   analysis_ready: { bg: C.greenBg, text: C.green },
@@ -128,6 +136,7 @@ const STATUS_LABELS: Record<string, string> = {
   in_progress: "In progress",
   uploaded: "Uploaded",
   transcribing: "Processing",
+  segmenting: "Processing",
   analyzing: "Analyzing",
   extracting_screenshots: "Processing",
   analysis_ready: "Analyzed",
@@ -135,7 +144,7 @@ const STATUS_LABELS: Record<string, string> = {
   failed: "Failed",
 };
 
-const PROCESSING_STATUSES = new Set(["transcribing", "analyzing", "extracting_screenshots"]);
+const PROCESSING_STATUSES = new Set(["transcribing", "segmenting", "analyzing", "extracting_screenshots"]);
 
 function scoreColor(score: number) {
   if (score >= 75) return C.green;
@@ -1462,6 +1471,7 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [actions, setActions] = useState<FollowUpAction[]>([]);
   const [transcript, setTranscript] = useState<any[]>([]);
+  const [phases, setPhases] = useState<ConversationPhaseSegmentation | null>(null);
   const [comments, setComments] = useState<SessionComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<DTab>("overview");
@@ -1479,6 +1489,7 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
         fetchComments(sessionId).catch(() => ({ comments: [] as SessionComment[] })),
       ]);
       setSession(sRes.session);
+      setPhases(sRes.phases ?? null);
       setAnalysis(aRes.analysis);
       setActions(actRes.actions);
       setTranscript(tRes.transcript);
@@ -1519,6 +1530,7 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
         session={session}
         analysis={analysis}
         transcript={transcript}
+        phases={phases}
         comments={comments}
         actions={actions}
         sessionId={sessionId}
@@ -1591,6 +1603,7 @@ function SessionReviewExperience({
   session,
   analysis,
   transcript,
+  phases,
   comments,
   actions,
   sessionId,
@@ -1600,6 +1613,7 @@ function SessionReviewExperience({
   session: any;
   analysis: AnalysisResult;
   transcript: any[];
+  phases: ConversationPhaseSegmentation | null;
   comments: SessionComment[];
   actions: FollowUpAction[];
   sessionId: string;
@@ -1740,6 +1754,7 @@ function SessionReviewExperience({
   }
 
   const pct = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
+  const phaseTracks = useMemo(() => buildPhaseTracks(phases, duration), [phases, duration]);
 
   return (
     <View style={reviewSt.root}>
@@ -1824,6 +1839,7 @@ function SessionReviewExperience({
           const active = segment.id === activeSegmentId;
           const isAgent = segment.speaker?.toLowerCase().includes("agent");
           const segmentComments = commentsForSegment(segment);
+          const phase = findPhaseForTimestamp(segment.startTime, phases);
           return (
             <View
               key={segment.id || index}
@@ -1837,6 +1853,13 @@ function SessionReviewExperience({
                 <View style={st.flex1}>
                   <View style={reviewSt.metaRow}>
                     <Text style={reviewSt.speaker}>{segment.speaker || (isAgent ? "Agent" : "Customer")}</Text>
+                    {phase && (
+                      <View style={[reviewSt.phasePill, { backgroundColor: `${PHASE_COLORS[phase.phaseId]}22` }]}>
+                        <Text style={[reviewSt.phasePillText, { color: PHASE_COLORS[phase.phaseId] }]}>
+                          {shortPhaseLabel(phase.label)}
+                        </Text>
+                      </View>
+                    )}
                     <Text style={reviewSt.segmentTime}>{fmtSec(segment.startTime)}</Text>
                   </View>
                   <Text style={reviewSt.transcriptText}>{segment.text}</Text>
@@ -1891,6 +1914,24 @@ function SessionReviewExperience({
           <Text style={reviewSt.momentLabel}>⚡ Coachable Moments</Text>
           <Pressable onPress={() => jumpMoment(1)} style={reviewSt.nextButton}><Text style={reviewSt.nextText}>NEXT ↓</Text></Pressable>
         </View>
+        {phaseTracks.length > 0 && (
+          <View style={reviewSt.phaseTrack}>
+            {phaseTracks.map((track) => (
+              <View
+                key={track.id}
+                style={[
+                  reviewSt.phaseSegment,
+                  {
+                    left: `${track.leftPct}%`,
+                    width: `${Math.max(track.widthPct, 1.5)}%`,
+                    backgroundColor: PHASE_COLORS[track.phaseId],
+                  },
+                ]}
+              />
+            ))}
+            <View style={[reviewSt.phasePlayhead, { left: `${pct}%` }]} />
+          </View>
+        )}
         <Pressable onPress={(event) => {
           const width = Dimensions.get("window").width - 40;
           void seekToSeconds(((event.nativeEvent as any).locationX / width) * duration);
@@ -2342,10 +2383,15 @@ function UploadProcessCard({
       <View style={[st.card, { padding: 20, gap: 14, alignItems: "center" }]}>
         <ActivityIndicator size="large" color={C.brand} />
         <Text style={st.formTitle}>Analyzing Your Tour</Text>
-        <Text style={[st.pageSub, { textAlign: "center" }]}>Transcribing, scoring, and generating insights...</Text>
-        <View style={{ flexDirection: "row", gap: 16, marginTop: 4 }}>
-          {([["mic-outline", "Transcribe"], ["analytics-outline", "Analyze"], ["sparkles-outline", "Actions"]] as const).map(([icon, label], i) => (
-            <View key={i} style={{ alignItems: "center", gap: 4 }}>
+        <Text style={[st.pageSub, { textAlign: "center" }]}>{processingStatusMessage(status)}</Text>
+        <View style={{ flexDirection: "row", gap: 12, marginTop: 4, flexWrap: "wrap", justifyContent: "center" }}>
+          {([
+            ["mic-outline", "Transcribe"],
+            ["git-branch-outline", "Segment"],
+            ["analytics-outline", "Analyze"],
+            ["sparkles-outline", "Actions"],
+          ] as const).map(([icon, label]) => (
+            <View key={label} style={{ alignItems: "center", gap: 4, minWidth: 56 }}>
               <Ionicons name={icon} size={20} color={C.brand} />
               <Text style={{ fontSize: 10, fontWeight: "700", color: C.textSec }}>{label}</Text>
             </View>
@@ -3513,9 +3559,11 @@ const reviewSt = StyleSheet.create({
   transcriptMain: { flexDirection: "row", alignItems: "flex-start", gap: 11, padding: 12 },
   speakerAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   speakerAvatarText: { color: "#fff", fontSize: 14, fontWeight: "700" },
-  metaRow: { flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 4 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" },
   speaker: { color: "#47546b", fontSize: 13, fontWeight: "700" },
-  segmentTime: { color: "#a3adbd", fontSize: 11 },
+  phasePill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 },
+  phasePillText: { fontSize: 9, fontWeight: "800" },
+  segmentTime: { color: "#a3adbd", fontSize: 11, marginLeft: "auto" },
   transcriptText: { color: "#4d5970", fontSize: 14, lineHeight: 21 },
   segmentActions: { width: 24, alignItems: "center", gap: 14, paddingTop: 2 },
   inlineComment: { flexDirection: "row", alignItems: "flex-start", gap: 7, marginHorizontal: 12, marginBottom: 10, padding: 9, borderRadius: 10, backgroundColor: "#fffbeb" },
@@ -3533,6 +3581,9 @@ const reviewSt = StyleSheet.create({
   momentLabel: { color: "#2563eb", fontSize: 12, fontWeight: "900" },
   nextButton: { paddingHorizontal: 15, paddingVertical: 10, borderRadius: 8, backgroundColor: "#2563eb", shadowColor: "#2563eb", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.25, shadowRadius: 9 },
   nextText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+  phaseTrack: { height: 8, borderRadius: 4, backgroundColor: "#f3f4f6", position: "relative", overflow: "hidden" },
+  phaseSegment: { position: "absolute", top: 0, bottom: 0, borderRadius: 2, opacity: 0.92 },
+  phasePlayhead: { position: "absolute", top: -2, bottom: -2, width: 2, backgroundColor: "#111827" },
   waveformTrack: { height: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 },
   waveformBar: { width: 3, borderRadius: 2, backgroundColor: "#3b82f6" },
   timeRow: { flexDirection: "row", justifyContent: "space-between", marginTop: -12 },

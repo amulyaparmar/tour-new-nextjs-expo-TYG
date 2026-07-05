@@ -1,4 +1,5 @@
-import type { AnalysisResult } from "@tour/shared";
+import type { AnalysisResult, ConversationPhaseSegmentation } from "@tour/shared";
+import { findPhaseForTimestamp, shortPhaseLabel } from "@tour/shared";
 
 export type TranscriptSegment = {
   id: string;
@@ -26,6 +27,10 @@ export type SessionMoment = {
   transcriptQuote?: string;
   explanation?: string;
   screenshot?: SessionScreenshot;
+  /** Conversation phase at this timestamp (semantic segmentation) */
+  phase?: string;
+  phaseSummary?: string;
+  /** @deprecated Use phase — kept for legacy moments tied to rubric sections */
   section?: string;
   sectionScore?: number;
 };
@@ -85,20 +90,21 @@ export function buildSessionMoments(
   analysis: AnalysisResult,
   transcript: TranscriptSegment[],
   screenshots: SessionScreenshot[],
-  duration: number
+  duration: number,
+  phases?: ConversationPhaseSegmentation | null
 ): SessionMoment[] {
   const moments: SessionMoment[] = [];
 
   for (const shot of screenshots) {
-    const section = findSectionForTimestamp(shot.timestamp, duration, analysis.sectionScores);
+    const phase = findPhaseForTimestamp(shot.timestamp, phases);
     moments.push({
       id: `ss-${shot.id}`,
       timestamp: shot.timestamp,
       label: shot.label,
       type: shot.reason === "key_moment" ? "key_moment" : "screenshot",
       screenshot: shot,
-      section: section?.section,
-      sectionScore: section?.score,
+      phase: phase ? shortPhaseLabel(phase.label) : undefined,
+      phaseSummary: phase?.summary,
       transcriptQuote: findNearestTranscript(shot.timestamp, transcript),
     });
   }
@@ -107,7 +113,7 @@ export function buildSessionMoments(
     const sec = parseTimestampToSeconds(moment.timestamp);
     if (sec < 0) continue;
     if (moments.some((item) => Math.abs(item.timestamp - sec) < 5)) continue;
-    const section = findSectionForTimestamp(sec, duration, analysis.sectionScores);
+    const phase = findPhaseForTimestamp(sec, phases);
     moments.push({
       id: `em-${moment.timestamp}`,
       timestamp: sec,
@@ -115,8 +121,8 @@ export function buildSessionMoments(
       type: "moment",
       explanation: moment.explanation,
       transcriptQuote: moment.transcriptQuote || findNearestTranscript(sec, transcript),
-      section: section?.section,
-      sectionScore: section?.score,
+      phase: phase ? shortPhaseLabel(phase.label) : undefined,
+      phaseSummary: phase?.summary,
     });
   }
 
@@ -126,23 +132,25 @@ export function buildSessionMoments(
 export function mergeKeyMomentComments(
   moments: SessionMoment[],
   comments: SessionComment[],
-  analysis: AnalysisResult,
+  _analysis: AnalysisResult,
   transcript: TranscriptSegment[],
-  duration: number
+  _duration: number,
+  phases?: ConversationPhaseSegmentation | null
 ): SessionMoment[] {
   const merged = [...moments];
 
   for (const item of comments) {
     if (!isKeyMomentComment(item) || item.timestampSec == null) continue;
     const timestamp = item.timestampSec;
+    const phase = findPhaseForTimestamp(timestamp, phases);
     merged.push({
       id: `ukm-${item.id}`,
       timestamp,
       label: item.body,
       type: "key_moment",
       transcriptQuote: findNearestTranscript(timestamp, transcript),
-      section: findSectionForTimestamp(timestamp, duration, analysis.sectionScores)?.section,
-      sectionScore: findSectionForTimestamp(timestamp, duration, analysis.sectionScores)?.score,
+      phase: phase ? shortPhaseLabel(phase.label) : undefined,
+      phaseSummary: phase?.summary,
     });
   }
 
@@ -280,17 +288,6 @@ export function buildSpeakerTracks(transcript: TranscriptSegment[], duration: nu
       segments,
     };
   });
-}
-
-function findSectionForTimestamp(
-  timestamp: number,
-  duration: number,
-  sectionScores: AnalysisResult["sectionScores"]
-) {
-  if (sectionScores.length === 0 || duration <= 0) return undefined;
-  const sectionDuration = duration / sectionScores.length;
-  const idx = Math.min(Math.floor(timestamp / sectionDuration), sectionScores.length - 1);
-  return sectionScores[idx];
 }
 
 function findNearestTranscript(timestamp: number, transcript: TranscriptSegment[]) {

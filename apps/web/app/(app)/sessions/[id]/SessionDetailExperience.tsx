@@ -10,7 +10,8 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
-import type { AnalysisResult } from "@tour/shared";
+import type { AnalysisResult, ConversationPhaseSegmentation } from "@tour/shared";
+import { buildPhaseTracks } from "@tour/shared";
 
 import { FloatingSessionPlayer } from "./FloatingSessionPlayer";
 import { SessionDetailSidebar, type SidebarTab } from "./SessionDetailSidebar";
@@ -36,6 +37,7 @@ type Props = {
   videoUrl: string | null;
   audioUrl: string | null;
   duration: number;
+  phases: ConversationPhaseSegmentation | null;
   rubric: {
     id: string;
     name: string | null;
@@ -66,6 +68,7 @@ export function SessionDetailExperience({
   videoUrl,
   audioUrl,
   duration,
+  phases,
   rubric,
 }: Props) {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
@@ -128,9 +131,9 @@ export function SessionDetailExperience({
   const effectiveDuration = loadedDuration || duration || transcriptEnd;
 
   const moments = useMemo(() => {
-    const base = buildSessionMoments(analysis, transcript, screenshots, effectiveDuration);
-    return mergeKeyMomentComments(base, comments, analysis, transcript, effectiveDuration);
-  }, [analysis, transcript, screenshots, effectiveDuration, comments]);
+    const base = buildSessionMoments(analysis, transcript, screenshots, effectiveDuration, phases);
+    return mergeKeyMomentComments(base, comments, analysis, transcript, effectiveDuration, phases);
+  }, [analysis, transcript, screenshots, effectiveDuration, comments, phases]);
 
   const seekTo = useCallback((seconds: number, options?: { play?: boolean }) => {
     const clamped = effectiveDuration > 0
@@ -367,6 +370,7 @@ export function SessionDetailExperience({
         <SessionTranscriptStage
           sessionId={sessionId}
           transcript={transcript}
+          phases={phases}
           summary={analysis.summary}
           currentTime={currentTime}
           duration={effectiveDuration}
@@ -400,6 +404,7 @@ export function SessionDetailExperience({
           playbackRate={playbackRate}
           selectedMomentIndex={selectedMomentIndex}
           transcript={transcript}
+          phases={phases}
           onToggleComments={toggleComments}
           onMomentNavigate={navigateMoment}
           onMomentSelect={handleMomentSelect}

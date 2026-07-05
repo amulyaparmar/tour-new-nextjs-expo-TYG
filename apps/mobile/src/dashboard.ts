@@ -10,7 +10,7 @@ export type DashboardMetrics = {
 export function computeDashboardMetrics(sessions: SessionSummary[]): DashboardMetrics {
   const now = Date.now();
   const oneDay = 24 * 60 * 60 * 1000;
-  const inProgressStatuses = ["uploaded", "transcribing", "extracting_screenshots", "analyzing"];
+  const inProgressStatuses = ["uploaded", "transcribing", "segmenting", "extracting_screenshots", "analyzing"];
 
   const todaySessions = sessions.filter((session) => {
     if (!session.scheduledAt) {

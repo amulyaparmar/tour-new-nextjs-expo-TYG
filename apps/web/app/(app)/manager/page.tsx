@@ -266,7 +266,7 @@ function buildReviewSessions(
   realSessions: SessionSummary[],
   rubricNames: string[]
 ): ReviewSession[] {
-  const reviewStatuses: SessionStatus[] = ["analysis_ready", "uploaded", "transcribing", "extracting_screenshots", "analyzing"];
+  const reviewStatuses: SessionStatus[] = ["analysis_ready", "uploaded", "transcribing", "segmenting", "extracting_screenshots", "analyzing"];
   const ready = realSessions.filter((session) => session.status === "analysis_ready");
   const inFlight = realSessions.filter((session) => reviewStatuses.includes(session.status) && session.status !== "analysis_ready");
   const realQueue = (ready.length ? ready : [...ready, ...inFlight]).slice(0, 6);

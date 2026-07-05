@@ -1,3 +1,4 @@
+import { withWorkflow } from "workflow/next";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -24,4 +25,4 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@tour/shared"]
 };
 
-export default nextConfig;
+export default withWorkflow(nextConfig);

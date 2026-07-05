@@ -36,6 +36,7 @@
     "server-only": "^0.0.1",
     "temporal-polyfill": "^0.3.0",
     "twilio": "^5.10.3",
+    "workflow": "^4.0.1-beta.26",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -578,6 +578,15 @@
   font-weight: 600;
 }
 
+.transcriptPhase {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 10px;
+  font-weight: 800;
+}
+
 .transcriptText {
   display: block;
   font-size: 14px;
@@ -1172,6 +1181,40 @@
 
 .playerSpeakerSegment1 {
   background: #fb923c;
+}
+
+.playerPhaseSegmentDefault,
+.playerPhaseGreeting,
+.playerPhaseDiscovery,
+.playerPhaseTour,
+.playerPhaseObjections,
+.playerPhaseClosing,
+.playerPhaseFollowUp {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  min-width: 2px;
+  opacity: 0.92;
+}
+
+.playerPhaseGreeting { background: #6366f1; }
+.playerPhaseDiscovery { background: #0ea5e9; }
+.playerPhaseTour { background: #10b981; }
+.playerPhaseObjections { background: #f59e0b; }
+.playerPhaseClosing { background: #ef4444; }
+.playerPhaseFollowUp { background: #8b5cf6; }
+.playerPhaseSegmentDefault { background: #94a3b8; }
+
+.playerActivePhase {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .playerSpeakerPlayhead {

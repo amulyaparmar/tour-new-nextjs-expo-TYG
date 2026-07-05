@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookmarkPlus, CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle, Brain, Sparkles, Image as ImageIcon, Upload, Video } from "lucide-react";
+import { BookmarkPlus, CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle, Brain, Sparkles, Image as ImageIcon, Upload, Video, GitBranch } from "lucide-react";
+
+import type { SessionStatus } from "@tour/shared";
+import { waitForSessionProcessing } from "@/lib/wait-for-session-processing";
 
 type Phase = "choose" | "recording" | "details" | "processing";
-type Step = "idle" | "uploading" | "uploaded" | "transcribing" | "extracting_screenshots" | "analyzing" | "generating_actions" | "done" | "error";
+type Step = "idle" | "uploading" | "uploaded" | "transcribing" | "segmenting" | "extracting_screenshots" | "analyzing" | "generating_actions" | "done" | "error";
 type RecordingMode = "audio" | "video";
 
 export type SessionDetailDefaults = {
@@ -21,9 +24,10 @@ export type NoteAsset = {
   url: string | null;
 };
 
-const PIPELINE_STEPS: Array<{ key: Step; label: string; description: string; icon: "upload" | "mic" | "brain" | "image" | "sparkles" | "check" }> = [
+const PIPELINE_STEPS: Array<{ key: Step; label: string; description: string; icon: "upload" | "mic" | "branch" | "brain" | "image" | "sparkles" | "check" }> = [
   { key: "uploading", label: "Uploading", description: "Sending recording to server", icon: "upload" },
   { key: "transcribing", label: "Transcribing", description: "Converting speech to text with speaker detection", icon: "mic" },
+  { key: "segmenting", label: "Segmenting", description: "Detecting conversation phases in the tour", icon: "branch" },
   { key: "analyzing", label: "Analyzing", description: "AI scoring against the rubric", icon: "brain" },
   { key: "extracting_screenshots", label: "Extracting Frames", description: "Capturing key moments from video", icon: "image" },
   { key: "generating_actions", label: "Follow-Up Actions", description: "Creating next steps for this prospect", icon: "sparkles" },
@@ -33,11 +37,51 @@ const PIPELINE_STEPS: Array<{ key: Step; label: string; description: string; ico
 const STEP_ICONS = {
   upload: Upload,
   mic: Mic,
+  branch: GitBranch,
   brain: Brain,
   image: ImageIcon,
   sparkles: Sparkles,
   check: CheckCircle2,
 };
+
+function statusToStep(status: SessionStatus): Step {
+  switch (status) {
+    case "transcribing": return "transcribing";
+    case "segmenting": return "segmenting";
+    case "analyzing": return "analyzing";
+    case "extracting_screenshots": return "extracting_screenshots";
+    case "analysis_ready":
+    case "reviewed":
+      return "done";
+    case "failed":
+      return "error";
+    default:
+      return "transcribing";
+  }
+}
+
+async function startProcessingAndWait(sessionId: string, onStatus?: (status: SessionStatus) => void) {
+  const res = await fetch(`/api/sessions/${sessionId}/process`, { method: "POST" });
+  const body = await res.json().catch(() => null) as { error?: string; async?: boolean } | null;
+  if (!res.ok) {
+    throw new Error(body?.error ?? "Processing failed");
+  }
+
+  if (res.status === 202 || body?.async) {
+    await waitForSessionProcessing(sessionId, {
+      fetchSession: async () => {
+        const statusRes = await fetch(`/api/sessions/${sessionId}`, { cache: "no-store" });
+        if (!statusRes.ok) throw new Error("Failed to check session status.");
+        const statusBody = (await statusRes.json()) as {
+          session: { status: SessionStatus; overallScore?: number | null };
+        };
+        onStatus?.(statusBody.session.status);
+        return statusBody.session;
+      }
+    });
+    return;
+  }
+}
 
 function stepIndex(step: Step): number {
   const idx = PIPELINE_STEPS.findIndex((s) => s.key === step);
@@ -220,11 +264,16 @@ export function UploadAndProcess({
       setProgress(100);
       setStep("transcribing");
 
-      const res = await fetch(`/api/sessions/${sessionId}/process`, { method: "POST" });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null) as { error?: string } | null;
-        throw new Error(body?.error ?? "Processing failed");
-      }
+      await startProcessingAndWait(sessionId, (status) => {
+        const mapped = statusToStep(status);
+        if (mapped === "analyzing" || mapped === "extracting_screenshots") {
+          setStep(mapped);
+        } else if (mapped === "segmenting" || mapped === "transcribing") {
+          setStep(mapped);
+        } else if (mapped === "done") {
+          setStep("generating_actions");
+        }
+      });
       setStep("done");
     } catch (err) {
       setStep("error");
@@ -272,11 +321,7 @@ export function UploadAndProcess({
     setProcessingElapsed(0);
     setErrorMsg(null);
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/process`, { method: "POST" });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null) as { error?: string } | null;
-        throw new Error(body?.error ?? "Processing failed");
-      }
+      await startProcessingAndWait(sessionId, (status) => setStep(statusToStep(status)));
       setStep("done");
     } catch (err) {
       setStep("error");

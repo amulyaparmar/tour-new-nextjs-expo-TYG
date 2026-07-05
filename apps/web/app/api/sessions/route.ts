@@ -12,7 +12,7 @@ import { listTeamAgents } from "@/lib/agents";
 import { createSession, listSessionsPaginated } from "@/lib/sessions";
 
 const VALID_STATUSES: SessionStatus[] = [
-  "scheduled", "in_progress", "uploaded", "transcribing", "extracting_screenshots",
+  "scheduled", "in_progress", "uploaded", "transcribing", "segmenting", "extracting_screenshots",
   "analyzing", "analysis_ready", "reviewed", "failed",
 ];
 const COMPLETED_STATUSES: SessionStatus[] = ["analysis_ready", "reviewed"];

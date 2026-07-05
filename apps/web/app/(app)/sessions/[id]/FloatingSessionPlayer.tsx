@@ -13,7 +13,10 @@ import {
   SkipForward,
 } from "lucide-react";
 
-import { playerMarkerByType, playerSpeakerSegment } from "./session-detail-class-maps";
+import type { ConversationPhaseSegmentation } from "@tour/shared";
+import { buildPhaseTracks } from "@tour/shared";
+
+import { phaseSegmentClass, playerMarkerByType, playerSpeakerSegment } from "./session-detail-class-maps";
 import styles from "./session-detail.module.css";
 import {
   buildSpeakerTracks,
@@ -36,6 +39,7 @@ type Props = {
   playbackRate: number;
   selectedMomentIndex: number;
   transcript: TranscriptSegment[];
+  phases: ConversationPhaseSegmentation | null;
   onToggleComments: () => void;
   onMomentNavigate: (direction: -1 | 1) => void;
   onMomentSelect: (moment: SessionMoment) => void;
@@ -57,6 +61,7 @@ export function FloatingSessionPlayer({
   playbackRate,
   selectedMomentIndex,
   transcript,
+  phases,
   onToggleComments,
   onMomentNavigate,
   onMomentSelect,
@@ -65,6 +70,7 @@ export function FloatingSessionPlayer({
   togglePlayback,
 }: Props) {
   const speakerTracks = useMemo(() => buildSpeakerTracks(transcript, duration), [transcript, duration]);
+  const phaseTracks = useMemo(() => buildPhaseTracks(phases, duration), [phases, duration]);
   const playheadPct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
   const activeMoment = moments[selectedMomentIndex] ?? null;
 
@@ -181,6 +187,25 @@ export function FloatingSessionPlayer({
             ))}
           </div>
 
+          {phaseTracks.length > 0 && (
+            <div className={styles.playerSpeakerTimeline}>
+              <div className={styles.playerSpeakerLane}>
+                <span className={styles.playerSpeakerLaneLabel}>Phases</span>
+                <div className={styles.playerSpeakerLaneTrack}>
+                  {phaseTracks.map((segment) => (
+                    <span
+                      key={segment.id}
+                      className={phaseSegmentClass[segment.phaseId] ?? styles.playerPhaseSegmentDefault}
+                      style={{ left: `${segment.leftPct}%`, width: `${segment.widthPct}%` }}
+                      title={segment.label}
+                    />
+                  ))}
+                  <span className={styles.playerSpeakerPlayhead} style={{ left: `${playheadPct}%` }} />
+                </div>
+              </div>
+            </div>
+          )}
+
           {speakerTracks.length > 0 && (
             <div className={styles.playerSpeakerTimeline}>
               {speakerTracks.map((track) => (
@@ -212,6 +237,9 @@ export function FloatingSessionPlayer({
       ) : activeMoment ? (
         <div className={styles.playerActiveMoment}>
           <span className={styles.playerActiveLabel}>Key moment</span>
+          {activeMoment.phase && (
+            <span className={styles.playerActivePhase}>{activeMoment.phase}</span>
+          )}
           <span className={styles.playerActiveText}>{activeMoment.label}</span>
         </div>
       ) : null}

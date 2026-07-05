@@ -22,6 +22,7 @@ import {
   listBusinesses,
   signIn,
 } from "./auth";
+import { TourLogo } from "./components/TourLogo";
 
 export function LoginScreen({
   player,
@@ -76,8 +77,7 @@ export function LoginScreen({
         <LinearGradient colors={["rgba(7,18,34,0.08)", "rgba(7,18,34,0.9)"]} style={StyleSheet.absoluteFill} />
         <SafeAreaView style={styles.heroSafe}>
           <View style={styles.brand}>
-            <View style={styles.mark}><Ionicons name="play" size={16} color="#fff" /></View>
-            <Text style={styles.brandText}>Tour</Text>
+            <TourLogo width={78} color="#fff" />
           </View>
           <View>
             <Text style={styles.eyebrow}>LEASING OPERATIONS</Text>

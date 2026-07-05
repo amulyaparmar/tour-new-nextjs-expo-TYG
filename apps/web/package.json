@@ -35,7 +35,8 @@
     "remark-gfm": "^4.0.1",
     "server-only": "^0.0.1",
     "temporal-polyfill": "^0.3.0",
-    "twilio": "^5.10.3"
+    "twilio": "^5.10.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",

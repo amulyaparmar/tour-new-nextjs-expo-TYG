@@ -14,8 +14,6 @@ export function getApiBaseUrl(): string {
         return configuredUrl;
       }
 
-      // On a physical device, localhost is unreachable. Expo's host URI gives
-      // us the dev machine's LAN IP while preserving the configured API port.
       if (debuggerHost) {
         const lanIp = debuggerHost.split(":")[0];
         if (lanIp && lanIp !== "localhost" && lanIp !== "127.0.0.1") {
@@ -38,4 +36,11 @@ export function getApiBaseUrl(): string {
   }
 
   return "http://localhost:3000";
+}
+
+/** Public site URL for follow-up links (defaults to API host in dev). */
+export function getSiteBaseUrl(): string {
+  const site = process.env.EXPO_PUBLIC_SITE_URL?.trim();
+  if (site) return site.replace(/\/+$/, "");
+  return getApiBaseUrl();
 }

@@ -7,7 +7,8 @@ export type FetchSessionsParams = {
   limit?: number;
   status?: string;
   search?: string;
-  sort?: "newest" | "oldest" | "score_desc" | "score_asc";
+  sort?: "newest" | "oldest" | "score_desc" | "score_asc" | "scheduled_asc";
+  upcoming?: boolean;
 };
 
 export type PaginatedSessions = {
@@ -25,6 +26,7 @@ export async function fetchSessions(params?: FetchSessionsParams): Promise<Pagin
   if (params?.status) sp.set("status", params.status);
   if (params?.search) sp.set("search", params.search);
   if (params?.sort) sp.set("sort", params.sort);
+  if (params?.upcoming) sp.set("upcoming", "true");
   const qs = sp.toString();
   const res = await authenticatedFetch(`/api/sessions${qs ? `?${qs}` : ""}`);
   if (!res.ok) {
@@ -291,6 +293,27 @@ export async function deleteComment(sessionId: string, commentId: string) {
   });
   if (!res.ok) throw new Error("Failed to delete comment.");
   return (await res.json()) as { ok: boolean };
+}
+
+export async function sendSessionFollowUp(
+  sessionId: string,
+  payload: { phone?: string; includeCardImage?: boolean }
+) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/send-follow-up`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => null) as {
+    ok?: boolean;
+    skipped?: boolean;
+    followUpUrl?: string;
+    error?: string;
+  } | null;
+  if (!res.ok) {
+    throw new Error(body?.error ?? "Failed to send follow-up.");
+  }
+  return body ?? { ok: true };
 }
 
 export async function fetchMaterials() {

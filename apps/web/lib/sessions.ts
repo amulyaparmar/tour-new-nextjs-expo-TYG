@@ -82,11 +82,12 @@ export type ListSessionsParams = {
   status?: SessionStatus;
   statuses?: SessionStatus[];
   search?: string;
-  sort?: "newest" | "oldest" | "score_desc" | "score_asc";
+  sort?: "newest" | "oldest" | "score_desc" | "score_asc" | "scheduled_asc";
   propertyId?: string;
   propertyIds?: string[];
   agentId?: string;
   excludeScheduled?: boolean;
+  upcomingFrom?: string;
 };
 
 export type PaginatedSessions = {
@@ -122,6 +123,11 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
     if (params?.excludeScheduled) {
       query = query.neq("status", "scheduled");
     }
+    if (params?.upcomingFrom) {
+      query = query.or(
+        `status.eq.in_progress,and(status.eq.scheduled,scheduled_at.gte.${params.upcomingFrom})`
+      );
+    }
 
     if (params?.propertyId) {
       query = query.eq("property_id", params.propertyId);
@@ -149,6 +155,9 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
       case "score_asc":
         query = query.order("overall_score", { ascending: true, nullsFirst: false });
         break;
+      case "scheduled_asc":
+        query = query.order("scheduled_at", { ascending: true, nullsFirst: false });
+        break;
       default:
         query = query.order("created_at", { ascending: false });
     }
@@ -162,6 +171,13 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
     }
 
     const sessions = (data ?? []).map(mapSessionRow);
+    if (params?.sort === "scheduled_asc") {
+      sessions.sort((a, b) => {
+        if (a.status === "in_progress" && b.status !== "in_progress") return -1;
+        if (b.status === "in_progress" && a.status !== "in_progress") return 1;
+        return new Date(a.scheduledAt ?? a.createdAt).getTime() - new Date(b.scheduledAt ?? b.createdAt).getTime();
+      });
+    }
     const total = count ?? sessions.length;
 
     return { sessions, total, page, limit, hasMore: offset + sessions.length < total };
@@ -170,6 +186,17 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
 
     if (params?.excludeScheduled) {
       all = all.filter((session) => session.status !== "scheduled");
+    }
+    if (params?.upcomingFrom) {
+      const cutoff = new Date(params.upcomingFrom).getTime();
+      all = all.filter((session) =>
+        session.status === "in_progress" ||
+        (
+          session.status === "scheduled" &&
+          session.scheduledAt !== null &&
+          new Date(session.scheduledAt).getTime() >= cutoff
+        )
+      );
     }
     if (params?.status) {
       all = all.filter((session) => session.status === params.status);
@@ -191,6 +218,14 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
         session.prospectName?.toLowerCase().includes(term) ||
         session.location?.toLowerCase().includes(term)
       );
+    }
+
+    if (params?.sort === "scheduled_asc") {
+      all.sort((a, b) => {
+        if (a.status === "in_progress" && b.status !== "in_progress") return -1;
+        if (b.status === "in_progress" && a.status !== "in_progress") return 1;
+        return new Date(a.scheduledAt ?? a.createdAt).getTime() - new Date(b.scheduledAt ?? b.createdAt).getTime();
+      });
     }
 
     const total = all.length;

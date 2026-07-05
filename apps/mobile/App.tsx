@@ -3,7 +3,7 @@ import { Audio } from "expo-av";
 import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
-import { VideoView, useVideoPlayer } from "expo-video";
+import { useVideoPlayer } from "expo-video";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
@@ -56,8 +56,12 @@ import { getApiBaseUrl } from "./src/config";
 import { computeDashboardMetrics } from "./src/dashboard";
 import { type MobileAuthSession, authenticatedFetch, clearSession, restoreSession, switchCommunity } from "./src/auth";
 import { LoginScreen } from "./src/LoginScreen";
+import { SessionAiChat } from "./src/components/SessionAiChat";
+import { SessionFollowUpPanel } from "./src/components/SessionFollowUpPanel";
+import { TourLogo, TourMark } from "./src/components/TourLogo";
+import { LiveActivityBanner, RecordingProvider, useRecording } from "./src/recording";
 
-const onboardingBackground = require("./assets/videos/login-bg.mp4");
+const loginBackground = require("./assets/videos/login-bg.mp4");
 
 // ── Design Tokens ──
 const C = {
@@ -78,11 +82,9 @@ const C = {
   purpleBg: "#f3e8ff",
 } as const;
 
-type ObData = { name: string; email: string; phone: string; property: string; teamInvites: string; password: string; verificationCode: string };
 type ProspectData = { name: string; email: string; phone: string; moveIn: string; bedrooms: string; budget: string };
 type MainTab = "home" | "sessions" | "calendar" | "materials" | "settings";
 type Screen =
-  | { type: "onboarding" }
   | { type: "main"; tab: MainTab }
   | { type: "session-detail"; sessionId: string }
   | { type: "create-session" }
@@ -90,7 +92,6 @@ type Screen =
   | { type: "profile" }
   | { type: "tour" };
 
-type OnboardingStep = "rep" | "property" | "security";
 type TourStep = "contact" | "preferences" | "ready";
 
 const AGENT = {
@@ -101,12 +102,6 @@ const AGENT = {
   phone: "(512) 555-0189",
   profileUrl: "tour.video/alex-downtown",
 };
-
-const onboardingSteps: Array<{ id: OnboardingStep; label: string }> = [
-  { id: "rep", label: "You" },
-  { id: "property", label: "Property" },
-  { id: "security", label: "Verify" },
-];
 
 const tourSteps: Array<{ id: TourStep; label: string }> = [
   { id: "contact", label: "Contact" },
@@ -207,174 +202,8 @@ function showToast(msg: string, type?: "error" | "success" | "info") {
 // Root App
 // ═══════════════════════════════════════
 
-// ═══════════════════════════════════════
-// Global recording context (lives above all screens)
-// ═══════════════════════════════════════
-
-type RecordingCtx = {
-  isRecording: boolean;
-  elapsed: number;
-  start: () => Promise<boolean>;
-  stop: () => Promise<{ uri: string; durationSec: number } | null>;
-};
-
-const RecordingContext = React.createContext<RecordingCtx>({
-  isRecording: false,
-  elapsed: 0,
-  start: async () => false,
-  stop: async () => null,
-});
-
-function RecordingProvider({ children }: { children: React.ReactNode }) {
-  const [isRecording, setIsRecording] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
-  const recordingRef = useRef<Audio.Recording | null>(null);
-  const startingRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
-
-  const start = useCallback(async () => {
-    if (recordingRef.current || startingRef.current) return false;
-    startingRef.current = true;
-    try {
-      const { granted } = await Audio.requestPermissionsAsync();
-      if (!granted) {
-        showToast("Microphone permission required", "error");
-        return false;
-      }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-      });
-
-      const preset = Audio.RecordingOptionsPresets.HIGH_QUALITY!;
-      const { recording } = await Audio.Recording.createAsync({
-        ...preset,
-        android: { ...preset.android, numberOfChannels: 1, bitRate: 48000 },
-        ios: { ...preset.ios, numberOfChannels: 1, bitRate: 48000 },
-        web: { ...preset.web, bitsPerSecond: 48000 },
-      });
-      recordingRef.current = recording;
-      setIsRecording(true);
-      setElapsed(0);
-      timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
-      return true;
-    } finally {
-      startingRef.current = false;
-    }
-  }, []);
-
-  const stop = useCallback(async (): Promise<{ uri: string; durationSec: number } | null> => {
-    if (!recordingRef.current) return null;
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = undefined;
-    const recording = recordingRef.current;
-    try {
-      const status = await recording.getStatusAsync();
-      await recording.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-      const uri = recording.getURI();
-      recordingRef.current = null;
-      setIsRecording(false);
-      setElapsed(0);
-      return uri ? { uri, durationSec: Math.max(1, Math.round(status.durationMillis / 1000)) } : null;
-    } catch {
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(() => {});
-      recordingRef.current = null;
-      setIsRecording(false);
-      setElapsed(0);
-      return null;
-    }
-  }, []);
-
-  const ctx = useMemo(() => ({ isRecording, elapsed, start, stop }), [isRecording, elapsed, start, stop]);
-
-  return (
-    <RecordingContext.Provider value={ctx}>
-      {children}
-    </RecordingContext.Provider>
-  );
-}
-
-function useRecording() {
-  return React.useContext(RecordingContext);
-}
-
-// ═══════════════════════════════════════
-// Live Activity Banner
-// ═══════════════════════════════════════
-
-function LiveActivityBanner() {
-  const { isRecording, elapsed } = useRecording();
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    if (!isRecording) return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [isRecording, pulseAnim]);
-
-  if (!isRecording) return null;
-
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
-  const ss = String(elapsed % 60).padStart(2, "0");
-
-  return (
-    <View style={laSt.banner}>
-      <Animated.View style={[laSt.dot, { opacity: pulseAnim }]} />
-      <Ionicons name="mic" size={16} color="#fff" />
-      <Text style={laSt.label}>Recording</Text>
-      <Text style={laSt.timer}>{mm}:{ss}</Text>
-      <View style={laSt.spacer} />
-      <Text style={laSt.activeLabel}>Finish in session</Text>
-    </View>
-  );
-}
-
-const laSt = StyleSheet.create({
-  banner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: C.red,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    paddingTop: Platform.OS === "ios" ? 54 : 10,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#fff",
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#fff",
-  },
-  timer: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#fff",
-    fontVariant: ["tabular-nums"],
-  },
-  spacer: { flex: 1 },
-  activeLabel: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.86)" },
-});
-
-// ═══════════════════════════════════════
-// Root App
-// ═══════════════════════════════════════
-
 export default function App() {
-  const player = useVideoPlayer(onboardingBackground, (vp) => {
+  const player = useVideoPlayer(loginBackground, (vp) => {
     vp.loop = true;
     vp.muted = true;
     vp.play();
@@ -383,9 +212,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>({ type: "main", tab: "home" });
   const [authSession, setAuthSession] = useState<MobileAuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [obStep, setObStep] = useState<OnboardingStep>("rep");
   const [tourStep, setTourStep] = useState<TourStep>("contact");
-  const [ob, setOb] = useState<ObData>({ name: AGENT.name, email: AGENT.email, phone: AGENT.phone, property: AGENT.property, teamInvites: "", password: "", verificationCode: "" });
   const [prospect, setProspect] = useState<ProspectData>({ name: "", email: "", phone: "", moveIn: "", bedrooms: "2 bed", budget: "$2,200 - $2,600" });
 
   useEffect(() => {
@@ -400,7 +227,6 @@ export default function App() {
       .finally(() => setAuthLoading(false));
   }, []);
 
-  const obIdx = useMemo(() => onboardingSteps.findIndex((s) => s.id === obStep), [obStep]);
   const tourIdx = useMemo(() => tourSteps.findIndex((s) => s.id === tourStep), [tourStep]);
   const nav = useCallback((s: Screen) => setScreen(s), []);
 
@@ -434,7 +260,7 @@ export default function App() {
     <SafeAreaProvider>
     <View style={st.root}>
       <StatusBar style="dark" />
-      <RecordingProvider>
+      <RecordingProvider onNotify={showToast}>
         <ToastProvider>
           <LiveActivityBanner />
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={st.flex1}>
@@ -445,6 +271,10 @@ export default function App() {
                 onTab={(t) => nav({ type: "main", tab: t })}
                 onSession={(id) => nav({ type: "session-detail", sessionId: id })}
                 onCreate={() => nav({ type: "create-session" })}
+                onGuestRegistration={() => {
+                  setTourStep("contact");
+                  nav({ type: "tour" });
+                }}
                 onProfile={() => nav({ type: "profile" })}
                 onRubrics={() => nav({ type: "rubrics" })}
                 onSignOut={() => {
@@ -489,25 +319,31 @@ const TAB_ITEMS: Array<{ id: MainTab; label: string; icon: keyof typeof Ionicons
   { id: "settings", label: "Settings", icon: "settings-outline", iconActive: "settings" },
 ];
 
-function MainTabs({ tab, onTab, onSession, onCreate, onProfile, onRubrics, onSignOut, authSession, onAuthSession, agentName, property }: {
-  tab: MainTab; onTab: (t: MainTab) => void; onSession: (id: string) => void; onCreate: () => void; onProfile: () => void; onRubrics: () => void; onSignOut: () => void; authSession: MobileAuthSession; onAuthSession: (session: MobileAuthSession) => void; agentName: string; property: string;
+function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProfile, onRubrics, onSignOut, authSession, onAuthSession, agentName, property }: {
+  tab: MainTab; onTab: (t: MainTab) => void; onSession: (id: string) => void; onCreate: () => void; onGuestRegistration: () => void; onProfile: () => void; onRubrics: () => void; onSignOut: () => void; authSession: MobileAuthSession; onAuthSession: (session: MobileAuthSession) => void; agentName: string; property: string;
 }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [upcomingSessions, setUpcomingSessions] = useState<SessionSummary[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [communityPickerOpen, setCommunityPickerOpen] = useState(false);
+  const [communityQuery, setCommunityQuery] = useState("");
+  const [switchingCommunityId, setSwitchingCommunityId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [sessData, matData, calendarData] = await Promise.all([
+      const [sessData, upcomingData, matData, calendarData] = await Promise.all([
         fetchSessions({ limit: 100 }),
+        fetchSessions({ limit: 10, upcoming: true, sort: "scheduled_asc" }),
         fetchMaterials().catch(() => ({ materials: [] as Material[] })),
         fetchCalendarEvents().catch(() => ({ events: [] as CalendarEvent[] })),
       ]);
       setSessions(sessData.sessions);
+      setUpcomingSessions(upcomingData.sessions);
       setMaterials(matData.materials);
       setCalendarEvents(calendarData.events);
     } catch (err) {
@@ -521,6 +357,25 @@ function MainTabs({ tab, onTab, onSession, onCreate, onProfile, onRubrics, onSig
 
   const onRefresh = useCallback(async () => { setRefreshing(true); await load(); setRefreshing(false); }, [load]);
 
+  const chooseCommunity = useCallback(async (communityId: string) => {
+    if (communityId === authSession.workspace.community.id) {
+      setCommunityPickerOpen(false);
+      return;
+    }
+    setSwitchingCommunityId(communityId);
+    try {
+      const nextSession = await switchCommunity(communityId);
+      onAuthSession(nextSession);
+      setCommunityPickerOpen(false);
+      setCommunityQuery("");
+      showToast(`Switched to ${nextSession.workspace.community.name}`, "success");
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not switch community", "error");
+    } finally {
+      setSwitchingCommunityId(null);
+    }
+  }, [authSession.workspace.community.id, onAuthSession]);
+
   const showScrollView = tab !== "sessions";
 
   return (
@@ -528,7 +383,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onProfile, onRubrics, onSig
       {showScrollView && (
         <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
           {error && <ErrorBanner message={error} onRetry={load} />}
-          {tab === "home" && <DashboardScreen sessions={sessions} loading={loading} onSession={onSession} onProfile={onProfile} agentName={agentName} property={property} />}
+          {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} onSession={onSession} onProfile={onProfile} onCreate={onCreate} onGuestRegistration={onGuestRegistration} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} property={property} />}
           {tab === "calendar" && <CalendarScreen sessions={sessions} entrataEvents={calendarEvents} onSession={onSession} onReload={load} />}
           {tab === "materials" && <MaterialsScreen materials={materials} loading={loading} onReload={load} />}
           {tab === "settings" && <SettingsScreen session={authSession} onSessionChange={onAuthSession} onRubrics={onRubrics} onSignOut={onSignOut} />}
@@ -553,6 +408,20 @@ function MainTabs({ tab, onTab, onSession, onCreate, onProfile, onRubrics, onSig
           </Pressable>
         ))}
       </View>
+      <CommunityPickerModal
+        visible={communityPickerOpen}
+        session={authSession}
+        query={communityQuery}
+        switchingId={switchingCommunityId}
+        onQueryChange={setCommunityQuery}
+        onClose={() => {
+          if (!switchingCommunityId) {
+            setCommunityPickerOpen(false);
+            setCommunityQuery("");
+          }
+        }}
+        onSelect={(communityId) => void chooseCommunity(communityId)}
+      />
     </View>
   );
 }
@@ -579,41 +448,151 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => vo
 // Dashboard
 // ═══════════════════════════════════════
 
-function DashboardScreen({ sessions, loading, onSession, onProfile, agentName, property }: {
-  sessions: SessionSummary[]; loading: boolean; onSession: (id: string) => void; onProfile: () => void; agentName: string; property: string;
+function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSession, onProfile, onCreate, onGuestRegistration, onCommunityPress, agentName, property }: {
+  sessions: SessionSummary[];
+  upcomingSessions: SessionSummary[];
+  materials: Material[];
+  loading: boolean;
+  onSession: (id: string) => void;
+  onProfile: () => void;
+  onCreate: () => void;
+  onGuestRegistration: () => void;
+  onCommunityPress: () => void;
+  agentName: string;
+  property: string;
 }) {
   const metrics = useMemo(() => computeDashboardMetrics(sessions), [sessions]);
-  const recent = useMemo(() => sessions.slice(0, 5), [sessions]);
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const recent = useMemo(() => sessions.slice(0, 3), [sessions]);
+  const initials = agentName.split(" ").map((name) => name[0]).join("").slice(0, 2).toUpperCase();
 
   return (
-    <View style={st.page}>
-      <View style={st.dashGreet}>
-        <View style={st.flex1}>
-          <Text style={st.dashGreetText}>{greeting}, {agentName.split(" ")[0]}</Text>
-          <Text style={st.dashProperty}>{property}</Text>
-        </View>
-        <Pressable onPress={onProfile} style={({ pressed }) => [st.avatar48, pressed && st.pressed]}>
-          <Text style={st.avatar48Text}>{agentName.split(" ").map((n) => n[0]).join("")}</Text>
+    <View style={[st.page, { gap: 20 }]}>
+      <View style={homeSt.topBar}>
+        <Pressable accessibilityLabel="Open profile" onPress={onProfile}><TourLogo width={62} /></Pressable>
+        <Pressable accessibilityLabel="Switch community" onPress={onCommunityPress} style={({ pressed }) => [homeSt.propertyPicker, pressed && st.pressed]}>
+          <Text style={homeSt.propertyPickerText} numberOfLines={1}>{property}</Text>
+          <Ionicons name="chevron-down" size={15} color={C.textSec} />
+        </Pressable>
+        <Pressable accessibilityLabel="Notifications" style={homeSt.headerIcon}>
+          <Ionicons name="notifications-outline" size={20} color={C.text} />
         </Pressable>
       </View>
 
-      <View style={st.metricsGrid}>
-        <MetricCard icon="today-outline" label="Today" value={String(metrics.todaySessions)} color={C.brand} />
-        <MetricCard icon="calendar-outline" label="Upcoming" value={String(metrics.upcomingSessions)} color={C.purple} />
-        <MetricCard icon="hourglass-outline" label="Processing" value={String(metrics.processingSessions)} color={C.amber} />
-        <MetricCard icon="star-outline" label="Avg Score" value={metrics.averageScore !== null ? String(metrics.averageScore) : "--"} color={C.green} />
-      </View>
-
-      <CardRow icon="id-card-outline" title="Digital Business Card" sub="Open your QR card for visitors" onPress={onProfile} />
-
-      <Text style={st.sectionTitle}>Recent Sessions</Text>
-      {loading ? <LoadingBox /> : recent.length === 0 ? <EmptyState icon="albums-outline" title="No sessions yet" subtitle="Create your first session to get started" /> : (
-        <View style={st.card}>
-          {recent.map((s, i) => <SessionRow key={s.id} session={s} onPress={() => onSession(s.id)} isLast={i === recent.length - 1} />)}
+      <Pressable onPress={onProfile} style={({ pressed }) => [homeSt.businessCard, pressed && st.pressed]}>
+        <View style={homeSt.profileRow}>
+          <View style={homeSt.profileAvatar}><Text style={homeSt.profileAvatarText}>{initials}</Text></View>
+          <View style={st.flex1}>
+            <Text style={homeSt.profileName}>{agentName}</Text>
+            <Text style={homeSt.profileRole}>Leasing Consultant · {property}</Text>
+          </View>
+          <BrandedQrIcon size={21} />
+          <Ionicons name="share-social-outline" size={20} color={C.text} />
         </View>
-      )}
+        <View style={homeSt.contactRow}>
+          <TourLogo width={62} />
+          <View style={homeSt.smsButton}><Text style={homeSt.smsButtonText}>Share via SMS</Text></View>
+        </View>
+      </Pressable>
+
+      <HomeSection title="Upcoming Tours" action="See All">
+        {loading ? <LoadingBox /> : upcomingSessions.length === 0 ? (
+          <EmptyState icon="calendar-outline" title="No upcoming tours" subtitle="Scheduled and active tours will appear here" />
+        ) : upcomingSessions.slice(0, 3).map((session) => (
+          <Pressable key={session.id} onPress={() => onSession(session.id)} style={({ pressed }) => [homeSt.tourCard, pressed && st.pressed]}>
+            <View style={st.flex1}>
+              <Text style={homeSt.tourTitle} numberOfLines={1}>{session.title}</Text>
+              <View style={homeSt.tourMetaRow}>
+                <Text style={homeSt.timePill}>
+                  {session.status === "in_progress"
+                    ? "Now"
+                    : session.scheduledAt
+                      ? `${new Date(session.scheduledAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · ${fmtTime(session.scheduledAt)}`
+                      : "Scheduled"}
+                </Text>
+                <Text style={homeSt.tourMeta} numberOfLines={1}>{session.prospectName ?? "Prospect details pending"}</Text>
+              </View>
+            </View>
+            <View style={[homeSt.statusPill, { backgroundColor: session.status === "in_progress" ? "#dcfce7" : "#fef3c7" }]}>
+              <Text style={[homeSt.statusText, { color: session.status === "in_progress" ? C.green : C.amber }]}>
+                {session.status === "in_progress" ? "ACTIVE" : "UPCOMING"}
+              </Text>
+            </View>
+          </Pressable>
+        ))}
+      </HomeSection>
+
+      <Pressable onPress={onGuestRegistration} style={({ pressed }) => [homeSt.actionCard, pressed && st.pressed]}>
+        <View style={homeSt.actionIcon}>
+          <BrandedQrIcon size={36} />
+        </View>
+        <View style={st.flex1}>
+          <Text style={homeSt.actionTitle}>Guest Registration</Text>
+          <Text style={homeSt.actionSub}>Check in a prospect for a tour</Text>
+        </View>
+        <Ionicons name="arrow-forward-circle" size={28} color={C.text} />
+      </Pressable>
+
+      <HomeSection title="Media" showLogo action={materials.length ? "See All" : undefined}>
+        <View style={homeSt.mediaRow}>
+          {materials.slice(0, 3).map((material) => (
+            <View key={material.id} style={homeSt.mediaTile}>
+              <Ionicons name={material.type === "training" ? "play-circle-outline" : "document-outline"} size={25} color={C.brand} />
+              <Text style={homeSt.mediaLabel} numberOfLines={2}>{material.name}</Text>
+            </View>
+          ))}
+          {materials.length === 0 && <Text style={homeSt.emptyInline}>Reusable tour assets will appear here.</Text>}
+        </View>
+        <Pressable onPress={onCreate} style={({ pressed }) => [homeSt.createButton, pressed && st.pressed]}>
+          <Text style={homeSt.createButtonText}>+ Create New Session</Text>
+        </Pressable>
+      </HomeSection>
+
+      <HomeSection title="AI Coaching Insights" showLogo>
+        <View style={homeSt.insightCard}>
+          <View style={st.flex1}>
+            <Text style={homeSt.insightText}>
+              {metrics.averageScore !== null
+                ? `Your current average coaching score is ${metrics.averageScore}%`
+                : "Complete a recorded tour to unlock coaching insights"}
+            </Text>
+            <Text style={homeSt.insightLink}>{metrics.processingSessions ? `${metrics.processingSessions} session${metrics.processingSessions === 1 ? "" : "s"} processing` : "View coaching report"}</Text>
+          </View>
+          <Ionicons name="analytics-outline" size={42} color={C.brand} />
+        </View>
+      </HomeSection>
+
+      <HomeSection title="Recent Sessions" action="See All">
+        {loading ? <LoadingBox /> : recent.length === 0 ? <EmptyState icon="albums-outline" title="No sessions yet" subtitle="Create your first session to get started" /> : (
+          <View style={{ gap: 10 }}>
+            {recent.map((session) => <SessionRow key={session.id} session={session} onPress={() => onSession(session.id)} isLast />)}
+          </View>
+        )}
+      </HomeSection>
+    </View>
+  );
+}
+
+function HomeSection({ title, action, showLogo = false, children }: { title: string; action?: string; showLogo?: boolean; children: React.ReactNode }) {
+  return (
+    <View style={{ gap: 12 }}>
+      <View style={homeSt.sectionHeader}>
+        {showLogo && <TourLogo width={58} />}
+        <Text style={homeSt.sectionTitle}>{title}</Text>
+        {action && <Text style={homeSt.sectionAction}>{action}</Text>}
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function BrandedQrIcon({ size = 32 }: { size?: number }) {
+  const markSize = Math.max(8, Math.round(size * 0.38));
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      <Ionicons name="qr-code-outline" size={size} color={C.text} />
+      <View style={[homeSt.qrBrandCenter, { width: markSize + 3, height: markSize + 3 }]}>
+        <TourMark size={markSize} />
+      </View>
     </View>
   );
 }
@@ -695,6 +674,8 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortOption>("newest");
   const [showSort, setShowSort] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [attentionOnly, setAttentionOnly] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -737,50 +718,112 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
     if (hasMore && !loadingMore && !loading) fetchPageData(page + 1, false);
   }, [hasMore, loadingMore, loading, page, fetchPageData]);
 
-  const renderItem = useCallback(({ item }: { item: SessionSummary }) => (
-    <SessionRow session={item} onPress={() => onSession(item.id)} isLast={false} />
-  ), [onSession]);
+  type SessionListItem =
+    | { kind: "header"; id: string; label: string; count: number }
+    | { kind: "session"; id: string; session: SessionSummary };
 
-  const keyExtractor = useCallback((item: SessionSummary) => item.id, []);
+  const groupedRows = useMemo<SessionListItem[]>(() => {
+    const now = new Date();
+    const visibleSessions = attentionOnly
+      ? sessions.filter((session) => ["uploaded", "failed", "analysis_ready"].includes(session.status))
+      : sessions;
+    const groups: Array<{ label: string; items: SessionSummary[] }> = [
+      { label: "Live", items: visibleSessions.filter((session) => session.status === "in_progress") },
+      {
+        label: "Today",
+        items: visibleSessions.filter((session) =>
+          session.status !== "in_progress" &&
+          !!session.scheduledAt &&
+          new Date(session.scheduledAt).toDateString() === now.toDateString()
+        ),
+      },
+      {
+        label: "Needs review",
+        items: visibleSessions.filter((session) => ["uploaded", "failed", "analysis_ready"].includes(session.status)),
+      },
+      {
+        label: "This week",
+        items: visibleSessions.filter((session) => {
+          if (session.status === "in_progress" || ["uploaded", "failed", "analysis_ready"].includes(session.status)) return false;
+          if (session.scheduledAt && new Date(session.scheduledAt).toDateString() === now.toDateString()) return false;
+          return true;
+        }),
+      },
+    ];
+    return groups.flatMap((group) => group.items.length
+      ? [
+          { kind: "header" as const, id: `header-${group.label}`, label: group.label, count: group.items.length },
+          ...group.items.map((session) => ({ kind: "session" as const, id: session.id, session })),
+        ]
+      : []
+    );
+  }, [attentionOnly, sessions]);
+
+  const renderItem = useCallback(({ item }: { item: SessionListItem }) => {
+    if (item.kind === "header") {
+      return (
+        <View style={slst.groupHeader}>
+          <Text style={slst.groupLabel}>{item.label}</Text>
+          <View style={slst.groupCount}><Text style={slst.groupCountText}>{item.count}</Text></View>
+        </View>
+      );
+    }
+    const session = item.session;
+    const needsReview = ["uploaded", "failed", "analysis_ready"].includes(session.status);
+    return (
+      <Pressable onPress={() => onSession(session.id)} style={({ pressed }) => [slst.sessionCard, pressed && st.pressed]}>
+        <View style={st.flex1}>
+          <View style={slst.sessionNameRow}>
+            {session.status === "in_progress" && <View style={slst.liveDot} />}
+            <Text style={slst.sessionName} numberOfLines={1}>{session.title}</Text>
+          </View>
+          <Text style={slst.sessionMeta} numberOfLines={1}>
+            {[session.location, session.scheduledAt ? `${fmtDate(session.scheduledAt)}, ${fmtTime(session.scheduledAt)}` : null].filter(Boolean).join(" · ") || session.prospectName || "Session details pending"}
+          </Text>
+        </View>
+        <View style={slst.sessionRight}>
+          <View style={[slst.syncBadge, needsReview && slst.reviewBadge]}>
+            <Text style={[slst.syncText, needsReview && slst.reviewText]}>{needsReview ? "REVIEW" : session.status === "in_progress" ? "LIVE" : "SYNCED"}</Text>
+          </View>
+          {session.overallScore !== null && <Text style={slst.sessionScore}>{session.overallScore}</Text>}
+        </View>
+      </Pressable>
+    );
+  }, [onSession]);
+
+  const keyExtractor = useCallback((item: SessionListItem) => item.id, []);
 
   const ListHeader = useMemo(() => (
     <View style={slst.header}>
-      <Text style={st.pageTitle}>Sessions</Text>
-      <Text style={st.pageSub}>{loading ? "Loading..." : `${total} session${total !== 1 ? "s" : ""}`}</Text>
-
-      <View style={st.searchBar}>
-        <Ionicons name="search-outline" size={18} color={C.textMuted} />
-        <TextInput
-          placeholder="Search sessions..."
-          placeholderTextColor={C.textMuted}
-          value={search}
-          onChangeText={setSearch}
-          style={st.searchInput}
-          returnKeyType="search"
-        />
-        {search.length > 0 && (
-          <Pressable onPress={() => setSearch("")}>
-            <Ionicons name="close-circle" size={18} color={C.textMuted} />
-          </Pressable>
-        )}
+      <View style={homeSt.topBar}>
+        <Ionicons name="arrow-back" size={22} color={C.text} />
+        <View style={homeSt.propertyPicker}><Text style={homeSt.propertyPickerText}>Sessions</Text></View>
+        <Pressable onPress={() => setShowSearch((value) => !value)} style={homeSt.headerIcon}>
+          <Ionicons name={showSearch ? "close" : "search"} size={19} color={C.text} />
+        </Pressable>
       </View>
+      <Text style={st.pageTitle}>Sessions</Text>
+
+      {showSearch && (
+        <View style={st.searchBar}>
+          <Ionicons name="search-outline" size={18} color={C.textMuted} />
+          <TextInput autoFocus placeholder="Search sessions..." placeholderTextColor={C.textMuted} value={search} onChangeText={setSearch} style={st.searchInput} returnKeyType="search" />
+        </View>
+      )}
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={slst.chipsRow}>
-        {FILTER_CHIPS.map((f) => (
-          <Pressable
-            key={f.value}
-            onPress={() => setStatusFilter(f.value)}
-            style={[slst.chip, statusFilter === f.value && slst.chipActive]}
-          >
-            <Text style={[slst.chipText, statusFilter === f.value && slst.chipTextActive]}>{f.label}</Text>
-          </Pressable>
-        ))}
-        <View style={slst.chipSep} />
+        <View style={[slst.chip, slst.personChip]}><Ionicons name="person-circle-outline" size={18} color={C.text} /><Text style={slst.chipText}>You</Text><Ionicons name="chevron-down" size={12} color={C.textSec} /></View>
+        <Pressable style={[slst.chip, slst.teamChip]}><Text style={slst.teamChipText}>Your team</Text></Pressable>
         <Pressable onPress={() => setShowSort((v) => !v)} style={[slst.chip, slst.sortChip]}>
-          <Ionicons name="swap-vertical-outline" size={14} color={C.textSec} />
           <Text style={slst.chipText}>{SORT_OPTS.find((o) => o.value === sort)?.label}</Text>
+          <Ionicons name="chevron-down" size={12} color={C.textSec} />
         </Pressable>
       </ScrollView>
+
+      <Pressable onPress={() => setAttentionOnly((value) => !value)} style={[slst.attentionChip, attentionOnly && { backgroundColor: "#fef3c7" }]}>
+        <Ionicons name="alert-circle-outline" size={15} color="#f59e0b" />
+        <Text style={slst.attentionText}>Needs attention</Text>
+      </Pressable>
 
       {showSort && (
         <View style={slst.sortPanel}>
@@ -797,7 +840,7 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
         </View>
       )}
     </View>
-  ), [search, statusFilter, sort, showSort, total, loading]);
+  ), [attentionOnly, search, sort, showSort, showSearch]);
 
   const ListFooter = useMemo(() => {
     if (loadingMore) return <ActivityIndicator style={{ paddingVertical: 20 }} color={C.brand} />;
@@ -829,7 +872,7 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
 
   return (
     <FlatList
-      data={sessions}
+      data={groupedRows}
       renderItem={renderItem}
       keyExtractor={keyExtractor}
       ListHeaderComponent={ListHeader}
@@ -841,14 +884,13 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
       contentContainerStyle={slst.list}
       showsVerticalScrollIndicator={false}
       contentInsetAdjustmentBehavior="automatic"
-      ItemSeparatorComponent={() => <View style={slst.sep} />}
     />
   );
 }
 
 const slst = StyleSheet.create({
-  list: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120 },
-  header: { gap: 10, marginBottom: 12 },
+  list: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 120 },
+  header: { gap: 12, marginBottom: 8 },
   chipsRow: { gap: 6, paddingVertical: 2 },
   chip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
@@ -877,6 +919,26 @@ const slst = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: "#f1f5f9",
   },
   skelBar: { height: 12, borderRadius: 6, backgroundColor: "#f1f5f9" },
+  personChip: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#fff", borderColor: "#e5e7eb" },
+  teamChip: { backgroundColor: "#eef2ff" },
+  teamChipText: { color: "#4338ca", fontSize: 12, fontWeight: "800" },
+  attentionChip: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: "#f59e0b", borderRadius: 18 },
+  attentionText: { color: "#f59e0b", fontSize: 12, fontWeight: "800" },
+  groupHeader: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 8, paddingBottom: 7 },
+  groupLabel: { color: "#9ca3af", fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
+  groupCount: { minWidth: 18, height: 18, borderRadius: 4, backgroundColor: "#e5e7eb", alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
+  groupCountText: { color: C.textSec, fontSize: 10, fontWeight: "900" },
+  sessionCard: { minHeight: 74, flexDirection: "row", alignItems: "center", gap: 12, padding: 15, marginBottom: 10, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, backgroundColor: "#fff" },
+  sessionNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  sessionName: { flex: 1, color: "#1a1a1a", fontSize: 15, fontWeight: "900" },
+  sessionMeta: { color: "#666", fontSize: 12, marginTop: 5 },
+  sessionRight: { alignItems: "flex-end", gap: 5 },
+  syncBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: "#ebf5ff" },
+  syncText: { color: C.brand, fontSize: 9, fontWeight: "900" },
+  reviewBadge: { backgroundColor: "#fffbeb" },
+  reviewText: { color: "#f59e0b" },
+  sessionScore: { color: "#1a1a1a", fontSize: 16, fontWeight: "900" },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#f04438" },
 });
 
 // ═══════════════════════════════════════
@@ -1311,47 +1373,67 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
             onPress={async () => { await rec.stop(); setPhase("choose"); }}
             style={st.callTopButton}
           >
-            <Ionicons name="close" size={22} color="#fff" />
+            <Ionicons name="chevron-down" size={22} color={C.text} />
           </Pressable>
-          <View style={st.callLiveBadge}><View style={st.callLiveDot} /><Text style={st.callLiveText}>LIVE RECORDING</Text></View>
+          <View style={st.callLiveBadge}><View style={st.callLiveDot} /><Text style={st.callLiveText}>{rec.isPaused ? "PAUSED" : "RECORDING"}</Text></View>
           <View style={st.callTopSpacer} />
         </View>
 
+        <View style={st.recordingAssetGrid}>
+          {assets.slice(0, 2).map((asset) => (
+            <Pressable key={asset.id} onPress={() => addAsset(asset)} style={({ pressed }) => [st.recordingAssetCard, pressed && st.pressed]}>
+              <Ionicons name={asset.type === "training" ? "play-circle-outline" : "image-outline"} size={28} color={C.brand} />
+              <Text style={st.recordingAssetTitle} numberOfLines={2}>{asset.name}</Text>
+              {selectedAssetIds.includes(asset.id) && <Ionicons name="checkmark-circle" size={18} color={C.green} style={st.recordingAssetCheck} />}
+            </Pressable>
+          ))}
+          <Pressable onPress={() => setAssetSheetOpen(true)} style={({ pressed }) => [st.recordingAssetCard, pressed && st.pressed]}>
+            <Ionicons name="document-text-outline" size={24} color={C.brand} />
+            <Text style={st.recordingAssetTitle}>Notes</Text>
+            <Text style={st.recordingAssetSub} numberOfLines={2}>Add room details and follow-ups.</Text>
+          </Pressable>
+          <Pressable onPress={() => setAssetSheetOpen(true)} style={({ pressed }) => [st.recordingAssetCard, pressed && st.pressed]}>
+            <Ionicons name="attach-outline" size={24} color={C.brand} />
+            <Text style={st.recordingAssetTitle}>Assets</Text>
+            <Text style={st.recordingAssetSub} numberOfLines={2}>Add media from your library.</Text>
+          </Pressable>
+        </View>
+
         <View style={st.callCenter}>
-          <View style={st.callMicHalo}>
-            <View style={st.callMicCore}><Ionicons name="mic" size={38} color="#fff" /></View>
-          </View>
-          <Text style={st.callTitle}>Tour conversation</Text>
-          <Text style={st.callTimer}>{fmtElapsed}</Text>
-          <View style={st.waveform} accessibilityElementsHidden>
-            {[18, 30, 42, 24, 50, 34, 44, 22, 38, 28, 46, 20].map((height, index) => (
-              <View key={`${height}-${index}`} style={[st.waveBar, { height }]} />
-            ))}
-          </View>
-          <Text style={st.callCaption}>Recording securely in the background</Text>
+          <Text style={st.callTitle} numberOfLines={1}>{title || "Tour conversation"}</Text>
+          <Text style={st.callCaption}>{rec.isPaused ? "Recording paused" : "Recording securely in the background"}</Text>
         </View>
 
         <View style={st.callControls}>
           <View style={st.callAction}>
             <Pressable onPress={() => setAssetSheetOpen(true)} style={({ pressed }) => [st.callActionButton, pressed && st.pressed]}>
-              <Ionicons name="attach" size={25} color="#fff" />
+              <Ionicons name="attach" size={25} color={C.text} />
               {selectedAssetIds.length > 0 && <View style={st.callActionCount}><Text style={st.callActionCountText}>{selectedAssetIds.length}</Text></View>}
             </Pressable>
             <Text style={st.callActionLabel}>Assets</Text>
           </View>
-          <View style={st.callAction}>
-            <Pressable onPress={stopRecording} style={({ pressed }) => [st.callStopButton, pressed && st.pressed]}>
-              <View style={st.callStopSquare} />
+          <View style={[st.callAction, { flex: 1, width: undefined, flexDirection: "row", justifyContent: "center" }]}>
+            <View style={st.recordingWaveRow} accessibilityElementsHidden>
+              {[18, 30, 42, 24, 38, 28].map((height, index) => <View key={`left-${index}`} style={[st.waveBar, { height }]} />)}
+            </View>
+            <Pressable accessibilityLabel={rec.isPaused ? "Resume recording" : "Pause recording"} onPress={() => void rec.togglePause()} style={({ pressed }) => [st.callStopButton, pressed && st.pressed]}>
+              <Ionicons name={rec.isPaused ? "play" : "pause"} size={24} color="#fff" />
             </Pressable>
-            <Text style={st.callActionLabel}>Finish</Text>
+            <View style={st.recordingWaveRow} accessibilityElementsHidden>
+              {[34, 20, 44, 24, 32, 16].map((height, index) => <View key={`right-${index}`} style={[st.waveBar, { height }]} />)}
+            </View>
           </View>
           <View style={st.callAction}>
             <Pressable onPress={() => setAssetSheetOpen(true)} style={({ pressed }) => [st.callActionButton, pressed && st.pressed]}>
-              <Ionicons name="create-outline" size={24} color="#fff" />
+              <Ionicons name="create-outline" size={24} color={C.text} />
             </Pressable>
             <Text style={st.callActionLabel}>Notes</Text>
           </View>
         </View>
+        <Text style={st.callTimer}>{fmtElapsed}</Text>
+        <Pressable onPress={stopRecording} style={({ pressed }) => [st.finishRecording, pressed && st.pressed]}>
+          <Text style={st.finishRecordingText}>Finish recording</Text>
+        </Pressable>
 
         <Modal visible={assetSheetOpen} transparent animationType="slide" onRequestClose={() => setAssetSheetOpen(false)}>
           <View style={st.sheetBackdrop}>
@@ -1540,6 +1622,21 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
   const sl = STATUS_LABELS[session.status] ?? session.status;
   const isProcessable = ["uploaded", "failed"].includes(session.status);
 
+  if (hasAnalysis) {
+    return (
+      <SessionReviewExperience
+        session={session}
+        analysis={analysis}
+        transcript={transcript}
+        comments={comments}
+        actions={actions}
+        sessionId={sessionId}
+        onBack={onBack}
+        onReload={load}
+      />
+    );
+  }
+
   return (
     <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
       <View style={st.page}>
@@ -1588,6 +1685,333 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
         )}
       </View>
     </ScrollView>
+  );
+}
+
+function SessionReviewExperience({
+  session,
+  analysis,
+  transcript,
+  comments,
+  actions,
+  sessionId,
+  onBack,
+  onReload,
+}: {
+  session: any;
+  analysis: AnalysisResult;
+  transcript: any[];
+  comments: SessionComment[];
+  actions: FollowUpAction[];
+  sessionId: string;
+  onBack: () => void;
+  onReload: () => void;
+}) {
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [speed, setSpeed] = useState(1);
+  const [activeSegmentId, setActiveSegmentId] = useState<string | null>(transcript[0]?.id ?? null);
+  const [commentingOn, setCommentingOn] = useState<any | null>(null);
+  const [commentBody, setCommentBody] = useState("");
+  const [posting, setPosting] = useState(false);
+  const [momentIndex, setMomentIndex] = useState(0);
+  const [reviewMode, setReviewMode] = useState<"transcript" | "coaching" | "ai" | "followup" | "actions">("transcript");
+  const scrollRef = useRef<ScrollView | null>(null);
+  const segmentY = useRef<Record<string, number>>({});
+  const userDragging = useRef(false);
+  const lastAutoSegment = useRef<string | null>(null);
+
+  const playbackUrl = getRecordingPlaybackUrl(sessionId);
+  const timestampedComments = useMemo(
+    () => comments.filter((comment) => comment.timestampSec !== null).sort((a, b) => (a.timestampSec ?? 0) - (b.timestampSec ?? 0)),
+    [comments]
+  );
+  const momentTimes = useMemo(() => {
+    if (timestampedComments.length) return timestampedComments.map((comment) => comment.timestampSec ?? 0);
+    if (!transcript.length) return [];
+    const stride = Math.max(1, Math.floor(transcript.length / 3));
+    return transcript.filter((_, index) => index % stride === 0).map((segment) => segment.startTime);
+  }, [timestampedComments, transcript]);
+
+  const scrollToSegment = useCallback((segment: any, animated = true) => {
+    if (!segment) return;
+    setActiveSegmentId(segment.id);
+    const y = segmentY.current[segment.id];
+    if (typeof y === "number") scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated });
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    let loadedSound: Audio.Sound | undefined;
+    void (async () => {
+      try {
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+        const result = await Audio.Sound.createAsync({ uri: playbackUrl }, { shouldPlay: false, progressUpdateIntervalMillis: 250 });
+        if (!mounted) {
+          await result.sound.unloadAsync();
+          return;
+        }
+        loadedSound = result.sound;
+        setSound(result.sound);
+        result.sound.setOnPlaybackStatusUpdate((status) => {
+          if (!mounted || !status.isLoaded) return;
+          const nextPosition = status.positionMillis / 1000;
+          setPosition(nextPosition);
+          if (status.durationMillis) setDuration(status.durationMillis / 1000);
+          setPlaying(status.isPlaying);
+          const segment = transcript.find((item) => nextPosition >= item.startTime && nextPosition < item.endTime);
+          if (segment) {
+            setActiveSegmentId(segment.id);
+            if (status.isPlaying && !userDragging.current && lastAutoSegment.current !== segment.id) {
+              lastAutoSegment.current = segment.id;
+              scrollToSegment(segment);
+            }
+          }
+          if (status.didJustFinish) setPlaying(false);
+        });
+      } catch {
+        showToast("Audio is unavailable for this session", "error");
+      }
+    })();
+    return () => {
+      mounted = false;
+      void loadedSound?.unloadAsync();
+    };
+  }, [playbackUrl, scrollToSegment, transcript]);
+
+  const seekToSeconds = useCallback(async (seconds: number, shouldPlay = false) => {
+    if (!sound) return;
+    const next = Math.max(0, Math.min(duration || seconds, seconds));
+    await sound.setPositionAsync(next * 1000);
+    setPosition(next);
+    if (shouldPlay) await sound.playAsync();
+    const segment = transcript.find((item) => next >= item.startTime && next < item.endTime) ?? transcript[0];
+    scrollToSegment(segment);
+  }, [duration, scrollToSegment, sound, transcript]);
+
+  const handleAiSeek = useCallback((seconds: number) => {
+    setReviewMode("transcript");
+    void seekToSeconds(seconds, true);
+  }, [seekToSeconds]);
+
+  async function togglePlayback() {
+    if (!sound) return;
+    if (playing) await sound.pauseAsync();
+    else await sound.playAsync();
+  }
+
+  async function changeSpeed() {
+    if (!sound) return;
+    const next = speed === 1 ? 1.25 : speed === 1.25 ? 1.5 : speed === 1.5 ? 2 : 1;
+    await sound.setRateAsync(next, true);
+    setSpeed(next);
+  }
+
+  async function postInlineComment() {
+    if (!commentingOn || !commentBody.trim()) return;
+    setPosting(true);
+    try {
+      await postComment(sessionId, { body: commentBody.trim(), timestampSec: commentingOn.startTime });
+      setCommentBody("");
+      setCommentingOn(null);
+      showToast("Comment added at this moment", "success");
+      onReload();
+    } catch {
+      showToast("Could not add comment", "error");
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  function jumpMoment(direction: 1 | -1) {
+    if (!momentTimes.length) return;
+    const next = (momentIndex + direction + momentTimes.length) % momentTimes.length;
+    setMomentIndex(next);
+    void seekToSeconds(momentTimes[next] ?? 0, true);
+  }
+
+  function commentsForSegment(segment: any) {
+    return comments.filter((comment) =>
+      comment.timestampSec !== null &&
+      comment.timestampSec >= segment.startTime &&
+      comment.timestampSec < segment.endTime
+    );
+  }
+
+  const pct = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
+
+  return (
+    <View style={reviewSt.root}>
+      <View style={reviewSt.header}>
+        <Pressable onPress={onBack} style={reviewSt.headerButton}><Ionicons name="arrow-back" size={22} color={C.text} /></Pressable>
+        <View style={reviewSt.propertyPicker}>
+          <Text style={reviewSt.propertyText} numberOfLines={1}>{session.location || "Session Review"}</Text>
+          <Ionicons name="chevron-down" size={15} color={C.textSec} />
+        </View>
+        <Pressable style={reviewSt.headerButton}><Ionicons name="notifications-outline" size={20} color={C.text} /></Pressable>
+      </View>
+
+      <View style={reviewSt.titleRow}>
+        <View style={st.flex1}>
+          <Text style={reviewSt.title} numberOfLines={1}>{session.title}</Text>
+          <Text style={reviewSt.subtitle}>{session.prospectName || "Recorded tour"} · {analysis.overallScore}% score</Text>
+        </View>
+        <View style={reviewSt.actionCount}><Text style={reviewSt.actionCountText}>{actions.filter((action) => action.status === "open").length} actions</Text></View>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={reviewSt.modeRow}>
+        {([
+          ["transcript", "Transcript", "chatbubble-outline"],
+          ["ai", "Tour AI", "sparkles"],
+          ["coaching", "Coaching", "school-outline"],
+          ["followup", "Follow-up", "paper-plane-outline"],
+          ["actions", "Actions", "checkmark-done-outline"],
+        ] as const).map(([mode, label, icon]) => (
+          <Pressable key={mode} onPress={() => setReviewMode(mode)} style={[reviewSt.modeButton, reviewMode === mode && reviewSt.modeButtonActive]}>
+            <Ionicons name={icon} size={15} color={reviewMode === mode ? C.brand : C.textSec} />
+            <Text style={[reviewSt.modeText, reviewMode === mode && reviewSt.modeTextActive]}>{label}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={reviewSt.transcriptContent}
+        scrollEventThrottle={16}
+        onScrollBeginDrag={() => { userDragging.current = true; }}
+        onMomentumScrollEnd={(event) => {
+          const offset = event.nativeEvent.contentOffset.y;
+          const closest = transcript.reduce<any | null>((best, segment) => {
+            if (!best) return segment;
+            return Math.abs((segmentY.current[segment.id] ?? 0) - offset) < Math.abs((segmentY.current[best.id] ?? 0) - offset) ? segment : best;
+          }, null);
+          userDragging.current = false;
+          if (closest && closest.id !== activeSegmentId) void seekToSeconds(closest.startTime);
+        }}
+        onScrollEndDrag={() => { setTimeout(() => { userDragging.current = false; }, 120); }}
+      >
+        {reviewMode === "coaching" && (
+          <View style={{ gap: 12 }}>
+            <ScoreHero analysis={analysis} />
+            <InfoCard title="Executive Summary" icon="document-text-outline">{analysis.summary}</InfoCard>
+            <View style={[st.card, { padding: 14, gap: 8, borderLeftWidth: 3, borderLeftColor: C.green }]}>
+              <Text style={[st.cardTitle, { color: C.green }]}>Strengths</Text>
+              {analysis.strengths.map((strength, index) => <BulletItem key={index} text={strength} color={C.green} />)}
+            </View>
+            <View style={[st.card, { padding: 14, gap: 8, borderLeftWidth: 3, borderLeftColor: C.amber }]}>
+              <Text style={[st.cardTitle, { color: C.amber }]}>Coaching opportunities</Text>
+              {analysis.opportunities.map((opportunity, index) => <BulletItem key={index} text={opportunity} color={C.amber} />)}
+            </View>
+            <RubricTab analysis={analysis} />
+          </View>
+        )}
+        {reviewMode === "ai" && (
+          <SessionAiChat sessionId={sessionId} analysis={analysis} onSeek={handleAiSeek} />
+        )}
+        {reviewMode === "followup" && (
+          <SessionFollowUpPanel
+            session={session}
+            actions={actions}
+            sessionId={sessionId}
+            onActionsUpdated={onReload}
+            onToast={(message, type) => showToast(message, type ?? "info")}
+          />
+        )}
+        {reviewMode === "actions" && <ActionsTab actions={actions} sessionId={sessionId} onUpdate={onReload} />}
+        {reviewMode === "transcript" && transcript.length === 0 && <EmptyState icon="chatbubble-outline" title="No transcript yet" subtitle="The transcript will appear after processing." />}
+        {reviewMode === "transcript" && transcript.map((segment, index) => {
+          const active = segment.id === activeSegmentId;
+          const isAgent = segment.speaker?.toLowerCase().includes("agent");
+          const segmentComments = commentsForSegment(segment);
+          return (
+            <View
+              key={segment.id || index}
+              onLayout={(event) => { segmentY.current[segment.id] = event.nativeEvent.layout.y; }}
+              style={[reviewSt.transcriptCard, active && reviewSt.transcriptCardActive]}
+            >
+              <Pressable onPress={() => void seekToSeconds(segment.startTime, true)} style={reviewSt.transcriptMain}>
+                <View style={[reviewSt.speakerAvatar, { backgroundColor: isAgent ? "#8766c9" : "#548ce3" }]}>
+                  <Text style={reviewSt.speakerAvatarText}>{isAgent ? "A" : "C"}</Text>
+                </View>
+                <View style={st.flex1}>
+                  <View style={reviewSt.metaRow}>
+                    <Text style={reviewSt.speaker}>{segment.speaker || (isAgent ? "Agent" : "Customer")}</Text>
+                    <Text style={reviewSt.segmentTime}>{fmtSec(segment.startTime)}</Text>
+                  </View>
+                  <Text style={reviewSt.transcriptText}>{segment.text}</Text>
+                </View>
+                <View style={reviewSt.segmentActions}>
+                  <Pressable accessibilityLabel="Add comment" onPress={() => setCommentingOn(segment)}><Ionicons name="chatbubble-outline" size={17} color={C.textSec} /></Pressable>
+                  <Pressable accessibilityLabel="Bookmark moment" onPress={() => void Haptics.selectionAsync()}><Ionicons name="bookmark-outline" size={17} color={C.textSec} /></Pressable>
+                </View>
+              </Pressable>
+              {segmentComments.map((comment) => (
+                <Pressable key={comment.id} onPress={() => void seekToSeconds(comment.timestampSec ?? segment.startTime, true)} style={reviewSt.inlineComment}>
+                  <Ionicons name="flash" size={13} color="#f59e0b" />
+                  <View style={st.flex1}>
+                    <Text style={reviewSt.inlineCommentAuthor}>{comment.authorName} · {fmtSec(comment.timestampSec ?? 0)}</Text>
+                    <Text style={reviewSt.inlineCommentBody}>{comment.body}</Text>
+                  </View>
+                </Pressable>
+              ))}
+              {commentingOn?.id === segment.id && (
+                <View style={reviewSt.inlineComposer}>
+                  <TextInput autoFocus value={commentBody} onChangeText={setCommentBody} placeholder={`Comment at ${fmtSec(segment.startTime)}`} placeholderTextColor={C.textMuted} style={reviewSt.inlineInput} />
+                  <Pressable disabled={posting || !commentBody.trim()} onPress={postInlineComment} style={reviewSt.inlineSend}>
+                    {posting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={16} color="#fff" />}
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          );
+        })}
+      </ScrollView>
+
+      <View style={reviewSt.playerDock}>
+        <View style={reviewSt.quickControls}>
+          <Pressable accessibilityLabel="Open Tour AI" onPress={() => setReviewMode("ai")} style={reviewSt.quickButton}><Ionicons name="sparkles" size={20} color={C.text} /></Pressable>
+          <Pressable accessibilityLabel="Open follow-up" onPress={() => setReviewMode("followup")} style={reviewSt.quickButton}><Ionicons name="paper-plane-outline" size={20} color={C.text} /></Pressable>
+          <Pressable accessibilityLabel="Open coaching" onPress={() => setReviewMode("coaching")} style={reviewSt.quickButton}><Ionicons name="school-outline" size={20} color={C.text} /></Pressable>
+          <Pressable accessibilityLabel="Follow active transcript" onPress={() => {
+            setReviewMode("transcript");
+            scrollToSegment(transcript.find((segment) => segment.id === activeSegmentId));
+          }} style={reviewSt.quickButton}><Ionicons name="mic-outline" size={20} color={C.text} /></Pressable>
+          <Pressable accessibilityLabel="Comment on active moment" onPress={() => {
+            const segment = transcript.find((item) => item.id === activeSegmentId);
+            if (segment) {
+              setReviewMode("transcript");
+              setCommentingOn(segment);
+              scrollToSegment(segment);
+            }
+          }} style={reviewSt.quickButton}><Ionicons name="chatbubble-outline" size={20} color={C.text} /></Pressable>
+        </View>
+        <View style={reviewSt.momentRow}>
+          <Pressable onPress={() => jumpMoment(-1)} style={reviewSt.prevButton}><Text style={reviewSt.prevText}>PREV</Text></Pressable>
+          <Text style={reviewSt.momentLabel}>⚡ Coachable Moments</Text>
+          <Pressable onPress={() => jumpMoment(1)} style={reviewSt.nextButton}><Text style={reviewSt.nextText}>NEXT ↓</Text></Pressable>
+        </View>
+        <Pressable onPress={(event) => {
+          const width = Dimensions.get("window").width - 40;
+          void seekToSeconds(((event.nativeEvent as any).locationX / width) * duration);
+        }} style={reviewSt.waveformTrack}>
+          {[8, 14, 28, 10, 32, 24, 18, 40, 34, 12, 22, 38, 16, 30, 24, 12, 36, 18, 28, 10, 20, 14, 30, 12].map((height, index) => (
+            <View key={`${height}-${index}`} style={[reviewSt.waveformBar, { height, opacity: (index / 23) * 100 <= pct ? 1 : 0.35 }]} />
+          ))}
+        </Pressable>
+        <View style={reviewSt.timeRow}><Text style={reviewSt.time}>{fmtSec(position)}</Text><Text style={reviewSt.time}>{fmtSec(duration)}</Text></View>
+        <View style={reviewSt.playbackRow}>
+          <Pressable onPress={changeSpeed}><Text style={reviewSt.speed}>{speed}x</Text></Pressable>
+          <Pressable onPress={() => void seekToSeconds(position - 10)}><Ionicons name="play-skip-back-outline" size={25} color={C.text} /></Pressable>
+          <Pressable disabled={!sound} onPress={togglePlayback} style={reviewSt.playButton}>
+            {!sound ? <ActivityIndicator color="#fff" /> : <Ionicons name={playing ? "pause" : "play"} size={25} color="#fff" />}
+          </Pressable>
+          <Pressable onPress={() => void seekToSeconds(position + 10)}><Ionicons name="play-skip-forward-outline" size={25} color={C.text} /></Pressable>
+          <Pressable onPress={() => scrollToSegment(transcript.find((segment) => segment.id === activeSegmentId))}><Ionicons name="scan-outline" size={25} color={C.text} /></Pressable>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -2815,12 +3239,6 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [communityPickerOpen, setCommunityPickerOpen] = useState(false);
   const [communityQuery, setCommunityQuery] = useState("");
-  const filteredCommunities = useMemo(() => {
-    const value = communityQuery.trim().toLowerCase();
-    return value
-      ? session.workspace.communities.filter((community) => community.name.toLowerCase().includes(value))
-      : session.workspace.communities;
-  }, [communityQuery, session.workspace.communities]);
 
   async function chooseCommunity(communityId: string) {
     if (communityId === session.workspace.community.id) {
@@ -2867,114 +3285,102 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
       <CardRow icon="log-out-outline" title="Sign out" sub="Remove this account from the device" onPress={onSignOut} />
       <Text style={st.settingsVersion}>Tour mobile 0.1.0 · {session.workspace.membership.companyName}</Text>
 
-      <Modal visible={communityPickerOpen} transparent animationType="slide" onRequestClose={() => setCommunityPickerOpen(false)}>
-        <View style={st.sheetBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setCommunityPickerOpen(false)} />
-          <View style={[st.assetSheet, { minHeight: "70%" }]}>
-            <View style={st.sheetHandle} />
-            <View style={st.sheetHeader}>
-              <View style={st.flex1}>
-                <Text style={st.sheetTitle}>Switch community</Text>
-                <Text style={st.sheetSubtitle}>Your dashboard and integrations will update.</Text>
-              </View>
-              <Pressable accessibilityLabel="Close communities" onPress={() => setCommunityPickerOpen(false)} style={st.iconButton}>
-                <Ionicons name="close" size={20} color={C.text} />
-              </Pressable>
-            </View>
-            <View style={st.searchBar}>
-              <Ionicons name="search" size={18} color={C.textMuted} />
-              <TextInput
-                value={communityQuery}
-                onChangeText={setCommunityQuery}
-                placeholder="Search communities"
-                placeholderTextColor={C.textMuted}
-                style={st.searchInput}
-              />
-            </View>
-            <FlatList
-              data={filteredCommunities}
-              keyExtractor={(community) => community.id}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingTop: 10, paddingBottom: 20 }}
-              renderItem={({ item }) => {
-                const active = item.id === session.workspace.community.id;
-                return (
-                  <Pressable onPress={() => void chooseCommunity(item.id)} style={({ pressed }) => [st.communitySettingRow, st.rowBorder, pressed && st.pressed]}>
-                    <View style={[st.communitySettingIcon, active && { backgroundColor: C.greenBg }]}>
-                      <Ionicons name="business-outline" size={18} color={active ? C.green : C.brand} />
-                    </View>
-                    <Text style={st.communitySettingName} numberOfLines={1}>{item.name}</Text>
-                    {switchingId === item.id ? <ActivityIndicator size="small" color={C.brand} /> : active ? <Ionicons name="checkmark-circle" size={20} color={C.green} /> : <Ionicons name="chevron-forward" size={17} color={C.textMuted} />}
-                  </Pressable>
-                );
-              }}
-            />
-          </View>
-        </View>
-      </Modal>
+      <CommunityPickerModal
+        visible={communityPickerOpen}
+        session={session}
+        query={communityQuery}
+        switchingId={switchingId}
+        onQueryChange={setCommunityQuery}
+        onClose={() => {
+          if (!switchingId) {
+            setCommunityPickerOpen(false);
+            setCommunityQuery("");
+          }
+        }}
+        onSelect={(communityId) => void chooseCommunity(communityId)}
+      />
     </View>
   );
 }
 
-// ═══════════════════════════════════════
-// Onboarding (preserved)
-// ═══════════════════════════════════════
-
-function OnboardingScreen({ idx, ob, player, step, onChange, onFinish, onStep }: {
-  idx: number; ob: ObData; player: ReturnType<typeof useVideoPlayer>; step: OnboardingStep;
-  onChange: (k: keyof ObData, v: string) => void; onFinish: () => void; onStep: (s: OnboardingStep) => void;
+function CommunityPickerModal({
+  visible,
+  session,
+  query,
+  switchingId,
+  onQueryChange,
+  onClose,
+  onSelect,
+}: {
+  visible: boolean;
+  session: MobileAuthSession;
+  query: string;
+  switchingId: string | null;
+  onQueryChange: (query: string) => void;
+  onClose: () => void;
+  onSelect: (communityId: string) => void;
 }) {
+  const filteredCommunities = useMemo(() => {
+    const value = query.trim().toLowerCase();
+    return value
+      ? session.workspace.communities.filter((community) => community.name.toLowerCase().includes(value))
+      : session.workspace.communities;
+  }, [query, session.workspace.communities]);
+
   return (
-    <View style={st.obShell}>
-      <VideoView allowsFullscreen={false} allowsPictureInPicture={false} contentFit="cover" nativeControls={false} player={player} playsInline style={StyleSheet.absoluteFillObject} />
-      <View style={st.obScrim} />
-      <View style={st.obContent}>
-        <View style={{ gap: 10, paddingTop: 40 }}>
-          <Text style={st.obEye}>Tour.video onboarding</Text>
-          <Text style={st.obTitle}>Set up your leasing profile.</Text>
-          <Text style={st.obSub}>Create the card visitors scan before a tour, attach it to your property, and verify your phone.</Text>
-        </View>
-        <View style={st.obStepper}>
-          {onboardingSteps.map((s, i) => (
-            <View key={s.id} style={st.obStepItem}>
-              <View style={[st.obStepDot, i === idx && st.obStepDotActive, i < idx && st.obStepDotDone]}><Text style={[st.obStepDotText, (i === idx || i < idx) && { color: i < idx ? "#fff" : C.text }]}>{i + 1}</Text></View>
-              <Text style={[st.obStepLabel, i === idx && { color: "#fff" }]}>{s.label}</Text>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={st.sheetBackdrop}>
+        <Pressable style={StyleSheet.absoluteFill} disabled={Boolean(switchingId)} onPress={onClose} />
+        <View style={[st.assetSheet, { minHeight: "70%" }]}>
+          <View style={st.sheetHandle} />
+          <View style={st.sheetHeader}>
+            <View style={st.flex1}>
+              <Text style={st.sheetTitle}>Switch community</Text>
+              <Text style={st.sheetSubtitle}>Your dashboard, sessions, assets, and integrations will update.</Text>
             </View>
-          ))}
-        </View>
-        <View style={st.obCard}>
-          {step === "rep" && (
-            <View style={{ gap: 14 }}>
-              <Text style={st.formTitle}>Your leasing rep details</Text>
-              <Input placeholder="Name" value={ob.name} onChangeText={(v) => onChange("name", v)} icon="person-outline" />
-              <Input placeholder="Email" value={ob.email} onChangeText={(v) => onChange("email", v)} icon="mail-outline" keyboardType="email-address" autoCapitalize="none" />
-              <Input placeholder="Phone" value={ob.phone} onChangeText={(v) => onChange("phone", v)} icon="call-outline" keyboardType="phone-pad" />
-              <PrimaryBtn label="Continue to property" onPress={() => onStep("property")} icon="arrow-forward" />
-            </View>
-          )}
-          {step === "property" && (
-            <View style={{ gap: 14 }}>
-              <Text style={st.formTitle}>Property and team</Text>
-              <Input placeholder="Property name" value={ob.property} onChangeText={(v) => onChange("property", v)} icon="business-outline" />
-              <Input placeholder="Invite team members by email" value={ob.teamInvites} onChangeText={(v) => onChange("teamInvites", v)} icon="people-outline" multiline />
-              <PrimaryBtn label="Continue to verification" onPress={() => onStep("security")} icon="arrow-forward" />
-            </View>
-          )}
-          {step === "security" && (
-            <View style={{ gap: 14 }}>
-              <Text style={st.formTitle}>Password and phone verification</Text>
-              <Input placeholder="Create password" value={ob.password} onChangeText={(v) => onChange("password", v)} icon="lock-closed-outline" secureTextEntry />
-              <Input placeholder="6-digit code" value={ob.verificationCode} onChangeText={(v) => onChange("verificationCode", v)} icon="keypad-outline" keyboardType="number-pad" />
-              <View style={{ backgroundColor: "#eaf4ff", borderRadius: 16, padding: 12, flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Ionicons name="information-circle-outline" size={16} color={C.brand} />
-                <Text style={{ color: C.brand, fontSize: 13, fontWeight: "800" }}>Code sent to {ob.phone || AGENT.phone}</Text>
-              </View>
-              <PrimaryBtn label="Finish setup" onPress={onFinish} icon="checkmark-circle-outline" />
-            </View>
-          )}
+            <Pressable accessibilityLabel="Close communities" disabled={Boolean(switchingId)} onPress={onClose} style={st.iconButton}>
+              <Ionicons name="close" size={20} color={C.text} />
+            </Pressable>
+          </View>
+          <View style={st.searchBar}>
+            <Ionicons name="search" size={18} color={C.textMuted} />
+            <TextInput
+              value={query}
+              onChangeText={onQueryChange}
+              placeholder="Search communities"
+              placeholderTextColor={C.textMuted}
+              style={st.searchInput}
+            />
+          </View>
+          <FlatList
+            data={filteredCommunities}
+            keyExtractor={(community) => community.id}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingTop: 10, paddingBottom: 20 }}
+            ListEmptyComponent={<EmptyState icon="business-outline" title="No communities found" subtitle="Try a different search." />}
+            renderItem={({ item }) => {
+              const active = item.id === session.workspace.community.id;
+              return (
+                <Pressable disabled={Boolean(switchingId)} onPress={() => onSelect(item.id)} style={({ pressed }) => [st.communitySettingRow, st.rowBorder, pressed && st.pressed]}>
+                  <View style={[st.communitySettingIcon, active && { backgroundColor: C.greenBg }]}>
+                    <Ionicons name="business-outline" size={18} color={active ? C.green : C.brand} />
+                  </View>
+                  <View style={st.flex1}>
+                    <Text style={st.communitySettingName} numberOfLines={1}>{item.name}</Text>
+                    {item.alias && <Text style={st.cardRowSub} numberOfLines={1}>{item.alias}</Text>}
+                  </View>
+                  {switchingId === item.id
+                    ? <ActivityIndicator size="small" color={C.brand} />
+                    : active
+                      ? <Ionicons name="checkmark-circle" size={20} color={C.green} />
+                      : <Ionicons name="chevron-forward" size={17} color={C.textMuted} />}
+                </Pressable>
+              );
+            }}
+          />
         </View>
       </View>
-    </View>
+    </Modal>
   );
 }
 
@@ -3130,6 +3536,98 @@ function SegPicker({ label, options, value, onChange }: { label: string; options
 
 const W = Dimensions.get("window").width;
 
+const homeSt = StyleSheet.create({
+  topBar: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  propertyPicker: { maxWidth: 190, minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 16, borderRadius: 8, backgroundColor: "#f0f0f5" },
+  propertyPickerText: { flexShrink: 1, color: "#666", fontSize: 16, fontWeight: "700" },
+  headerIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e2e2e2", borderRadius: 8, backgroundColor: "#fff" },
+  businessCard: { padding: 16, gap: 14, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 20, backgroundColor: "#fff", shadowColor: "#101828", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.07, shadowRadius: 12, elevation: 2 },
+  profileRow: { flexDirection: "row", alignItems: "center", gap: 11 },
+  profileAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: C.brand },
+  profileAvatarText: { color: "#fff", fontSize: 14, fontWeight: "900" },
+  profileName: { color: "#000", fontSize: 14, fontWeight: "800" },
+  profileRole: { color: C.textSec, fontSize: 11, marginTop: 3 },
+  contactRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  contactText: { flex: 1, color: C.textSec, fontSize: 11 },
+  smsButton: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: "#1674ff" },
+  smsButtonText: { color: "#fff", fontSize: 10, fontWeight: "800" },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 7 },
+  sectionTitle: { flex: 1, color: C.text, fontSize: 17, fontWeight: "900" },
+  sectionAction: { color: C.brand, fontSize: 13, fontWeight: "800" },
+  tourCard: { minHeight: 70, flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 12, borderWidth: 1, borderColor: C.border, borderRadius: 16, backgroundColor: "#fff" },
+  tourTitle: { color: C.text, fontSize: 15, fontWeight: "800" },
+  tourMetaRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 8 },
+  timePill: { color: C.brand, fontSize: 11, fontWeight: "800", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4, backgroundColor: "rgba(0,108,229,0.07)" },
+  tourMeta: { flex: 1, color: C.textSec, fontSize: 12 },
+  statusPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20 },
+  statusText: { fontSize: 9, fontWeight: "900" },
+  actionCard: { minHeight: 78, flexDirection: "row", alignItems: "center", gap: 14, padding: 14, borderWidth: 1, borderColor: "#e5e5e5", borderRadius: 12, backgroundColor: "#fff" },
+  actionIcon: { width: 48, height: 48, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
+  qrBrandCenter: { position: "absolute", width: 18, height: 18, borderRadius: 5, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
+  actionTitle: { color: "#000", fontSize: 14, fontWeight: "900" },
+  actionSub: { color: C.textSec, fontSize: 12, marginTop: 3 },
+  mediaRow: { flexDirection: "row", gap: 10 },
+  mediaTile: { width: "31.5%", aspectRatio: 1, justifyContent: "flex-end", gap: 6, padding: 10, borderRadius: 12, backgroundColor: "#eef4ff" },
+  mediaLabel: { color: C.text, fontSize: 11, fontWeight: "700" },
+  emptyInline: { color: C.textSec, fontSize: 12 },
+  createButton: { minHeight: 50, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: "#1674ff" },
+  createButtonText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+  insightCard: { minHeight: 105, flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderWidth: 1, borderLeftWidth: 4, borderColor: C.brand, borderRadius: 16, backgroundColor: "#fff" },
+  insightText: { color: C.text, fontSize: 14, lineHeight: 20, fontWeight: "600" },
+  insightLink: { color: C.brand, fontSize: 12, fontWeight: "800", marginTop: 10 },
+});
+
+const reviewSt = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#f9fafb", paddingTop: Platform.OS === "ios" ? 50 : 18 },
+  header: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
+  headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 9, backgroundColor: "#fff" },
+  propertyPicker: { maxWidth: 200, minHeight: 37, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 16, borderRadius: 8, backgroundColor: "#f0f0f5" },
+  propertyText: { flexShrink: 1, color: "#666", fontSize: 16, fontWeight: "700" },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 20, paddingVertical: 12 },
+  title: { color: C.text, fontSize: 22, fontWeight: "900" },
+  subtitle: { color: C.textSec, fontSize: 11, marginTop: 3 },
+  actionCount: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, backgroundColor: "#eef2ff" },
+  actionCountText: { color: "#4338ca", fontSize: 10, fontWeight: "800" },
+  modeRow: { flexDirection: "row", gap: 8, paddingHorizontal: 20, paddingBottom: 10 },
+  modeButton: { flex: 1, minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, backgroundColor: "#fff" },
+  modeButtonActive: { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" },
+  modeText: { color: C.textSec, fontSize: 11, fontWeight: "800" },
+  modeTextActive: { color: C.brand },
+  transcriptContent: { gap: 8, paddingHorizontal: 20, paddingTop: 4, paddingBottom: 330 },
+  transcriptCard: { overflow: "hidden", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 16, backgroundColor: "#fff", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.035, shadowRadius: 5 },
+  transcriptCardActive: { borderLeftWidth: 4, borderLeftColor: "#2563eb" },
+  transcriptMain: { flexDirection: "row", alignItems: "flex-start", gap: 11, padding: 12 },
+  speakerAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  speakerAvatarText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  metaRow: { flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 4 },
+  speaker: { color: "#47546b", fontSize: 13, fontWeight: "700" },
+  segmentTime: { color: "#a3adbd", fontSize: 11 },
+  transcriptText: { color: "#4d5970", fontSize: 14, lineHeight: 21 },
+  segmentActions: { width: 24, alignItems: "center", gap: 14, paddingTop: 2 },
+  inlineComment: { flexDirection: "row", alignItems: "flex-start", gap: 7, marginHorizontal: 12, marginBottom: 10, padding: 9, borderRadius: 10, backgroundColor: "#fffbeb" },
+  inlineCommentAuthor: { color: "#b45309", fontSize: 10, fontWeight: "900" },
+  inlineCommentBody: { color: C.text, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  inlineComposer: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: "#eef2f7" },
+  inlineInput: { flex: 1, minHeight: 38, paddingHorizontal: 11, borderWidth: 1, borderColor: "#d7dee8", borderRadius: 9, color: C.text, fontSize: 13 },
+  inlineSend: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, backgroundColor: C.brand },
+  playerDock: { position: "absolute", left: 0, right: 0, bottom: 0, gap: 13, paddingHorizontal: 20, paddingTop: 18, paddingBottom: Platform.OS === "ios" ? 28 : 16, borderTopWidth: 1, borderTopColor: "#e5e7eb", backgroundColor: "rgba(255,255,255,0.98)" },
+  quickControls: { flexDirection: "row", gap: 12 },
+  quickButton: { flex: 1, height: 44, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 22 },
+  momentRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  prevButton: { paddingHorizontal: 15, paddingVertical: 9, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 },
+  prevText: { color: C.text, fontSize: 12, fontWeight: "900" },
+  momentLabel: { color: "#2563eb", fontSize: 12, fontWeight: "900" },
+  nextButton: { paddingHorizontal: 15, paddingVertical: 10, borderRadius: 8, backgroundColor: "#2563eb", shadowColor: "#2563eb", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.25, shadowRadius: 9 },
+  nextText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+  waveformTrack: { height: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 },
+  waveformBar: { width: 3, borderRadius: 2, backgroundColor: "#3b82f6" },
+  timeRow: { flexDirection: "row", justifyContent: "space-between", marginTop: -12 },
+  time: { color: "#6b7280", fontSize: 10 },
+  playbackRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  speed: { minWidth: 28, color: C.text, fontSize: 13, fontWeight: "900" },
+  playButton: { width: 56, height: 56, alignItems: "center", justifyContent: "center", borderRadius: 28, backgroundColor: "#2563eb", shadowColor: "#2563eb", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.24, shadowRadius: 9 },
+});
+
 const st = StyleSheet.create({
   root: { backgroundColor: C.bg, flex: 1 },
   flex1: { flex: 1 },
@@ -3270,29 +3768,37 @@ const st = StyleSheet.create({
   rubricItemNote: { color: C.textSec, fontSize: 11, fontWeight: "500", lineHeight: 16, marginTop: 4 },
 
   // Call recorder
-  callRecorder: { flex: 1, backgroundColor: "#111318", paddingHorizontal: 22, paddingTop: Platform.OS === "ios" ? 56 : 24, paddingBottom: Platform.OS === "ios" ? 38 : 24 },
+  callRecorder: { flex: 1, backgroundColor: "#fff", paddingHorizontal: 22, paddingTop: Platform.OS === "ios" ? 56 : 24, paddingBottom: Platform.OS === "ios" ? 30 : 20 },
   callTopBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  callTopButton: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.1)" },
+  callTopButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#f2f2f7" },
   callTopSpacer: { width: 42 },
-  callLiveBadge: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 7, backgroundColor: "rgba(255,255,255,0.08)" },
-  callLiveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#f04438" },
-  callLiveText: { color: "#f2f4f7", fontSize: 10, fontWeight: "900" },
-  callCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 20 },
+  callLiveBadge: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 100, backgroundColor: "rgba(0,122,255,0.08)" },
+  callLiveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#007aff" },
+  callLiveText: { color: "#007aff", fontSize: 10, fontWeight: "900" },
+  callCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 12 },
   callMicHalo: { width: 128, height: 128, borderRadius: 64, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(79,70,229,0.17)", marginBottom: 24 },
   callMicCore: { width: 88, height: 88, borderRadius: 44, alignItems: "center", justifyContent: "center", backgroundColor: "#4f46e5", shadowColor: "#4f46e5", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.38, shadowRadius: 24, elevation: 8 },
-  callTitle: { color: "#fff", fontSize: 21, fontWeight: "800" },
-  callTimer: { color: "#fff", fontSize: 48, fontWeight: "300", fontVariant: ["tabular-nums"], marginTop: 7 },
+  callTitle: { color: "#636366", fontSize: 20, fontWeight: "800", textTransform: "uppercase" },
+  callTimer: { color: "#111", fontSize: 36, fontWeight: "800", fontVariant: ["tabular-nums"], marginTop: 18, textAlign: "center" },
   waveform: { height: 54, flexDirection: "row", alignItems: "center", gap: 5, marginTop: 22 },
-  waveBar: { width: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.72)" },
-  callCaption: { color: "#98a2b3", fontSize: 12, fontWeight: "600", marginTop: 12 },
+  waveBar: { width: 3, borderRadius: 2, backgroundColor: "#3b82f6" },
+  callCaption: { color: "#98a2b3", fontSize: 12, fontWeight: "600", marginTop: 7 },
   callControls: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-around" },
   callAction: { width: 82, alignItems: "center", gap: 8 },
-  callActionButton: { width: 58, height: 58, borderRadius: 29, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.12)" },
+  callActionButton: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(25,23,23,0.06)" },
   callActionCount: { position: "absolute", top: -3, right: -2, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#4f46e5", borderWidth: 2, borderColor: "#111318" },
   callActionCountText: { color: "#fff", fontSize: 10, fontWeight: "900" },
-  callStopButton: { width: 66, height: 66, borderRadius: 33, alignItems: "center", justifyContent: "center", backgroundColor: "#f04438", borderWidth: 4, borderColor: "rgba(255,255,255,0.9)" },
+  callStopButton: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: "#2563eb", shadowColor: "#2563eb", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 9 },
   callStopSquare: { width: 23, height: 23, borderRadius: 4, backgroundColor: "#fff" },
-  callActionLabel: { color: "#d0d5dd", fontSize: 12, fontWeight: "700" },
+  callActionLabel: { color: C.text, fontSize: 10, fontWeight: "700" },
+  recordingAssetGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 46 },
+  recordingAssetCard: { width: "48.5%", minHeight: 112, justifyContent: "flex-end", gap: 5, padding: 12, borderRadius: 16, backgroundColor: "#f2f2f7", shadowColor: "#000", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.06, shadowRadius: 8 },
+  recordingAssetTitle: { color: C.text, fontSize: 13, fontWeight: "800" },
+  recordingAssetSub: { color: "#636366", fontSize: 11, lineHeight: 15 },
+  recordingAssetCheck: { position: "absolute", right: 9, top: 9 },
+  recordingWaveRow: { flexDirection: "row", alignItems: "center", gap: 2 },
+  finishRecording: { alignSelf: "center", marginTop: 10, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 20, backgroundColor: "#eef2ff" },
+  finishRecordingText: { color: C.brand, fontSize: 12, fontWeight: "900" },
   cancelSessionBtn: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 8, backgroundColor: C.redBg },
   cancelSessionText: { color: C.red, fontSize: 13, fontWeight: "800" },
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(16,24,40,0.52)" },
@@ -3381,19 +3887,4 @@ const st = StyleSheet.create({
   avatarLgText: { color: C.brand, fontSize: 26, fontWeight: "900" },
   avatar36: { alignItems: "center", backgroundColor: "#e9f2ff", borderRadius: 14, height: 42, justifyContent: "center", width: 42 },
 
-  // Onboarding
-  obShell: { borderRadius: 34, minHeight: 760, overflow: "hidden" },
-  obScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(8, 18, 38, 0.58)" },
-  obContent: { gap: 18, minHeight: 760, padding: 18, justifyContent: "flex-end" },
-  obEye: { color: "rgba(255,255,255,0.78)", fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
-  obTitle: { color: "#fff", fontSize: 36, fontWeight: "900", lineHeight: 40 },
-  obSub: { color: "rgba(255,255,255,0.82)", fontSize: 16, fontWeight: "700", lineHeight: 23 },
-  obStepper: { backgroundColor: "rgba(255,255,255,0.14)", borderColor: "rgba(255,255,255,0.18)", borderRadius: 24, borderWidth: 1, flexDirection: "row", gap: 10, padding: 12 },
-  obStepItem: { alignItems: "center", flex: 1, gap: 8 },
-  obStepDot: { alignItems: "center", backgroundColor: "rgba(255,255,255,0.16)", borderRadius: 999, height: 34, justifyContent: "center", width: 34 },
-  obStepDotActive: { backgroundColor: "#fff" },
-  obStepDotDone: { backgroundColor: C.green },
-  obStepDotText: { color: "rgba(255,255,255,0.72)", fontSize: 13, fontWeight: "900" },
-  obStepLabel: { color: "rgba(255,255,255,0.72)", fontSize: 12, fontWeight: "900" },
-  obCard: { backgroundColor: "rgba(255,255,255,0.96)", borderRadius: 30, padding: 18 },
 });

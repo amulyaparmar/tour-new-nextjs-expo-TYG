@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     .select("id,name,gmb_id,alias,entrata_property_id,companies(id,name,slug)")
     .eq("portal_enabled", true)
     .order("name", { ascending: true })
-    .limit(100);
+    .limit(1000);
 
   if (query) builder = builder.ilike("name", `%${query}%`);
   const { data, error } = await builder;

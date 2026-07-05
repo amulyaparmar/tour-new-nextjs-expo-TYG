@@ -7,14 +7,22 @@ let activityId: string | undefined;
 let recordingStartMs: number | undefined;
 let liveActivityAvailable: boolean | undefined;
 
-const LIVE_ACTIVITY_CONFIG = {
-  backgroundColor: "B91C1C",
-  titleColor: "FFFFFF",
-  subtitleColor: "FFFFFFCC",
-  progressViewTint: "FFFFFF",
-  progressViewLabelColor: "FFFFFF",
-  timerType: "digital" as const,
-};
+/** Tour brand colors + mark asset (see assets/liveActivity/tour-mark.png). */
+const TOUR_LIVE_ACTIVITY = {
+  imageName: "tour-mark",
+  dynamicIslandImageName: "tour-mark",
+  config: {
+    backgroundColor: "006CE5",
+    titleColor: "FFFFFF",
+    subtitleColor: "FFFFFFCC",
+    progressViewTint: "FFFFFF",
+    progressViewLabelColor: "FFFFFF",
+    timerType: "digital" as const,
+    imagePosition: "right" as const,
+    imageAlign: "center" as const,
+    contentFit: "contain" as const,
+  },
+} as const;
 
 function getLiveActivity(): LiveActivityModule | null {
   if (!supportsLiveActivities()) return null;
@@ -28,17 +36,21 @@ function getLiveActivity(): LiveActivityModule | null {
   }
 }
 
-function liveActivityState(elapsed: number, isPaused: boolean) {
-  const subtitle = isPaused
-    ? `Paused · ${formatElapsed(elapsed)}`
-    : formatElapsed(elapsed);
+function liveActivityState(elapsed: number, isPaused: boolean, finished = false) {
+  const subtitle = finished
+    ? `Saved · ${formatElapsed(elapsed)}`
+    : isPaused
+      ? `Paused · ${formatElapsed(elapsed)}`
+      : `Recording · ${formatElapsed(elapsed)}`;
 
   const state: import("expo-live-activity").LiveActivityState = {
-    title: "Tour Recording",
+    title: "Tour",
     subtitle,
+    imageName: TOUR_LIVE_ACTIVITY.imageName,
+    dynamicIslandImageName: TOUR_LIVE_ACTIVITY.dynamicIslandImageName,
   };
 
-  if (recordingStartMs && !isPaused) {
+  if (recordingStartMs && !isPaused && !finished) {
     state.progressBar = {
       date: recordingStartMs + 4 * 60 * 60 * 1000,
     };
@@ -63,7 +75,7 @@ function runLiveActivity(action: (LiveActivity: LiveActivityModule) => void): vo
 export function startRecordingLiveActivity(): void {
   runLiveActivity((LiveActivity) => {
     recordingStartMs = Date.now();
-    const id = LiveActivity.startActivity(liveActivityState(0, false), LIVE_ACTIVITY_CONFIG);
+    const id = LiveActivity.startActivity(liveActivityState(0, false), TOUR_LIVE_ACTIVITY.config);
     activityId = id ?? undefined;
   });
 }
@@ -78,10 +90,7 @@ export function updateRecordingLiveActivity(elapsed: number, isPaused: boolean):
 export function stopRecordingLiveActivity(elapsed: number): void {
   if (!activityId) return;
   runLiveActivity((LiveActivity) => {
-    LiveActivity.stopActivity(activityId!, {
-      title: "Tour Recording",
-      subtitle: `Saved · ${formatElapsed(elapsed)}`,
-    });
+    LiveActivity.stopActivity(activityId!, liveActivityState(elapsed, false, true));
     activityId = undefined;
     recordingStartMs = undefined;
   });

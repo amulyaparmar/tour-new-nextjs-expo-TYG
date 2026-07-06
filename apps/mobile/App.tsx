@@ -37,9 +37,10 @@ import {
 import {
   buildPhaseTracks,
   findPhaseForTimestamp,
-  PHASE_COLORS,
   processingStatusMessage,
+  segmentTrackColor,
   shortPhaseLabel,
+  tourSegmentColor,
 } from "./src/conversationPhases";
 import {
   type Material,
@@ -1861,8 +1862,8 @@ function SessionReviewExperience({
                   <View style={reviewSt.metaRow}>
                     <Text style={reviewSt.speaker}>{segment.speaker || (isAgent ? "Agent" : "Customer")}</Text>
                     {phase && (
-                      <View style={[reviewSt.phasePill, { backgroundColor: `${PHASE_COLORS[phase.phaseId]}22` }]}>
-                        <Text style={[reviewSt.phasePillText, { color: PHASE_COLORS[phase.phaseId] }]}>
+                      <View style={[reviewSt.phasePill, { backgroundColor: `${tourSegmentColor(phases?.spans.findIndex((span) => span.id === phase.id) ?? 0)}22` }]}>
+                        <Text style={[reviewSt.phasePillText, { color: tourSegmentColor(phases?.spans.findIndex((span) => span.id === phase.id) ?? 0) }]}>
                           {shortPhaseLabel(phase.label)}
                         </Text>
                       </View>
@@ -1931,7 +1932,7 @@ function SessionReviewExperience({
                   {
                     left: `${track.leftPct}%`,
                     width: `${Math.max(track.widthPct, 1.5)}%`,
-                    backgroundColor: PHASE_COLORS[track.phaseId],
+                    backgroundColor: segmentTrackColor(track),
                   },
                 ]}
               />

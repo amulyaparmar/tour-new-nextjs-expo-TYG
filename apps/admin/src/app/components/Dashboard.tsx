@@ -9,6 +9,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
 } from "recharts";
 import { useAdminData } from "../data/AdminDataContext";
+import { uploadFileWithPresign } from "../lib/upload";
 
 type SortKey = "prospect" | "property" | "agent" | "date" | "duration" | "score";
 type SortDir = "asc" | "desc";
@@ -80,9 +81,16 @@ export function Dashboard({
       });
       if (!createResponse.ok) throw new Error("Could not create session");
       const { session } = await createResponse.json();
-      const form = new FormData();
-      form.append("file", uploadFile);
-      await fetch(apiUrl(`/api/sessions/${session.id}/upload`), { method: "POST", body: form });
+      await uploadFileWithPresign({
+        presignUrl: apiUrl(`/api/sessions/${session.id}/upload/presign`),
+        completeUrl: apiUrl(`/api/sessions/${session.id}/upload/complete`),
+        file: uploadFile,
+        contentType: uploadFile.type || "application/octet-stream",
+        presignBody: {
+          fileName: uploadFile.name,
+          contentType: uploadFile.type || "application/octet-stream",
+        },
+      });
       void fetch(apiUrl(`/api/sessions/${session.id}/process`), { method: "POST" });
       setShowUpload(false);
       setUploadFile(null);

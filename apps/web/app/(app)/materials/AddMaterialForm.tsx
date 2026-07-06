@@ -5,6 +5,8 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { Loader2, Upload } from "lucide-react";
 
+import { uploadFileWithPresign } from "@/lib/client-upload";
+
 type MaterialType = "training" | "other";
 
 export function AddMaterialForm() {
@@ -26,15 +28,21 @@ export function AddMaterialForm() {
 
     try {
       if (file) {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("name", name.trim() || file.name);
-        formData.append("type", type);
-        formData.append("description", description.trim());
-
-        const res = await fetch("/api/materials/upload", { method: "POST", body: formData });
-        const body = await res.json().catch(() => null) as { error?: string } | null;
-        if (!res.ok) throw new Error(body?.error ?? "Upload failed");
+        await uploadFileWithPresign({
+          presignUrl: "/api/materials/upload/presign",
+          completeUrl: "/api/materials/upload/complete",
+          file,
+          contentType: file.type || "application/octet-stream",
+          presignBody: {
+            fileName: file.name,
+            contentType: file.type || "application/octet-stream",
+          },
+          completeBody: () => ({
+            name: name.trim() || file.name,
+            type,
+            description: description.trim(),
+          }),
+        });
       } else {
         if (!name.trim()) {
           setError("Name is required.");

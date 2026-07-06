@@ -14,9 +14,10 @@ import {
 } from "lucide-react";
 
 import type { ConversationPhaseSegmentation } from "@tour/shared";
-import { buildPhaseTracks } from "@tour/shared";
+import { buildPhaseTracks, formatSegmentTimeRange } from "@tour/shared";
 
-import { phaseSegmentClass, playerMarkerByType, playerSpeakerSegment } from "./session-detail-class-maps";
+import { playerMarkerByType, playerSpeakerSegment, segmentTrackClasses } from "./session-detail-class-maps";
+import { PlayerActiveCaption } from "./PlayerActiveCaption";
 import styles from "./session-detail.module.css";
 import {
   buildSpeakerTracks,
@@ -33,6 +34,8 @@ type Props = {
   moments: SessionMoment[];
   comments: SessionComment[];
   commentCount: number;
+  commentNavIndex: number;
+  commentNavTotal: number;
   showComments: boolean;
   activeComment: SessionComment | null;
   selectedCommentId: string | null;
@@ -41,6 +44,7 @@ type Props = {
   transcript: TranscriptSegment[];
   phases: ConversationPhaseSegmentation | null;
   onToggleComments: () => void;
+  onCommentNavigate: (direction: -1 | 1) => void;
   onMomentNavigate: (direction: -1 | 1) => void;
   onMomentSelect: (moment: SessionMoment) => void;
   onPlaybackRate: () => void;
@@ -55,6 +59,8 @@ export function FloatingSessionPlayer({
   moments,
   comments,
   commentCount,
+  commentNavIndex,
+  commentNavTotal,
   showComments,
   activeComment,
   selectedCommentId,
@@ -63,6 +69,7 @@ export function FloatingSessionPlayer({
   transcript,
   phases,
   onToggleComments,
+  onCommentNavigate,
   onMomentNavigate,
   onMomentSelect,
   onPlaybackRate,
@@ -73,6 +80,7 @@ export function FloatingSessionPlayer({
   const phaseTracks = useMemo(() => buildPhaseTracks(phases, duration), [phases, duration]);
   const playheadPct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
   const activeMoment = moments[selectedMomentIndex] ?? null;
+  const hasCommentNav = commentNavTotal > 0;
 
   const hasSideControls = moments.length > 0;
 
@@ -96,15 +104,40 @@ export function FloatingSessionPlayer({
       )}
 
       <div className={styles.playerMain}>
-        <button
-          type="button"
-          className={`${styles.playerCommentsToggle} ${showComments ? styles.playerCommentsToggleActive : ""}`}
-          onClick={onToggleComments}
-          aria-pressed={showComments}
-        >
-          <MessageSquare size={14} />
-          Comments{commentCount > 0 ? ` (${commentCount})` : ""}
-        </button>
+        <div className={styles.playerCommentsNav}>
+          <button
+            type="button"
+            className={`${styles.playerCommentsToggle} ${showComments ? styles.playerCommentsToggleActive : ""}`}
+            onClick={onToggleComments}
+            aria-pressed={showComments}
+          >
+            <MessageSquare size={14} />
+            Comments{commentCount > 0 ? ` (${commentCount})` : ""}
+          </button>
+          {hasCommentNav && (
+            <>
+              <button
+                type="button"
+                className={styles.playerIconBtn}
+                aria-label="Previous comment"
+                onClick={() => onCommentNavigate(-1)}
+              >
+                <ChevronUp size={14} />
+              </button>
+              <span className={styles.playerCommentsNavCount}>
+                {commentNavIndex + 1}/{commentNavTotal}
+              </span>
+              <button
+                type="button"
+                className={styles.playerIconBtn}
+                aria-label="Next comment"
+                onClick={() => onCommentNavigate(1)}
+              >
+                <ChevronDown size={14} />
+              </button>
+            </>
+          )}
+        </div>
 
         <div className={styles.playerTimelineStack}>
           <div className={styles.playerControlsCentered}>
@@ -190,16 +223,30 @@ export function FloatingSessionPlayer({
           {phaseTracks.length > 0 && (
             <div className={styles.playerSpeakerTimeline}>
               <div className={styles.playerSpeakerLane}>
-                <span className={styles.playerSpeakerLaneLabel}>Phases</span>
+                <span className={styles.playerSpeakerLaneLabel}>Tour</span>
                 <div className={styles.playerSpeakerLaneTrack}>
-                  {phaseTracks.map((segment) => (
-                    <span
-                      key={segment.id}
-                      className={phaseSegmentClass[segment.phaseId] ?? styles.playerPhaseSegmentDefault}
-                      style={{ left: `${segment.leftPct}%`, width: `${segment.widthPct}%` }}
-                      title={segment.label}
-                    />
-                  ))}
+                  {phaseTracks.map((segment) => {
+                    const trackClass = segmentTrackClasses[segment.colorIndex % segmentTrackClasses.length]
+                      ?? styles.playerPhaseSegmentDefault;
+                    const tooltip = [
+                      segment.title,
+                      formatSegmentTimeRange(segment.startTime, segment.endTime),
+                      segment.location ? `Location: ${segment.location}` : null,
+                      segment.summary,
+                    ].filter(Boolean).join(" · ");
+
+                    return (
+                      <button
+                        key={segment.id}
+                        type="button"
+                        className={`${styles.playerSegmentBlock} ${trackClass}`}
+                        style={{ left: `${segment.leftPct}%`, width: `${segment.widthPct}%` }}
+                        title={tooltip}
+                        aria-label={tooltip}
+                        onClick={() => onSeek(segment.startTime, { play: isPlaying })}
+                      />
+                    );
+                  })}
                   <span className={styles.playerSpeakerPlayhead} style={{ left: `${playheadPct}%` }} />
                 </div>
               </div>
@@ -230,18 +277,18 @@ export function FloatingSessionPlayer({
       </div>
 
       {(activeComment && showComments) ? (
-        <div className={styles.playerActiveMoment}>
-          <span className={styles.playerActiveLabel}>Comment</span>
-          <span className={styles.playerActiveText}>{activeComment.body}</span>
-        </div>
+        <PlayerActiveCaption
+          key={activeComment.id}
+          label="Comment"
+          text={activeComment.body}
+        />
       ) : activeMoment ? (
-        <div className={styles.playerActiveMoment}>
-          <span className={styles.playerActiveLabel}>Key moment</span>
-          {activeMoment.phase && (
-            <span className={styles.playerActivePhase}>{activeMoment.phase}</span>
-          )}
-          <span className={styles.playerActiveText}>{activeMoment.label}</span>
-        </div>
+        <PlayerActiveCaption
+          key={activeMoment.id}
+          label="Key moment"
+          phase={activeMoment.phase}
+          text={activeMoment.label}
+        />
       ) : null}
     </div>
   );

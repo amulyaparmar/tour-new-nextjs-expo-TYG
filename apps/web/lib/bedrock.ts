@@ -1,8 +1,17 @@
 import "server-only";
 
+import {
+  buildInvokeModelJsonOutputConfig,
+  prepareStructuredTool,
+  type StructuredClaudeTool
+} from "./bedrock-structured-output";
+
 /**
  * Minimal AWS Bedrock client for Claude, using the long-term Bedrock API key
  * (bearer-token auth) rather than SigV4 signing. Plain fetch — no aws-sdk dep.
+ *
+ * Structured outputs (strict tool use + JSON schema) are applied automatically
+ * on every request. @see https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
  *
  * Env:
  *   AWS_BEARER_TOKEN_BEDROCK  long-term Bedrock API key
@@ -42,7 +51,7 @@ type ClaudeResponse = {
   stop_reason?: string;
 };
 
-function getConfig() {
+export function getBedrockRuntimeConfig() {
   const token = process.env.AWS_BEARER_TOKEN_BEDROCK;
   const region = process.env.AWS_REGION || "us-east-1";
   const modelId = process.env.BEDROCK_MODEL_ID;
@@ -51,9 +60,14 @@ function getConfig() {
   return { token, region, modelId };
 }
 
-async function invokeRaw(body: Record<string, unknown>): Promise<ClaudeResponse> {
-  const { token, region, modelId } = getConfig();
-  const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${encodeURIComponent(modelId)}/invoke`;
+function getConfig() {
+  return getBedrockRuntimeConfig();
+}
+
+async function invokeRaw(body: Record<string, unknown>, modelId?: string): Promise<ClaudeResponse> {
+  const { token, region, modelId: defaultModelId } = getConfig();
+  const resolvedModelId = modelId ?? defaultModelId;
+  const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${encodeURIComponent(resolvedModelId)}/invoke`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -77,51 +91,66 @@ export type InvokeClaudeParams = {
   messages: ClaudeMessage[];
   maxTokens?: number;
   temperature?: number;
+  /** When set, constrains the response to this JSON schema via output_config.format. */
+  outputSchema?: Record<string, unknown>;
+  /** Bedrock model id override (from standardized analysis model mapping). */
+  modelId?: string;
 };
 
-/** Plain text completion. Returns the concatenated text blocks. */
+/** Plain text completion. Returns the concatenated text blocks, or parsed JSON when outputSchema is set. */
 export async function invokeClaude(params: InvokeClaudeParams): Promise<string> {
   const data = await invokeRaw({
     max_tokens: params.maxTokens ?? 4096,
     temperature: params.temperature ?? 0.3,
     ...(params.system ? { system: params.system } : {}),
-    messages: params.messages
-  });
+    messages: params.messages,
+    ...(params.outputSchema ? buildInvokeModelJsonOutputConfig(params.outputSchema) : {})
+  }, params.modelId);
 
-  return (data.content ?? [])
+  const text = (data.content ?? [])
     .filter((b): b is { type: "text"; text: string } => b.type === "text")
     .map((b) => b.text)
     .join("");
+
+  if (params.outputSchema) {
+    try {
+      JSON.parse(text);
+    } catch {
+      throw new Error("Bedrock structured output was not valid JSON");
+    }
+  }
+
+  return text;
 }
 
-export type InvokeClaudeToolParams = InvokeClaudeParams & {
-  tool: ClaudeTool;
+export type InvokeClaudeToolParams = Omit<InvokeClaudeParams, "outputSchema"> & {
+  tool: ClaudeTool | StructuredClaudeTool;
 };
 
 /**
- * Forces Claude to call `tool` and returns its validated `input` object. This is
- * the structured-output guarantee: the model cannot answer in prose, it must emit
- * an object matching the tool's input_schema.
+ * Forces Claude to call `tool` and returns its validated `input` object.
+ * Uses Bedrock strict tool use (strict: true) with a normalized JSON schema.
  */
 export async function invokeClaudeTool<T = Record<string, unknown>>(
   params: InvokeClaudeToolParams
 ): Promise<T> {
+  const tool = prepareStructuredTool(params.tool);
   const data = await invokeRaw({
     max_tokens: params.maxTokens ?? 8192,
     temperature: params.temperature ?? 0.3,
     ...(params.system ? { system: params.system } : {}),
     messages: params.messages,
-    tools: [params.tool],
-    tool_choice: { type: "tool", name: params.tool.name }
-  });
+    tools: [tool],
+    tool_choice: { type: "tool", name: tool.name }
+  }, params.modelId);
 
   const toolUse = (data.content ?? []).find(
     (b): b is { type: "tool_use"; id: string; name: string; input: Record<string, unknown> } =>
-      b.type === "tool_use" && b.name === params.tool.name
+      b.type === "tool_use" && b.name === tool.name
   );
 
   if (!toolUse) {
-    throw new Error(`Bedrock response did not include a ${params.tool.name} tool call`);
+    throw new Error(`Bedrock response did not include a ${tool.name} tool call`);
   }
 
   return toolUse.input as T;

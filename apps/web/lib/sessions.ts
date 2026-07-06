@@ -11,6 +11,7 @@ import type {
   SessionStatus,
   SessionSummary
 } from "@tour/shared";
+import { normalizeConversationPhaseSegmentation } from "@tour/shared";
 
 import {
   addLocalSessionLead,
@@ -666,13 +667,12 @@ export async function getConversationPhases(
     if (error) throw error;
 
     const raw = data?.conversation_phases_json;
-    if (raw && Array.isArray(raw.spans)) {
-      return raw;
-    }
+    const normalized = normalizeConversationPhaseSegmentation(raw);
+    if (normalized) return normalized;
 
-    return getLocalConversationPhases(sessionId);
+    return normalizeConversationPhaseSegmentation(await getLocalConversationPhases(sessionId));
   } catch {
-    return getLocalConversationPhases(sessionId);
+    return normalizeConversationPhaseSegmentation(await getLocalConversationPhases(sessionId));
   }
 }
 

@@ -5,7 +5,8 @@ import path from "node:path";
 
 import { getSupabaseServiceClient } from "./supabase";
 
-const BUCKET_NAME = "recordings";
+export const RECORDINGS_BUCKET = "recordings";
+const BUCKET_NAME = RECORDINGS_BUCKET;
 const SIGNED_URL_EXPIRY = 7200; // 2 hours
 const LOCAL_UPLOADS_DIR = path.join(process.cwd(), ".local-uploads");
 
@@ -162,6 +163,71 @@ async function findRecordingFileName(sessionId: string): Promise<string | null> 
   }
 
   return null;
+}
+
+export type PresignedUpload = {
+  signedUrl: string;
+  token: string;
+  path: string;
+  objectKey: string;
+};
+
+export function extensionFromFileName(fileName: string): string | null {
+  const match = /\.([a-z0-9]+)$/i.exec(fileName.trim());
+  return match ? match[1]!.toLowerCase() : null;
+}
+
+export function resolveUploadExtension(fileName: string, contentType: string): string {
+  return extensionFromFileName(fileName) ?? guessExtension(contentType);
+}
+
+export async function createPresignedUpload(
+  objectKey: string,
+  options?: { upsert?: boolean }
+): Promise<PresignedUpload> {
+  const supabase = getSupabaseServiceClient();
+  await ensureBucket();
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .createSignedUploadUrl(objectKey, { upsert: options?.upsert ?? true });
+
+  if (error || !data?.signedUrl || !data.token || !data.path) {
+    throw new Error(error?.message ?? "Failed to create presigned upload URL.");
+  }
+
+  return {
+    signedUrl: data.signedUrl,
+    token: data.token,
+    path: data.path,
+    objectKey,
+  };
+}
+
+export async function storageObjectExists(objectKey: string): Promise<boolean> {
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase.storage.from(BUCKET_NAME).download(objectKey);
+  if (error || !data) return (
+    false
+  );
+  const buffer = Buffer.from(await data.arrayBuffer());
+  return buffer.length > 0;
+}
+
+export async function downloadStorageObject(objectKey: string): Promise<RecordingFile | null> {
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase.storage.from(BUCKET_NAME).download(objectKey);
+  if (error || !data) return null;
+
+  const buffer = Buffer.from(await data.arrayBuffer());
+  if (buffer.length === 0) return null;
+
+  const ext = extensionFromFileName(objectKey) ?? "bin";
+  return {
+    buffer,
+    mimeType: EXT_MIME[ext] ?? "application/octet-stream",
+    fileName: objectKey,
+  };
 }
 
 function guessExtension(mimeType: string): string {

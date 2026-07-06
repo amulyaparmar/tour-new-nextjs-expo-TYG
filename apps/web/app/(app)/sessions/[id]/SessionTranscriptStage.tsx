@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConversationPhaseSegmentation } from "@tour/shared";
-import { findPhaseForTimestamp, shortPhaseLabel } from "@tour/shared";
+import { findPhaseForTimestamp, formatSegmentTimeRange, shortPhaseLabel } from "@tour/shared";
 import { ChevronDown, ChevronUp, MessageSquare, MoreHorizontal, Pencil, Search, Tag, Trash2 } from "lucide-react";
 
 import styles from "./session-detail.module.css";
@@ -327,16 +327,50 @@ export function SessionTranscriptStage({
           {filteredTranscript.length === 0 ? (
             <div className={styles.transcriptEmpty}>No transcript available yet.</div>
           ) : (
-            filteredTranscript.map((seg) => {
+            filteredTranscript.map((seg, index) => {
               const palette = speakerMap.get(seg.speaker || "Speaker") ?? SPEAKER_PALETTE[0]!;
               const active = activeSegment?.id === seg.id;
               const segMoments = momentsBySegment.get(seg.id) ?? [];
               const segComments = commentsBySegment.get(seg.id) ?? [];
               const phase = findPhaseForTimestamp(seg.startTime, phases);
+              const prevPhase = index > 0
+                ? findPhaseForTimestamp(filteredTranscript[index - 1]!.startTime, phases)
+                : undefined;
+              const showSegmentHeader = phase && phase.id !== prevPhase?.id;
+              const segmentNumber = phase
+                ? (phases?.spans.findIndex((span) => span.id === phase.id) ?? -1) + 1
+                : 0;
 
               return (
+                <div key={seg.id}>
+                  {showSegmentHeader && phase && (
+                    <div className={styles.tourSegmentHeader}>
+                      <button
+                        type="button"
+                        className={styles.tourSegmentHeaderButton}
+                        onClick={() => seekTo(phase.startTime)}
+                      >
+                        <div className={styles.tourSegmentHeaderTitle}>
+                          {segmentNumber}. {phase.title}
+                        </div>
+                        <div className={styles.tourSegmentHeaderMeta}>
+                          <span>{formatSegmentTimeRange(phase.startTime, phase.endTime)}</span>
+                          {phase.location ? (
+                            <span className={styles.tourSegmentLocation}>{phase.location}</span>
+                          ) : null}
+                        </div>
+                        {phase.highlights && phase.highlights.length > 0 && (
+                          <ul className={styles.tourSegmentHighlights}>
+                            {phase.highlights.map((highlight) => (
+                              <li key={highlight}>{highlight}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
                 <div
-                  key={seg.id}
                   className={`${styles.transcriptBlock} ${active ? styles.transcriptBlockActive : ""}`}
                   ref={(node) => { rowRefs.current[seg.id] = node; }}
                 >
@@ -482,6 +516,7 @@ export function SessionTranscriptStage({
                       )
                     )}
                   </div>
+                </div>
                 </div>
               );
             })

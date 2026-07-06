@@ -5,6 +5,7 @@ import {
   Check, AlertTriangle, ChevronDown, ChevronUp, X, FileText, CheckCircle2, Settings,
 } from "lucide-react";
 import { type AdminRubric, useAdminData } from "../data/AdminDataContext";
+import { uploadFileForRubricExtract } from "../lib/upload";
 
 type RubricStatus = "active" | "draft";
 type RubricItem = {
@@ -172,32 +173,26 @@ function CreationFlow({
     setExtractError(null);
 
     try {
-      const response = selectedFile
-        ? await fetch(apiUrl("/api/admin/rubrics/extract"), {
-          method: "POST",
-          credentials: "include",
-          body: (() => {
-            const formData = new FormData();
-            formData.append("file", selectedFile);
-            return formData;
-          })(),
-        })
+      const body = selectedFile
+        ? await uploadFileForRubricExtract<{
+          error?: string;
+          name?: string;
+          definition?: ExtractedDefinition;
+        }>({ apiUrl, file: selectedFile })
         : await fetch(apiUrl("/api/admin/rubrics/extract"), {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: pastedText.trim(), fileName: "pasted-rubric.txt" }),
+        }).then(async (response) => {
+          const parsed = await response.json().catch(() => ({})) as {
+            error?: string;
+            name?: string;
+            definition?: ExtractedDefinition;
+          };
+          if (!response.ok) throw new Error(parsed.error ?? "Rubric extraction failed.");
+          return parsed;
         });
-
-      const body = await response.json().catch(() => ({})) as {
-        error?: string;
-        name?: string;
-        definition?: ExtractedDefinition;
-      };
-
-      if (!response.ok) {
-        throw new Error(body.error ?? "Rubric extraction failed.");
-      }
 
       if (!body.definition?.sections?.length) {
         throw new Error("AI could not extract any rubric categories from that document.");

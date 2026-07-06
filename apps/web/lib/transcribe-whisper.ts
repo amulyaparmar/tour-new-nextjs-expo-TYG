@@ -11,13 +11,18 @@ import type { TranscriptSegment } from "./transcribe";
 export async function transcribeWithWhisper(
   sessionId: string,
   audioBuffer: Buffer,
-  mimeType: string
+  mimeType: string,
+  fileName?: string
 ): Promise<TranscriptSegment[]> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
   if (audioBuffer.length === 0) throw new Error("Empty audio buffer");
 
-  const rawSegments = await whisperTranscribe(apiKey, audioBuffer, mimeType);
+  const { prepareWhisperUpload, assertWhisperReady } = await import("./transcribe-whisper-prep");
+  const upload = await prepareWhisperUpload(audioBuffer, mimeType, fileName);
+  assertWhisperReady(upload);
+
+  const rawSegments = await whisperTranscribe(apiKey, upload);
   if (!rawSegments.length) throw new Error("Whisper returned no segments");
 
   const diarized = await diarizeWithLLM(apiKey, rawSegments);
@@ -34,18 +39,11 @@ type RawSegment = { start: number; end: number; text: string };
 
 async function whisperTranscribe(
   apiKey: string,
-  audioBuffer: Buffer,
-  mimeType: string
+  upload: { buffer: Buffer; ext: string; mimeType: string }
 ): Promise<RawSegment[]> {
-  const ext = mimeType.includes("mp4") ? "mp4"
-    : mimeType.includes("webm") ? "webm"
-    : mimeType.includes("m4a") ? "m4a"
-    : mimeType.includes("wav") ? "wav"
-    : "mp3";
-
   const formData = new FormData();
-  const blob = new Blob([new Uint8Array(audioBuffer)], { type: mimeType || "audio/mpeg" });
-  formData.append("file", blob, `recording.${ext}`);
+  const blob = new Blob([new Uint8Array(upload.buffer)], { type: upload.mimeType });
+  formData.append("file", blob, `recording.${upload.ext}`);
   formData.append("model", "whisper-1");
   formData.append("response_format", "verbose_json");
   formData.append("timestamp_granularities[]", "segment");

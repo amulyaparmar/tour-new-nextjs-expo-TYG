@@ -25,6 +25,7 @@ export async function POST(request: Request) {
       definition?: unknown;
       sourceUrl?: string | null;
       isDefault?: boolean;
+      analysisModel?: string;
     };
 
     if (!body.name?.trim()) {
@@ -38,7 +39,8 @@ export async function POST(request: Request) {
       name: body.name,
       definition: body.definition as never,
       sourceUrl: body.sourceUrl ?? null,
-      isDefault: body.isDefault ?? false
+      isDefault: body.isDefault ?? false,
+      analysisModel: body.analysisModel as never,
     });
 
     return NextResponse.json({ rubric }, { status: 201 });

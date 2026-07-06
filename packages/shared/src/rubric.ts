@@ -1,3 +1,5 @@
+import type { AnalysisModelId } from "./ai-models";
+
 export type RubricItem = {
   id: string;
   text: string;
@@ -21,6 +23,8 @@ export type Rubric = {
   id: string;
   name: string;
   definition: RubricDefinition;
+  /** Standardized model id for AI rubric analysis (mapped to provider at runtime). */
+  analysisModel: AnalysisModelId;
   sourceUrl: string | null;
   isDefault: boolean;
   createdAt: string;
@@ -29,6 +33,7 @@ export type Rubric = {
 export type CreateRubricInput = {
   name: string;
   definition: RubricDefinition;
+  analysisModel?: AnalysisModelId;
   sourceUrl?: string | null;
   isDefault?: boolean;
 };

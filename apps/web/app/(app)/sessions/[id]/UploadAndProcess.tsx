@@ -6,6 +6,7 @@ import { BookmarkPlus, CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle,
 
 import type { SessionStatus } from "@tour/shared";
 import { waitForSessionProcessing } from "@/lib/wait-for-session-processing";
+import { uploadFileWithPresign } from "@/lib/client-upload";
 
 type Phase = "choose" | "recording" | "details" | "processing";
 type Step = "idle" | "uploading" | "uploaded" | "transcribing" | "segmenting" | "extracting_screenshots" | "analyzing" | "generating_actions" | "done" | "error";
@@ -238,17 +239,16 @@ export function UploadAndProcess({
   }
 
   const uploadBlob = useCallback(async (file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/api/sessions/${sessionId}/upload`);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    await new Promise<void>((resolve, reject) => {
-      xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error("Upload failed")));
-      xhr.onerror = () => reject(new Error("Network error"));
-      xhr.send(formData);
+    await uploadFileWithPresign({
+      presignUrl: `/api/sessions/${sessionId}/upload/presign`,
+      completeUrl: `/api/sessions/${sessionId}/upload/complete`,
+      file,
+      contentType: file.type || "application/octet-stream",
+      presignBody: {
+        fileName: file.name,
+        contentType: file.type || "application/octet-stream",
+      },
+      onProgress: setProgress,
     });
   }, [sessionId]);
 

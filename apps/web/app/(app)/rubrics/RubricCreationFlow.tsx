@@ -8,6 +8,14 @@ import {
 } from "lucide-react";
 
 import {
+  ANALYSIS_MODELS,
+  AI_PROVIDER_LABELS,
+  DEFAULT_ANALYSIS_MODEL,
+  type AnalysisModelId,
+  type AiProvider,
+} from "@tour/shared";
+
+import {
   categoriesTotalPoints,
   createRubricItem,
   definitionToCategories,
@@ -17,6 +25,7 @@ import {
   type RubricCategory,
   type RubricItem,
 } from "./rubric-utils";
+import { uploadFileForRubricExtract } from "@/lib/client-upload";
 
 type Step = 1 | 2 | 3;
 
@@ -53,6 +62,9 @@ export function RubricCreationFlow({
     initialRubric?.propertyIds.length ? initialRubric.propertyIds : properties.map((property) => property.id)
   );
   const [rubricName, setRubricName] = useState(initialRubric?.name ?? "");
+  const [analysisModel, setAnalysisModel] = useState<AnalysisModelId>(
+    initialRubric?.analysisModel ?? DEFAULT_ANALYSIS_MODEL
+  );
 
   const totalPoints = categoriesTotalPoints(categories);
   const pointsMatch = baselineTotalPoints === null || totalPoints === baselineTotalPoints;
@@ -64,30 +76,26 @@ export function RubricCreationFlow({
     setExtractError(null);
 
     try {
-      const response = selectedFile
-        ? await fetch("/api/admin/rubrics/extract", {
-          method: "POST",
-          credentials: "include",
-          body: (() => {
-            const formData = new FormData();
-            formData.append("file", selectedFile);
-            return formData;
-          })(),
-        })
+      const body = selectedFile
+        ? await uploadFileForRubricExtract<{
+          error?: string;
+          name?: string;
+          definition?: ExtractedDefinition;
+        }>(selectedFile)
         : await fetch("/api/admin/rubrics/extract", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: pastedText.trim(), fileName: "pasted-rubric.txt" }),
+        }).then(async (response) => {
+          const parsed = await response.json().catch(() => ({})) as {
+            error?: string;
+            name?: string;
+            definition?: ExtractedDefinition;
+          };
+          if (!response.ok) throw new Error(parsed.error ?? "Rubric extraction failed.");
+          return parsed;
         });
-
-      const body = await response.json().catch(() => ({})) as {
-        error?: string;
-        name?: string;
-        definition?: ExtractedDefinition;
-      };
-
-      if (!response.ok) throw new Error(body.error ?? "Rubric extraction failed.");
       if (!body.definition?.sections?.length) {
         throw new Error("AI could not extract any rubric categories from that document.");
       }
@@ -185,6 +193,7 @@ export function RubricCreationFlow({
         body: JSON.stringify({
           name,
           definition,
+          analysisModel,
           isDefault: initialRubric?.isDefault ?? !draft,
         }),
       });
@@ -410,6 +419,27 @@ export function RubricCreationFlow({
                       placeholder="e.g. Standard Leasing Rubric v3"
                       className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-foreground mb-1.5">Analysis model</label>
+                    <select
+                      value={analysisModel}
+                      onChange={(event) => setAnalysisModel(event.target.value as AnalysisModelId)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {(Object.keys(AI_PROVIDER_LABELS) as AiProvider[]).map((provider) => (
+                        <optgroup key={provider} label={AI_PROVIDER_LABELS[provider]}>
+                          {ANALYSIS_MODELS.filter((model) => model.provider === provider).map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      {ANALYSIS_MODELS.find((model) => model.id === analysisModel)?.description}
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-foreground mb-1.5">Assign to properties</label>

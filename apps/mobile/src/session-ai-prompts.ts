@@ -24,6 +24,12 @@ export const SESSION_AI_DEFAULT_PROMPTS: SessionAiPrompt[] = [
     description: "Closing and next-step effectiveness",
     text: "How could they close more effectively on this tour? Review how they handled next steps, urgency, and commitment — and suggest concrete language they could use.",
   },
+  {
+    id: "segment",
+    label: "Segment",
+    description: "How would you break this tour into sections",
+    text: "If you were to segment this tour into sections, how would you segment it?",
+  },
 ];
 
 export const SESSION_AI_MENTION_PROMPTS: SessionAiPrompt[] = [

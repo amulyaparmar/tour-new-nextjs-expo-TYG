@@ -2,6 +2,10 @@ import { withWorkflow } from "workflow/next";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Tour recordings can exceed the default 10MB proxy buffer (see proxy.ts on /api/*).
+    proxyClientMaxBodySize: "50mb",
+  },
   images: {
     remotePatterns: [
       {

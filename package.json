@@ -15,6 +15,8 @@
     "typecheck": "turbo typecheck",
     "typecheck:web": "turbo typecheck --filter=@tour/web",
     "web": "turbo dev --filter=@tour/web",
+    "workflow:web": "npm --workspace @tour/web run workflow:web",
+    "workflow:runs": "npm --workspace @tour/web run workflow:runs",
     "admin": "turbo dev --filter=@tour/admin",
     "build:admin": "turbo build --filter=@tour/admin",
     "typecheck:admin": "turbo typecheck --filter=@tour/admin",

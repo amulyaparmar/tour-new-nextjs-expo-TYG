@@ -42,7 +42,8 @@ export async function POST(_request: Request, context: Context) {
       location: session.location,
       notes: session.notes,
       transcript: transcript.length > 0 ? transcript : undefined,
-      rubricDefinition: rubric.definition
+      rubricDefinition: rubric.definition,
+      analysisModel: rubric.analysisModel
     });
 
     await upsertAnalysis(id, analysis);
@@ -50,7 +51,8 @@ export async function POST(_request: Request, context: Context) {
     const actions = await generateFollowUpActions(analysis, {
       title: session.title,
       prospectName: session.prospectName,
-      notes: session.notes
+      notes: session.notes,
+      analysisModel: rubric.analysisModel
     });
     await replaceFollowUpActions(id, actions);
 

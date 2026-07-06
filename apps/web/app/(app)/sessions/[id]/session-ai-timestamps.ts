@@ -46,6 +46,33 @@ export function linkifyTimestampsInMarkdown(content: string) {
     .join("");
 }
 
+export function splitTextWithTimestamps(text: string): Array<{ text: string; seconds?: number }> {
+  const parts: Array<{ text: string; seconds?: number }> = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(TIMESTAMP_PATTERN)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      parts.push({ text: text.slice(lastIndex, index) });
+    }
+
+    const ts = (match[1] || match[2]) as string;
+    if (isValidTimestamp(ts)) {
+      parts.push({ text: match[0], seconds: parseTimestampToSeconds(ts) });
+    } else {
+      parts.push({ text: match[0] });
+    }
+
+    lastIndex = index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push({ text: text.slice(lastIndex) });
+  }
+
+  return parts.length > 0 ? parts : [{ text }];
+}
+
 export function parseSeekHref(href: string | undefined): number | null {
   if (!href) return null;
 

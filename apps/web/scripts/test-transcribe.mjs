@@ -1,6 +1,6 @@
 /**
  * Isolated transcription smoke test for WHICHEVER provider TRANSCRIBE_PROVIDER
- * selects (whisper | deepgram | aws). Calls the same provider implementation the
+ * selects (whisper | deepgram | elevenlabs | aws). Calls the same provider implementation the
  * Next /process route uses, without starting the app.
  *
  * Usage from repo root:
@@ -39,6 +39,7 @@ const provider = (process.env.TRANSCRIBE_PROVIDER || "whisper").toLowerCase();
 const REQUIRED = {
   whisper: ["OPENAI_API_KEY"],
   deepgram: ["DEEPGRAM_API_KEY"],
+  elevenlabs: ["ELEVENLABS_API_KEY"],
   aws: ["TRANSCRIBE_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
 };
 const missing = (REQUIRED[provider] ?? []).filter((name) => !process.env[name]);
@@ -54,6 +55,7 @@ await access(absAudioPath);
 const MODULE = {
   whisper: ["../lib/transcribe-whisper.ts", "transcribeWithWhisper"],
   deepgram: ["../lib/transcribe-deepgram.ts", "transcribeWithDeepgram"],
+  elevenlabs: ["../lib/transcribe-elevenlabs.ts", "transcribeWithElevenLabs"],
   aws: ["../lib/transcribe-aws-core.ts", "transcribeWithAws"]
 };
 const [modulePath, exportName] = MODULE[provider];

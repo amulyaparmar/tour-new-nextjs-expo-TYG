@@ -47,12 +47,14 @@ export async function PATCH(request: Request, context: Context) {
       definition?: unknown;
       sourceUrl?: string | null;
       isDefault?: boolean;
+      analysisModel?: string;
     };
     const rubric = await updateRubric(id, {
       name: body.name,
       definition: body.definition as never,
       sourceUrl: body.sourceUrl,
       isDefault: body.isDefault,
+      analysisModel: body.analysisModel as never,
     });
     return NextResponse.json({ rubric });
   } catch (caught) {

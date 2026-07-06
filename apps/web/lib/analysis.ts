@@ -1,11 +1,12 @@
 import "server-only";
 
-import type { AnalysisResult, RubricDefinition } from "@tour/shared";
-import type { TranscriptSegment } from "./transcribe";
-import { invokeClaudeTool, type ClaudeTool } from "./bedrock";
+import type { AnalysisResult, AnalysisModelId, RubricDefinition } from "@tour/shared";
 import { rubricTotalPoints } from "@tour/shared";
 import { DEFAULT_RBG_RUBRIC_DEFINITION } from "./default-rubric";
 import { buildRubricAnalysisPrompt } from "./rubric-prompt";
+import type { TranscriptSegment } from "./transcribe";
+import { type ClaudeTool } from "./bedrock";
+import { invokeAnalysisTool } from "./analysis-model-invoke";
 
 export async function generateAnalysis(params: {
   title: string;
@@ -14,6 +15,7 @@ export async function generateAnalysis(params: {
   notes: string | null;
   transcript?: TranscriptSegment[];
   rubricDefinition?: RubricDefinition;
+  analysisModel?: AnalysisModelId | null;
 }): Promise<AnalysisResult> {
   const transcriptText = params.transcript && params.transcript.length > 0
     ? params.transcript
@@ -35,16 +37,17 @@ export async function generateAnalysis(params: {
     transcriptText
   ].join("\n");
 
-  const raw = await invokeClaudeTool<Record<string, unknown>>({
+  const raw = await invokeAnalysisTool<Record<string, unknown>>({
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
     tool: buildAnalysisTool(totalPoints),
     maxTokens: 8192,
-    temperature: 0.3
+    temperature: 0.3,
+    analysisModel: params.analysisModel
   });
 
   const parsed = safeParseAnalysis(raw);
-  if (!parsed) throw new Error("Failed to parse analysis response");
+  if (!parsed) throw new Error(`Failed to parse analysis response: ${JSON.stringify(raw)}`);
   return parsed;
 }
 
@@ -124,7 +127,12 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
 
 export async function generateFollowUpActions(
   analysis: AnalysisResult,
-  params: { title: string; prospectName: string | null; notes?: string | null }
+  params: {
+    title: string;
+    prospectName: string | null;
+    notes?: string | null;
+    analysisModel?: AnalysisModelId | null;
+  }
 ): Promise<Array<{ title: string; description: string; priority: "low" | "medium" | "high"; status: "open"; suggestedMessage: string | null }>> {
   const systemPrompt = [
     "You are a leasing sales manager creating follow-up actions for a SPECIFIC PROSPECT after their apartment tour.",
@@ -177,12 +185,13 @@ export async function generateFollowUpActions(
       .join("\n")
   ].join("\n");
 
-  const result = await invokeClaudeTool<{ actions?: unknown[] }>({
+  const result = await invokeAnalysisTool<{ actions?: unknown[] }>({
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
     tool: ACTIONS_TOOL,
     maxTokens: 4096,
-    temperature: 0.3
+    temperature: 0.3,
+    analysisModel: params.analysisModel
   });
 
   const actions = Array.isArray(result.actions) ? result.actions : null;

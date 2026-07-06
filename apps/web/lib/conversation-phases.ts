@@ -1,9 +1,7 @@
 import "server-only";
 
 import {
-  CONVERSATION_PHASE_LABELS,
-  LEASING_TOUR_PHASES,
-  type ConversationPhaseId,
+  normalizeConversationPhaseSpan,
   type ConversationPhaseSegmentation,
   type ConversationPhaseSpan
 } from "@tour/shared";
@@ -11,10 +9,14 @@ import {
 import { invokeClaudeTool, type ClaudeTool } from "./bedrock";
 import type { TranscriptSegment } from "./transcribe";
 
-export { buildPhaseTracks, findPhaseForTimestamp, shortPhaseLabel } from "@tour/shared";
+export {
+  buildPhaseTracks,
+  findPhaseForTimestamp,
+  formatSegmentTimeRange,
+  shortPhaseLabel,
+  tourSegmentColor,
+} from "@tour/shared";
 export type { PhaseTrackSegment } from "@tour/shared";
-
-const PHASE_IDS = LEASING_TOUR_PHASES.map((p) => p.id);
 
 export async function segmentConversationPhases(
   transcript: TranscriptSegment[]
@@ -27,24 +29,46 @@ export async function segmentConversationPhases(
     .map((s) => `[${formatTime(s.startTime)}-${formatTime(s.endTime)}] ${s.speaker}: ${s.text}`)
     .join("\n");
 
-  const phaseGuide = LEASING_TOUR_PHASES.map(
-    (p) => `- ${p.id}: ${p.label} — ${p.description}`
-  ).join("\n");
-
   const systemPrompt = [
-    "You are an expert at analyzing apartment leasing tour recordings.",
-    "Identify conversation phases using the standard phase taxonomy below.",
+    "You are an expert leasing coach reviewing apartment tour recordings.",
     "",
-    "Important:",
-    "- Real tours are NOT always linear. Prospects may ask discovery questions during the tour,",
-    "  raise objections multiple times, or revisit amenities. Emit multiple spans per phase when needed.",
-    "- Spans may overlap slightly when topics blend (e.g. objection during tour).",
-    "- Use transcript timestamps (seconds) for startTime and endTime.",
-    "- Cover the full conversation from first to last segment; gaps should be minimal.",
-    "- Prefer more granular spans over one long span when the phase clearly shifts.",
+    "If you were to segment this tour into sections, how would you segment it?",
+    "Base sections on natural transitions in the conversation — location changes, topic shifts, qualification moments, digressions, closing attempts — not a generic phase checklist.",
     "",
-    "Standard phases:",
-    phaseGuide
+    "Calibrate to this style (structure and tone, not content to copy):",
+    "",
+    "1. Initial Greeting & Setup (00:05 - 00:30)",
+    "   - Introduction and rapport building",
+    "   - Decision to defer guest card until after tour",
+    "   - Transition to beginning the tour",
+    "",
+    "3. Prospect Qualification Moment (01:34 - 01:50)",
+    "   - Brief discussion of gap semester and double major plans",
+    "   - Mention of sister property (The Yard)",
+    "   - Critical missed opportunity to explore needs",
+    "",
+    "10. Weak Closing Attempt (07:14 - 07:46)",
+    '   - "Anything else I can help you with today?" — exit line',
+    "   - Brief discussion about non-student residents",
+    "   - Initial goodbye",
+    "",
+    "11. Last-Minute Special Discussion (07:46 - 08:33)",
+    "   - Prospect asks about specials (should have been proactive)",
+    "   - $500 gift card explanation",
+    "   - Move-in timing clarification",
+    "",
+    "Key observation: The most problematic segment is #10 (Weak Closing) where the agent invites the prospect to leave without sitting down to review options. Segment #11 shows the prospect was still engaged, proving the agent closed too early. Earlier qualification and presentation gaps weakened the close.",
+    "",
+    "How to segment:",
+    "- Use specific, coach-facing titles (e.g. \"Fitness Center Tour\", \"Prospect Qualification Moment\", \"Weak Closing Attempt\") — not generic labels like \"Tour\" or \"Discovery\"",
+    "- Split distinct chapters even when short: qualification beats, weak closes, prospect-initiated specials, digressions",
+    "- Group by location when touring amenities; group by topic when the conversation shifts without moving",
+    "- 2–4 concise bullet highlights per section; call out missed opportunities and coaching moments directly in bullets",
+    "- Include location when tied to a physical area",
+    "- Use startTime/endTime in seconds from the transcript (do not put timestamps in the title)",
+    "- Cover the full tour chronologically with minimal gaps",
+    "",
+    "In structureNotes, write a brief \"Key observation:\" summarizing the most problematic segments and how they connect (e.g. early missed qualification → weak close → prospect still asking questions)."
   ].join("\n");
 
   const raw = await invokeClaudeTool<Record<string, unknown>>({
@@ -52,11 +76,16 @@ export async function segmentConversationPhases(
     messages: [
       {
         role: "user",
-        content: `Segment this tour transcript into conversation phases.\n\n=== TRANSCRIPT ===\n${transcriptText}`
+        content: [
+          "I would segment this tour into the following sections based on natural transitions and content.",
+          "",
+          "=== TRANSCRIPT ===",
+          transcriptText
+        ].join("\n")
       }
     ],
     tool: SEGMENTATION_TOOL,
-    maxTokens: 4096,
+    maxTokens: 8192,
     temperature: 0.2
   });
 
@@ -64,31 +93,43 @@ export async function segmentConversationPhases(
 }
 
 const SEGMENTATION_TOOL: ClaudeTool = {
-  name: "submit_phase_segmentation",
-  description: "Submit detected conversation phase spans for the leasing tour.",
+  name: "submit_tour_segmentation",
+  description: "Your segmentation of the tour into coach-facing sections with highlights and a key observation.",
   input_schema: {
     type: "object",
     properties: {
       structureNotes: {
         type: "string",
-        description: "Brief note on non-linear flow, e.g. 'Discovery resumed at 12:40 during amenity walk'"
+        description: "Key observation: 2–4 sentences on the most problematic segments, missed opportunities, and how they connect (e.g. weak close followed by prospect still asking questions)"
       },
-      spans: {
+      segments: {
         type: "array",
         items: {
           type: "object",
           properties: {
-            phaseId: { type: "string", enum: PHASE_IDS },
+            title: {
+              type: "string",
+              description: "Specific section title without timestamps, e.g. \"Prospect Qualification Moment\", \"Weak Closing Attempt\", \"Fitness Center Tour\""
+            },
             startTime: { type: "number", description: "Start time in seconds" },
             endTime: { type: "number", description: "End time in seconds" },
-            confidence: { type: "number", description: "0-1 confidence" },
-            summary: { type: "string", description: "One sentence describing what happens in this span" }
+            location: { type: "string", description: "Physical area when relevant, e.g. Fitness Center, Clubhouse" },
+            category: {
+              type: "string",
+              description: "Optional theme: greeting, logistics, qualification, amenity, tour, objection, closing, follow_up, digression, information"
+            },
+            highlights: {
+              type: "array",
+              items: { type: "string" },
+              description: "2–4 concise bullets; include coaching callouts when relevant (missed opportunities, weak language, prospect-initiated topics that should have been proactive)"
+            },
+            confidence: { type: "number", description: "0-1 confidence" }
           },
-          required: ["phaseId", "startTime", "endTime", "confidence", "summary"]
+          required: ["title", "startTime", "endTime", "highlights", "confidence"]
         }
       }
     },
-    required: ["spans"]
+    required: ["segments", "structureNotes"]
   }
 };
 
@@ -97,35 +138,48 @@ function normalizeSegmentation(
   transcript: TranscriptSegment[]
 ): ConversationPhaseSegmentation {
   const maxTime = Math.max(...transcript.map((s) => s.endTime || s.startTime), 0);
-  const spansRaw = Array.isArray(raw.spans) ? raw.spans : [];
+  const segmentsRaw = Array.isArray(raw.segments)
+    ? raw.segments
+    : Array.isArray(raw.spans)
+      ? raw.spans
+      : [];
 
-  const spans: ConversationPhaseSpan[] = spansRaw
+  const spans: ConversationPhaseSpan[] = segmentsRaw
     .map((item, index) => {
-      const span = item as Record<string, unknown>;
-      const phaseId = String(span.phaseId ?? "") as ConversationPhaseId;
-      if (!PHASE_IDS.includes(phaseId)) return null;
-
-      const startTime = clampTime(span.startTime, 0, maxTime);
-      const endTime = clampTime(span.endTime, startTime, maxTime);
+      const segment = item as Record<string, unknown>;
+      const startTime = clampTime(segment.startTime, 0, maxTime);
+      const endTime = clampTime(segment.endTime, startTime, maxTime);
       if (endTime <= startTime) return null;
 
-      return {
-        id: `phase-${index + 1}`,
-        phaseId,
-        label: CONVERSATION_PHASE_LABELS[phaseId],
+      const highlights = Array.isArray(segment.highlights)
+        ? segment.highlights.map((entry) => String(entry).trim()).filter(Boolean)
+        : [];
+
+      const title = String(segment.title ?? segment.label ?? "").trim();
+      if (!title) return null;
+
+      const summary = highlights[0] ?? title;
+
+      return normalizeConversationPhaseSpan({
+        id: `segment-${index + 1}`,
+        title,
+        label: title,
         startTime: Math.round(startTime),
         endTime: Math.round(endTime),
-        confidence: clampConfidence(span.confidence),
-        summary: String(span.summary ?? "").trim()
-      };
+        confidence: clampConfidence(segment.confidence),
+        summary,
+        highlights,
+        location: segment.location != null ? String(segment.location).trim() || null : null,
+        category: segment.category != null ? String(segment.category).trim() || null : null,
+      }, index);
     })
     .filter((span): span is ConversationPhaseSpan => span !== null)
     .sort((a, b) => a.startTime - b.startTime || a.endTime - b.endTime);
 
   if (spans.length === 0) {
     return {
-      spans: fallbackSegmentation(transcript, maxTime),
-      structureNotes: "Fallback equal segmentation — model returned no spans."
+      spans: fallbackSegmentation(maxTime),
+      structureNotes: "Fallback single segment — model returned no spans."
     };
   }
 
@@ -135,21 +189,18 @@ function normalizeSegmentation(
   };
 }
 
-/** Last-resort when the model returns nothing usable. */
-function fallbackSegmentation(transcript: TranscriptSegment[], maxTime: number): ConversationPhaseSpan[] {
+function fallbackSegmentation(maxTime: number): ConversationPhaseSpan[] {
   const duration = maxTime > 0 ? maxTime : 1;
-  const phaseOrder: ConversationPhaseId[] = ["greeting", "discovery", "tour", "closing", "follow_up"];
-  const slice = duration / phaseOrder.length;
-
-  return phaseOrder.map((phaseId, index) => ({
-    id: `fallback-${index + 1}`,
-    phaseId,
-    label: CONVERSATION_PHASE_LABELS[phaseId],
-    startTime: Math.round(index * slice),
-    endTime: Math.round(index === phaseOrder.length - 1 ? duration : (index + 1) * slice),
+  return [{
+    id: "segment-1",
+    title: "Full tour",
+    label: "Full tour",
+    startTime: 0,
+    endTime: Math.round(duration),
     confidence: 0.3,
-    summary: "Estimated phase boundary (fallback)."
-  }));
+    summary: "Estimated tour boundary (fallback).",
+    highlights: ["Full conversation span"],
+  }];
 }
 
 function clampTime(value: unknown, min: number, max: number): number {

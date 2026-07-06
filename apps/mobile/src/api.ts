@@ -1,6 +1,7 @@
 import type { AnalysisResult, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionDetail, SessionSummary } from "@tour/shared";
 
 import { authenticatedFetch } from "./auth";
+import { uploadLocalFileWithPresign } from "./presignedUpload";
 
 export type FetchSessionsParams = {
   page?: number;
@@ -80,21 +81,19 @@ export async function uploadRubric(
   fileName: string,
   name?: string
 ) {
-  const formData = new FormData();
-  formData.append("file", {
-    uri: fileUri,
-    type: mimeType,
-    name: fileName,
-  } as any);
-  if (name?.trim()) formData.append("name", name.trim());
-
-  const res = await authenticatedFetch("/api/rubrics/upload", {
-    method: "POST",
-    body: formData,
+  const body = await uploadLocalFileWithPresign<{ rubric?: Rubric }>({
+    authenticatedFetch,
+    presignPath: "/api/rubrics/upload/presign",
+    completePath: "/api/rubrics/upload/complete",
+    fileUri,
+    mimeType,
+    fileName,
+    completeBody: () => ({
+      ...(name?.trim() ? { name: name.trim() } : {}),
+    }),
   });
-  const body = await res.json().catch(() => null) as { rubric?: Rubric; error?: string } | null;
-  if (!res.ok || !body?.rubric) {
-    throw new Error(body?.error ?? "Rubric upload failed.");
+  if (!body?.rubric) {
+    throw new Error("Rubric upload failed.");
   }
   return body.rubric;
 }
@@ -192,23 +191,17 @@ export async function fetchScreenshots(sessionId: string) {
 }
 
 export async function uploadRecording(sessionId: string, fileUri: string, mimeType: string, fileName: string, durationSec?: number) {
-  const formData = new FormData();
-  formData.append("file", {
-    uri: fileUri,
-    type: mimeType,
-    name: fileName,
-  } as any);
-  if (durationSec && durationSec > 0) formData.append("durationSec", String(Math.round(durationSec)));
-
-  const res = await authenticatedFetch(`/api/sessions/${sessionId}/upload`, {
-    method: "POST",
-    body: formData,
+  return uploadLocalFileWithPresign<{ url: string; status: string }>({
+    authenticatedFetch,
+    presignPath: `/api/sessions/${sessionId}/upload/presign`,
+    completePath: `/api/sessions/${sessionId}/upload/complete`,
+    fileUri,
+    mimeType,
+    fileName,
+    completeBody: () => ({
+      ...(durationSec && durationSec > 0 ? { durationSec: Math.round(durationSec) } : {}),
+    }),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null) as { error?: string } | null;
-    throw new Error(body?.error ?? "Upload failed.");
-  }
-  return (await res.json()) as { url: string; status: string };
 }
 
 export async function processSession(sessionId: string) {
@@ -364,21 +357,19 @@ export async function fetchMaterials() {
 }
 
 export async function uploadMaterial(fileUri: string, mimeType: string, fileName: string) {
-  const formData = new FormData();
-  formData.append("file", {
-    uri: fileUri,
-    type: mimeType,
-    name: fileName,
-  } as any);
-  formData.append("name", fileName.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "));
-  formData.append("type", "other");
-
-  const res = await authenticatedFetch("/api/materials/upload", {
-    method: "POST",
-    body: formData,
+  const body = await uploadLocalFileWithPresign<{ material?: Material }>({
+    authenticatedFetch,
+    presignPath: "/api/materials/upload/presign",
+    completePath: "/api/materials/upload/complete",
+    fileUri,
+    mimeType,
+    fileName,
+    completeBody: () => ({
+      name: fileName.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
+      type: "other",
+    }),
   });
-  const body = await res.json().catch(() => null) as { material?: Material; error?: string } | null;
-  if (!res.ok || !body?.material) throw new Error(body?.error ?? "Asset upload failed.");
+  if (!body?.material) throw new Error("Asset upload failed.");
   return body.material;
 }
 

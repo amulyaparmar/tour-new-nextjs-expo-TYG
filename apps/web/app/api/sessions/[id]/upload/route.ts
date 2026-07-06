@@ -1,45 +1,10 @@
 import { NextResponse } from "next/server";
-import { getSessionById, setSessionStatus, updateSession } from "@/lib/sessions";
-import { storeRecording } from "@/lib/storage";
 
-type Context = { params: Promise<{ id: string }> };
-
-function isVideoMime(mimeType: string): boolean {
-  return mimeType.startsWith("video/");
-}
-
-export async function POST(request: Request, context: Context) {
-  const { id } = await context.params;
-
-  try {
-    const session = await getSessionById(id);
-    if (!session) {
-      return NextResponse.json({ error: "Session not found." }, { status: 404 });
-    }
-
-    const formData = await request.formData();
-    const file = formData.get("file");
-    if (!file || !(file instanceof Blob)) {
-      return NextResponse.json({ error: "No file provided." }, { status: 400 });
-    }
-
-    const url = await storeRecording(id, file);
-    const parsedDuration = Number(formData.get("durationSec"));
-
-    const isVideo = isVideoMime(file.type);
-    await updateSession(id, {
-      ...(isVideo ? { videoUrl: url } : { audioUrl: url }),
-      ...(Number.isFinite(parsedDuration) && parsedDuration > 0
-        ? { duration: Math.round(parsedDuration) }
-        : {}),
-    });
-    await setSessionStatus(id, "uploaded");
-
-    return NextResponse.json({ url, status: "uploaded" }, { status: 200 });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Upload failed." },
-      { status: 500 }
-    );
-  }
+export async function POST() {
+  return NextResponse.json(
+    {
+      error: "Direct uploads are no longer supported. Use /upload/presign and /upload/complete instead.",
+    },
+    { status: 410 }
+  );
 }

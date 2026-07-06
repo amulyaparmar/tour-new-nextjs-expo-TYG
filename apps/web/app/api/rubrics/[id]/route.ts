@@ -28,6 +28,7 @@ export async function PATCH(request: Request, context: Context) {
       definition?: unknown;
       sourceUrl?: string | null;
       isDefault?: boolean;
+      analysisModel?: string;
     };
 
     if (body.name !== undefined && !body.name.trim()) {
@@ -41,7 +42,8 @@ export async function PATCH(request: Request, context: Context) {
       name: body.name,
       definition: body.definition as never,
       sourceUrl: body.sourceUrl,
-      isDefault: body.isDefault
+      isDefault: body.isDefault,
+      analysisModel: body.analysisModel as never,
     });
 
     return NextResponse.json({ rubric });

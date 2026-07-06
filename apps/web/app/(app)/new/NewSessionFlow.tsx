@@ -20,6 +20,7 @@ import {
 
 import { SmartSessionForm } from "../SmartSessionForm";
 import { RubricSelector } from "../RubricSelector";
+import { uploadFileWithPresign } from "@/lib/client-upload";
 
 type Phase = "choose" | "lead" | "recording" | "details" | "saving";
 type CreateTab = "session" | "content";
@@ -140,11 +141,17 @@ export function NewSessionFlow() {
     setContentUploading(true);
     setErrorMsg(null);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/rubrics/upload", { method: "POST", body: formData });
-      const body = await res.json().catch(() => null) as { error?: string } | null;
-      if (!res.ok) throw new Error(body?.error ?? "Rubric upload failed");
+      await uploadFileWithPresign({
+        presignUrl: "/api/rubrics/upload/presign",
+        completeUrl: "/api/rubrics/upload/complete",
+        file,
+        contentType: file.type || "application/octet-stream",
+        presignBody: {
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
+        },
+        completeBody: () => ({ fileName: file.name }),
+      });
       router.push("/rubrics");
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Rubric upload failed");
@@ -169,16 +176,24 @@ export function NewSessionFlow() {
       if (draftType === "content") {
         const ext = guessExtension(recordedBlob.type);
         const file = new File([recordedBlob], `content-${Date.now()}.${ext}`, { type: recordedBlob.type });
-        const uploadForm = new FormData();
-        uploadForm.append("file", file);
-        uploadForm.append("name", title);
-        uploadForm.append("description", [
-          String(fd.get("location") ?? "").trim(),
-          String(fd.get("notes") ?? "").trim()
-        ].filter(Boolean).join("\n\n"));
-
-        const uploadRes = await fetch("/api/materials/upload", { method: "POST", body: uploadForm });
-        if (!uploadRes.ok) throw new Error("Content upload failed");
+        await uploadFileWithPresign({
+          presignUrl: "/api/materials/upload/presign",
+          completeUrl: "/api/materials/upload/complete",
+          file,
+          contentType: file.type || "application/octet-stream",
+          presignBody: {
+            fileName: file.name,
+            contentType: file.type || "application/octet-stream",
+          },
+          completeBody: () => ({
+            name: title,
+            description: [
+              String(fd.get("location") ?? "").trim(),
+              String(fd.get("notes") ?? "").trim()
+            ].filter(Boolean).join("\n\n"),
+            type: "other",
+          }),
+        });
 
         router.push("/materials");
         return;
@@ -203,11 +218,16 @@ export function NewSessionFlow() {
 
       const ext = guessExtension(recordedBlob.type);
       const file = new File([recordedBlob], `recording-${sessionId}.${ext}`, { type: recordedBlob.type });
-      const uploadForm = new FormData();
-      uploadForm.append("file", file);
-
-      const uploadRes = await fetch(`/api/sessions/${sessionId}/upload`, { method: "POST", body: uploadForm });
-      if (!uploadRes.ok) throw new Error("Upload failed");
+      await uploadFileWithPresign({
+        presignUrl: `/api/sessions/${sessionId}/upload/presign`,
+        completeUrl: `/api/sessions/${sessionId}/upload/complete`,
+        file,
+        contentType: file.type || "application/octet-stream",
+        presignBody: {
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
+        },
+      });
 
       fetch(`/api/sessions/${sessionId}/process`, { method: "POST" });
 

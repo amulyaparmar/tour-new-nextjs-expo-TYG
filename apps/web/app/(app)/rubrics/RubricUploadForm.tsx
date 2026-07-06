@@ -6,6 +6,8 @@ import { Loader2, Upload } from "lucide-react";
 
 import type { Rubric } from "@tour/shared";
 
+import { uploadFileWithPresign } from "@/lib/client-upload";
+
 type RubricUploadFormProps = {
   compact?: boolean;
   onUploaded?: (rubric: Rubric) => void;
@@ -31,13 +33,20 @@ export function RubricUploadForm({ compact = false, onUploaded }: RubricUploadFo
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      if (name.trim()) formData.append("name", name.trim());
-
-      const res = await fetch("/api/rubrics/upload", { method: "POST", body: formData });
-      const body = await res.json().catch(() => null) as { error?: string; rubric?: Rubric } | null;
-      if (!res.ok) throw new Error(body?.error ?? "Upload failed");
+      const body = await uploadFileWithPresign<{ rubric?: Rubric }>({
+        presignUrl: "/api/rubrics/upload/presign",
+        completeUrl: "/api/rubrics/upload/complete",
+        file,
+        contentType: file.type || "application/octet-stream",
+        presignBody: {
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
+        },
+        completeBody: () => ({
+          fileName: file.name,
+          ...(name.trim() ? { name: name.trim() } : {}),
+        }),
+      });
 
       setName("");
       setFileLabel(null);

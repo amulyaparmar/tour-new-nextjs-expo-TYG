@@ -6,7 +6,7 @@ import {
   type UIMessage,
 } from "ai";
 
-import { getBedrockModel } from "@/lib/bedrock-ai";
+import { getBedrockModel } from "@/lib/bedrock-language-model";
 import { getTranscriptForSession } from "@/lib/evidence";
 import { buildSessionAiInstructions } from "@/lib/session-ai-context";
 import { getAnalysisBySessionId } from "@/lib/sessions";

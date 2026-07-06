@@ -39,6 +39,7 @@ export async function POST(request: Request) {
       definition?: unknown;
       sourceUrl?: string | null;
       isDefault?: boolean;
+      analysisModel?: string;
     };
     if (!body.name?.trim() || !body.definition || typeof body.definition !== "object") {
       return NextResponse.json({ error: "name and definition are required." }, { status: 400 });
@@ -49,6 +50,7 @@ export async function POST(request: Request) {
       definition: body.definition as never,
       sourceUrl: body.sourceUrl ?? null,
       isDefault: body.isDefault ?? false,
+      analysisModel: body.analysisModel as never,
     });
     const supabase = getSupabaseServiceClient();
     const { error: rubricError } = await supabase

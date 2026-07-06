@@ -132,6 +132,11 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}) {
   const response = await fetch(`${BASE_URL}${path}`, withAuth(init, session));
   if (response.status !== 401) return response;
 
+  // FormData bodies are consumed on the first request and cannot be retried.
+  if (init.body instanceof FormData) {
+    return response;
+  }
+
   const refreshed = await refreshSession();
   if (!refreshed) return response;
   return fetch(`${BASE_URL}${path}`, withAuth(init, refreshed));
@@ -182,6 +187,10 @@ function withAuth(init: RequestInit, session: MobileAuthSession): RequestInit {
   headers.set("Authorization", `Bearer ${session.accessToken}`);
   headers.set("x-admin-community-id", session.workspace.community.id);
   headers.set("x-tour-client", "mobile");
+  // fetch must set multipart boundary itself — a manual Content-Type breaks uploads.
+  if (init.body instanceof FormData) {
+    headers.delete("Content-Type");
+  }
   return { ...init, headers };
 }
 

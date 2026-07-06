@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import type { AnalysisResult } from "@tour/shared";
+import type { AnalysisResult, ConversationPhaseSegmentation } from "@tour/shared";
 import { CheckCircle2, ExternalLink, MessageSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
 
 import { SidebarCommentsPanel } from "./SidebarCommentsPanel";
 import { SessionAiChat } from "./SessionAiChat";
+import { TourSegmentSummary } from "./TourSegmentSummary";
+import { ClickableTimestampText } from "./ClickableTimestampText";
 import { ReprocessButton } from "./ReprocessButton";
 import { rubricPctByColor } from "./session-detail-class-maps";
 import styles from "./session-detail.module.css";
@@ -19,6 +21,8 @@ export function SessionDetailSidebar({
   sessionId,
   analysis,
   rubric,
+  phases,
+  duration,
   tab,
   onTabChange,
   currentTime,
@@ -35,6 +39,8 @@ export function SessionDetailSidebar({
     id: string;
     name: string | null;
   } | null;
+  phases: ConversationPhaseSegmentation | null;
+  duration: number;
   tab: SidebarTab;
   onTabChange: (tab: SidebarTab) => void;
   currentTime: number;
@@ -88,7 +94,15 @@ export function SessionDetailSidebar({
           className={`${styles.sidebarPanel} ${tab === "rubric" ? styles.sidebarPanelActive : ""}`}
           hidden={tab !== "rubric"}
         >
-          <SessionRubricPanel analysis={analysis} sessionId={sessionId} rubric={rubric} />
+          <SessionRubricPanel
+            analysis={analysis}
+            sessionId={sessionId}
+            rubric={rubric}
+            phases={phases}
+            duration={duration}
+            currentTime={currentTime}
+            onSeek={onSeek}
+          />
         </div>
         <div
           className={`${styles.sidebarPanel} ${tab === "comments" ? styles.sidebarPanelActive : ""}`}
@@ -125,6 +139,10 @@ function SessionRubricPanel({
   analysis,
   sessionId,
   rubric,
+  phases,
+  duration,
+  currentTime,
+  onSeek,
 }: {
   analysis: AnalysisResult;
   sessionId: string;
@@ -132,6 +150,10 @@ function SessionRubricPanel({
     id: string;
     name: string | null;
   } | null;
+  phases: ConversationPhaseSegmentation | null;
+  duration: number;
+  currentTime: number;
+  onSeek: (seconds: number) => void;
 }) {
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [openRubricSection, setOpenRubricSection] = useState<string | null>(null);
@@ -233,6 +255,14 @@ function SessionRubricPanel({
           <span className={styles.rubricInsightHint}>
             {summaryExpanded ? "Click to compact" : "Click to expand"}
           </span>
+          {summaryExpanded && (
+            <TourSegmentSummary
+              phases={phases}
+              duration={duration}
+              currentTime={currentTime}
+              onSeek={onSeek}
+            />
+          )}
         </div>
       </div>
 
@@ -269,7 +299,13 @@ function SessionRubricPanel({
                     <span className={styles.rubricQMark}>{question.passed ? "✓" : "✗"}</span>
                     <div>
                       <p className={styles.rubricQText}>{question.question}</p>
-                      {question.evidence && <p className={styles.rubricQEvidence}>{question.evidence}</p>}
+                      {question.evidence && (
+                        <ClickableTimestampText
+                          text={question.evidence}
+                          onSeek={onSeek}
+                          className={styles.rubricQEvidence}
+                        />
+                      )}
                     </div>
                     <span className={styles.rubricQPts}>{question.earnedPoints}/{question.maxPoints}</span>
                   </div>

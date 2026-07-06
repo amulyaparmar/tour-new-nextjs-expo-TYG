@@ -25,6 +25,21 @@ export const phaseSegmentClass: Record<string, string> = {
   follow_up: styles.playerPhaseFollowUp ?? "",
 };
 
+export const segmentTrackClasses = [
+  styles.playerSegment0,
+  styles.playerSegment1,
+  styles.playerSegment2,
+  styles.playerSegment3,
+  styles.playerSegment4,
+  styles.playerSegment5,
+  styles.playerSegment6,
+  styles.playerSegment7,
+  styles.playerSegment8,
+  styles.playerSegment9,
+  styles.playerSegment10,
+  styles.playerSegment11,
+] as const;
+
 export const scoreValByColor: Record<"green" | "amber" | "red", string> = {
   green: styles.scoreValGreen ?? "",
   amber: styles.scoreValAmber ?? "",

@@ -406,6 +406,9 @@ export function SessionDetailExperience({
           transcript={transcript}
           phases={phases}
           onToggleComments={toggleComments}
+          onCommentNavigate={navigateComment}
+          commentNavIndex={selectedCommentIndex}
+          commentNavTotal={navigableComments.length}
           onMomentNavigate={navigateMoment}
           onMomentSelect={handleMomentSelect}
           onPlaybackRate={cyclePlaybackRate}
@@ -431,6 +434,8 @@ export function SessionDetailExperience({
         sessionId={sessionId}
         analysis={analysis}
         rubric={rubric}
+        phases={phases}
+        duration={effectiveDuration}
         tab={sidebarTab}
         onTabChange={setSidebarTab}
         currentTime={currentTime}

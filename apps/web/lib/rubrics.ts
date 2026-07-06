@@ -5,9 +5,10 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { CreateRubricInput, Rubric, RubricDefinition } from "@tour/shared";
-import { normalizeRubricDefinition } from "@tour/shared";
+import { normalizeAnalysisModelId, normalizeRubricDefinition } from "@tour/shared";
 
 import { DEFAULT_RBG_RUBRIC_DEFINITION, DEFAULT_RBG_RUBRIC_NAME } from "./default-rubric";
+import { defaultAnalysisModelId } from "./resolve-analysis-model";
 import { getSupabaseServiceClient } from "./supabase";
 
 const STORE_PATH = path.join(process.cwd(), ".codex", "rubrics-store.json");
@@ -16,6 +17,7 @@ type RubricRow = {
   id: string;
   name: string;
   definition: RubricDefinition;
+  analysis_model?: string | null;
   source_url: string | null;
   is_default: boolean;
   created_at: string;
@@ -30,6 +32,7 @@ function mapRow(row: RubricRow): Rubric {
     id: row.id,
     name: row.name,
     definition: normalizeRubricDefinition(rawDefinition),
+    analysisModel: normalizeAnalysisModelId(row.analysis_model, defaultAnalysisModelId()),
     sourceUrl: row.source_url ?? row.source_file_url ?? null,
     isDefault: row.is_default,
     createdAt: row.created_at
@@ -85,6 +88,7 @@ export async function listRubrics(): Promise<Rubric[]> {
         id: randomUUID(),
         name: DEFAULT_RBG_RUBRIC_NAME,
         definition: DEFAULT_RBG_RUBRIC_DEFINITION,
+        analysis_model: defaultAnalysisModelId(),
         source_url: null,
         is_default: true,
         created_at: now
@@ -145,10 +149,12 @@ export async function getRubricForSession(rubricId: string | null | undefined): 
 
 export async function createRubric(input: CreateRubricInput): Promise<Rubric> {
   const definition = normalizeRubricDefinition(input.definition);
+  const analysisModel = normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId());
   const now = new Date().toISOString();
   const payload = {
     name: input.name.trim(),
     definition,
+    analysis_model: analysisModel,
     source_url: input.sourceUrl ?? null,
     is_default: input.isDefault ?? false
   };
@@ -194,6 +200,9 @@ export async function updateRubric(rubricId: string, input: Partial<CreateRubric
   const payload = {
     name: input.name?.trim() || existing.name,
     definition: nextDefinition,
+    analysis_model: input.analysisModel === undefined
+      ? existing.analysisModel
+      : normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId()),
     source_url: input.sourceUrl === undefined ? existing.sourceUrl : input.sourceUrl,
     is_default: input.isDefault ?? existing.isDefault
   };

@@ -28,7 +28,7 @@ export async function transcribeSessionStep(sessionId: string) {
   const file = await fetchRecordingFile(sessionId);
   if (!file) throw new FatalError("No recording found in storage for this session.");
 
-  const transcript = await transcribeAudio(sessionId, file.buffer, file.mimeType);
+  const transcript = await transcribeAudio(sessionId, file.buffer, file.mimeType, file.fileName);
   await saveTranscript(
     sessionId,
     transcript.map((seg) => ({ ...seg, sessionId }))
@@ -63,7 +63,8 @@ export async function analyzeSessionStep(sessionId: string) {
     location: session.location,
     notes: session.notes,
     transcript,
-    rubricDefinition: rubric.definition
+    rubricDefinition: rubric.definition,
+    analysisModel: rubric.analysisModel
   });
 
   await upsertAnalysis(sessionId, analysis);
@@ -95,10 +96,12 @@ export async function followUpActionsStep(sessionId: string) {
   const analysis = await getAnalysisBySessionId(sessionId);
   if (!session || !analysis) throw new FatalError("Session or analysis missing for follow-up actions.");
 
+  const rubric = await getRubricForSession(session.rubricId);
   const actions = await generateFollowUpActions(analysis, {
     title: session.title,
     prospectName: session.prospectName,
-    notes: session.notes
+    notes: session.notes,
+    analysisModel: rubric.analysisModel
   });
   await replaceFollowUpActions(sessionId, actions);
 

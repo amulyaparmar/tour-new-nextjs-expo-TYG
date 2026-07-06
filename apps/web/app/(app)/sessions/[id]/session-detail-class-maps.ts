@@ -16,6 +16,11 @@ export const playerSpeakerPct = [styles.playerSpeakerPct0 ?? "", styles.playerSp
 export const playerSpeakerFill = [styles.playerSpeakerFill0 ?? "", styles.playerSpeakerFill1 ?? ""] as const;
 export const playerSpeakerSegment = [styles.playerSpeakerSegment0 ?? "", styles.playerSpeakerSegment1 ?? ""] as const;
 
+export const speakerLegendSwatch = [
+  styles.playerSpeakerLegendSwatch0 ?? "",
+  styles.playerSpeakerLegendSwatch1 ?? "",
+] as const;
+
 export const phaseSegmentClass: Record<string, string> = {
   greeting: styles.playerPhaseGreeting ?? "",
   discovery: styles.playerPhaseDiscovery ?? "",

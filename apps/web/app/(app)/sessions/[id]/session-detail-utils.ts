@@ -290,6 +290,33 @@ export function buildSpeakerTracks(transcript: TranscriptSegment[], duration: nu
   });
 }
 
+export type UnifiedSpeakerSegment = SpeakerTrackSegment & {
+  speaker: string;
+  colorIndex: number;
+};
+
+/** Flatten agent + prospect segments onto one timeline lane. */
+export function buildUnifiedSpeakerSegments(
+  transcript: TranscriptSegment[],
+  duration: number
+): { segments: UnifiedSpeakerSegment[]; speakers: SpeakerTrack[] } {
+  const speakers = buildSpeakerTracks(transcript, duration);
+  const segments: UnifiedSpeakerSegment[] = [];
+
+  for (const track of speakers) {
+    for (const segment of track.segments) {
+      segments.push({
+        ...segment,
+        speaker: track.speaker,
+        colorIndex: track.colorIndex,
+      });
+    }
+  }
+
+  segments.sort((a, b) => a.leftPct - b.leftPct || a.widthPct - b.widthPct);
+  return { segments, speakers };
+}
+
 function findNearestTranscript(timestamp: number, transcript: TranscriptSegment[]) {
   let best: TranscriptSegment | undefined;
   let bestDist = Infinity;

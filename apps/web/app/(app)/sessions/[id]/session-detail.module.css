@@ -993,10 +993,12 @@
 .playerMain {
   position: relative;
   min-width: 0;
+  overflow: visible;
 }
 
 .playerTimelineStack {
   width: 100%;
+  overflow: visible;
 }
 
 .playerControlsCentered {
@@ -1089,17 +1091,209 @@
 
 .playerProgress {
   position: relative;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--slate-100);
+  height: 12px;
+  border-radius: 6px;
+  overflow: visible;
+  margin-bottom: 6px;
+}
+
+.playerScrubArea {
+  position: relative;
+  overflow: visible;
   cursor: pointer;
   margin-bottom: 8px;
+}
+
+.playerScrubPreviewLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(15, 23, 42, 0.45);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.playerProgressBackdrop {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--slate-100);
+}
+
+.playerPhaseRow {
+  display: flex;
+  gap: 2px;
+  height: 100%;
+  border-radius: inherit;
+  overflow: hidden;
+  background: white;
+}
+
+.playerPhaseSlice {
+  flex: 1 1 0;
+  min-width: 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  transition: filter 0.12s ease, transform 0.12s ease;
+}
+
+.playerPhaseSliceActive {
+  filter: brightness(1.1);
+  transform: scaleY(1.08);
+}
+
+.playerProgressPlayed {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 6px 0 0 6px;
+  background: rgba(15, 23, 42, 0.32);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.playerProgressKnob {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  transform: translateY(-50%);
+  background: #111827;
+  border: 2px solid white;
+  border-radius: 999px;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.28);
+  z-index: 4;
+}
+
+.playerPhasePopover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 280px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.96);
+  color: white;
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: none;
+  z-index: 6;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.28);
+}
+
+.playerPhasePopover strong {
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.playerPhasePopoverTitle {
+  color: rgba(255, 255, 255, 0.88) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  white-space: normal;
+}
+
+.playerPhasePopover span {
+  color: rgba(255, 255, 255, 0.78);
+  font-weight: 650;
+}
+
+.playerPhasePopoverMeta {
+  color: rgba(255, 255, 255, 0.62) !important;
+  font-size: 10px !important;
+}
+
+.playerPhasePopoverHighlights,
+.playerPhasePopoverComments {
+  margin: 4px 0 0;
+  padding: 0 0 0 14px;
+  list-style: disc;
+  white-space: normal;
+}
+
+.playerPhasePopoverHighlights li,
+.playerPhasePopoverComments li {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 10px;
+  font-weight: 550;
+  line-height: 1.4;
+}
+
+.playerPhasePopoverCommentMeta {
+  display: block;
+  color: rgba(255, 255, 255, 0.55) !important;
+  font-size: 9px !important;
+  font-weight: 700 !important;
+  margin-bottom: 1px;
+}
+
+.playerPhasePopover::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: var(--popover-arrow-left, 50%);
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: rgba(15, 23, 42, 0.96);
 }
 
 .playerProgressFill {
   height: 100%;
   border-radius: inherit;
   background: #111827;
+}
+
+.playerUnifiedSpeaker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.playerSpeakerLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+
+.playerSpeakerLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate-600);
+}
+
+.playerSpeakerLegendItem strong {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--slate-500);
+}
+
+.playerSpeakerLegendSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.playerSpeakerLegendSwatch0 {
+  background: #14b8a6;
+}
+
+.playerSpeakerLegendSwatch1 {
+  background: #fb923c;
 }
 
 .playerMarker {
@@ -1112,6 +1306,7 @@
   transform: translate(-50%, -50%);
   cursor: pointer;
   padding: 0;
+  z-index: 3;
 }
 
 .playerMarkerKeyMoment,
@@ -1175,8 +1370,6 @@
 }
 
 .playerSpeakerLaneTrack {
-  grid-column: 1 / -1;
-  grid-row: 2;
   position: relative;
   height: 8px;
   border-radius: 999px;

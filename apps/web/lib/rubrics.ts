@@ -5,7 +5,11 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { CreateRubricInput, Rubric, RubricDefinition } from "@tour/shared";
-import { normalizeAnalysisModelId, normalizeRubricDefinition } from "@tour/shared";
+import {
+  DEFAULT_RUBRIC_SESSION_TYPE,
+  normalizeAnalysisModelId,
+  normalizeRubricDefinition,
+} from "@tour/shared";
 
 import { DEFAULT_RBG_RUBRIC_DEFINITION, DEFAULT_RBG_RUBRIC_NAME } from "./default-rubric";
 import { defaultAnalysisModelId } from "./resolve-analysis-model";
@@ -18,6 +22,9 @@ type RubricRow = {
   name: string;
   definition: RubricDefinition;
   analysis_model?: string | null;
+  session_type?: string | null;
+  segmentation_prompt?: string | null;
+  analysis_prompt?: string | null;
   source_url: string | null;
   is_default: boolean;
   created_at: string;
@@ -26,6 +33,11 @@ type RubricRow = {
   source_file_url?: string | null;
 };
 
+function normalizeSessionType(value: string | null | undefined): string {
+  const trimmed = value?.trim();
+  return trimmed || DEFAULT_RUBRIC_SESSION_TYPE;
+}
+
 function mapRow(row: RubricRow): Rubric {
   const rawDefinition = row.definition ?? row.definition_json;
   return {
@@ -33,6 +45,9 @@ function mapRow(row: RubricRow): Rubric {
     name: row.name,
     definition: normalizeRubricDefinition(rawDefinition),
     analysisModel: normalizeAnalysisModelId(row.analysis_model, defaultAnalysisModelId()),
+    sessionType: normalizeSessionType(row.session_type),
+    segmentationPrompt: row.segmentation_prompt?.trim() || null,
+    analysisPrompt: row.analysis_prompt?.trim() || null,
     sourceUrl: row.source_url ?? row.source_file_url ?? null,
     isDefault: row.is_default,
     createdAt: row.created_at
@@ -155,6 +170,9 @@ export async function createRubric(input: CreateRubricInput): Promise<Rubric> {
     name: input.name.trim(),
     definition,
     analysis_model: analysisModel,
+    session_type: normalizeSessionType(input.sessionType),
+    segmentation_prompt: input.segmentationPrompt ?? null,
+    analysis_prompt: input.analysisPrompt ?? null,
     source_url: input.sourceUrl ?? null,
     is_default: input.isDefault ?? false
   };
@@ -203,6 +221,15 @@ export async function updateRubric(rubricId: string, input: Partial<CreateRubric
     analysis_model: input.analysisModel === undefined
       ? existing.analysisModel
       : normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId()),
+    session_type: input.sessionType === undefined
+      ? existing.sessionType
+      : normalizeSessionType(input.sessionType),
+    segmentation_prompt: input.segmentationPrompt === undefined
+      ? existing.segmentationPrompt
+      : input.segmentationPrompt,
+    analysis_prompt: input.analysisPrompt === undefined
+      ? existing.analysisPrompt
+      : input.analysisPrompt,
     source_url: input.sourceUrl === undefined ? existing.sourceUrl : input.sourceUrl,
     is_default: input.isDefault ?? existing.isDefault
   };

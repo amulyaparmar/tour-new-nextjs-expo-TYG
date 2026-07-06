@@ -26,6 +26,9 @@ export async function POST(request: Request) {
       sourceUrl?: string | null;
       isDefault?: boolean;
       analysisModel?: string;
+      sessionType?: string;
+      segmentationPrompt?: string | null;
+      analysisPrompt?: string | null;
     };
 
     if (!body.name?.trim()) {
@@ -41,6 +44,9 @@ export async function POST(request: Request) {
       sourceUrl: body.sourceUrl ?? null,
       isDefault: body.isDefault ?? false,
       analysisModel: body.analysisModel as never,
+      sessionType: body.sessionType,
+      segmentationPrompt: body.segmentationPrompt ?? null,
+      analysisPrompt: body.analysisPrompt ?? null,
     });
 
     return NextResponse.json({ rubric }, { status: 201 });

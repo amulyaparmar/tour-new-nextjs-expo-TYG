@@ -109,15 +109,6 @@ export function FloatingSessionPlayer({
 
       <div className={styles.playerMain}>
         <div className={styles.playerCommentsNav}>
-          <button
-            type="button"
-            className={`${styles.playerCommentsToggle} ${showComments ? styles.playerCommentsToggleActive : ""}`}
-            onClick={onToggleComments}
-            aria-pressed={showComments}
-          >
-            <MessageSquare size={14} />
-            Comments{commentCount > 0 ? ` (${commentCount})` : ""}
-          </button>
           {hasCommentNav && (
             <>
               <button
@@ -141,6 +132,18 @@ export function FloatingSessionPlayer({
               </button>
             </>
           )}
+          <button
+            type="button"
+            className={`${styles.playerCommentsToggle} ${showComments ? styles.playerCommentsToggleActive : ""}`}
+            onClick={onToggleComments}
+            aria-pressed={showComments}
+          >
+            <MessageSquare size={14} />
+            Comments
+            {commentCount > 0 ? (
+              <span className={styles.playerCommentsToggleCount}>{commentCount}</span>
+            ) : null}
+          </button>
         </div>
 
         <div className={styles.playerTimelineStack}>

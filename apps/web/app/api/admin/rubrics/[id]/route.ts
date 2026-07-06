@@ -48,6 +48,9 @@ export async function PATCH(request: Request, context: Context) {
       sourceUrl?: string | null;
       isDefault?: boolean;
       analysisModel?: string;
+      sessionType?: string;
+      segmentationPrompt?: string | null;
+      analysisPrompt?: string | null;
     };
     const rubric = await updateRubric(id, {
       name: body.name,
@@ -55,6 +58,9 @@ export async function PATCH(request: Request, context: Context) {
       sourceUrl: body.sourceUrl,
       isDefault: body.isDefault,
       analysisModel: body.analysisModel as never,
+      sessionType: body.sessionType,
+      segmentationPrompt: body.segmentationPrompt,
+      analysisPrompt: body.analysisPrompt,
     });
     return NextResponse.json({ rubric });
   } catch (caught) {

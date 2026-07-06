@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  DEFAULT_SEGMENTATION_PROMPT,
   normalizeConversationPhaseSpan,
   type ConversationPhaseSegmentation,
   type ConversationPhaseSpan
@@ -19,7 +20,11 @@ export {
 export type { PhaseTrackSegment } from "@tour/shared";
 
 export async function segmentConversationPhases(
-  transcript: TranscriptSegment[]
+  transcript: TranscriptSegment[],
+  options?: {
+    segmentationPrompt?: string | null;
+    sessionType?: string | null;
+  }
 ): Promise<ConversationPhaseSegmentation> {
   if (transcript.length === 0) {
     return { spans: [], structureNotes: "No transcript available." };
@@ -29,47 +34,10 @@ export async function segmentConversationPhases(
     .map((s) => `[${formatTime(s.startTime)}-${formatTime(s.endTime)}] ${s.speaker}: ${s.text}`)
     .join("\n");
 
-  const systemPrompt = [
-    "You are an expert leasing coach reviewing apartment tour recordings.",
-    "",
-    "If you were to segment this tour into sections, how would you segment it?",
-    "Base sections on natural transitions in the conversation — location changes, topic shifts, qualification moments, digressions, closing attempts — not a generic phase checklist.",
-    "",
-    "Calibrate to this style (structure and tone, not content to copy):",
-    "",
-    "1. Initial Greeting & Setup (00:05 - 00:30)",
-    "   - Introduction and rapport building",
-    "   - Decision to defer guest card until after tour",
-    "   - Transition to beginning the tour",
-    "",
-    "3. Prospect Qualification Moment (01:34 - 01:50)",
-    "   - Brief discussion of gap semester and double major plans",
-    "   - Mention of sister property (The Yard)",
-    "   - Critical missed opportunity to explore needs",
-    "",
-    "10. Weak Closing Attempt (07:14 - 07:46)",
-    '   - "Anything else I can help you with today?" — exit line',
-    "   - Brief discussion about non-student residents",
-    "   - Initial goodbye",
-    "",
-    "11. Last-Minute Special Discussion (07:46 - 08:33)",
-    "   - Prospect asks about specials (should have been proactive)",
-    "   - $500 gift card explanation",
-    "   - Move-in timing clarification",
-    "",
-    "Key observation: The most problematic segment is #10 (Weak Closing) where the agent invites the prospect to leave without sitting down to review options. Segment #11 shows the prospect was still engaged, proving the agent closed too early. Earlier qualification and presentation gaps weakened the close.",
-    "",
-    "How to segment:",
-    "- Use specific, coach-facing titles (e.g. \"Fitness Center Tour\", \"Prospect Qualification Moment\", \"Weak Closing Attempt\") — not generic labels like \"Tour\" or \"Discovery\"",
-    "- Split distinct chapters even when short: qualification beats, weak closes, prospect-initiated specials, digressions",
-    "- Group by location when touring amenities; group by topic when the conversation shifts without moving",
-    "- 2–4 concise bullet highlights per section; call out missed opportunities and coaching moments directly in bullets",
-    "- Include location when tied to a physical area",
-    "- Use startTime/endTime in seconds from the transcript (do not put timestamps in the title)",
-    "- Cover the full tour chronologically with minimal gaps",
-    "",
-    "In structureNotes, write a brief \"Key observation:\" summarizing the most problematic segments and how they connect (e.g. early missed qualification → weak close → prospect still asking questions)."
-  ].join("\n");
+  const systemPrompt = options?.segmentationPrompt?.trim() || DEFAULT_SEGMENTATION_PROMPT;
+  const sessionTypeNote = options?.sessionType?.trim()
+    ? `Session type: ${options.sessionType.trim()}\n\n`
+    : "";
 
   const raw = await invokeClaudeTool<Record<string, unknown>>({
     system: systemPrompt,
@@ -77,7 +45,7 @@ export async function segmentConversationPhases(
       {
         role: "user",
         content: [
-          "I would segment this tour into the following sections based on natural transitions and content.",
+          sessionTypeNote + "I would segment this tour into the following sections based on natural transitions and content.",
           "",
           "=== TRANSCRIPT ===",
           transcriptText

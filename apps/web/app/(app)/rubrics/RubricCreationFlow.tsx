@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Upload, Sparkles, ChevronRight, Trash2, GripVertical,
@@ -11,8 +11,16 @@ import {
   ANALYSIS_MODELS,
   AI_PROVIDER_LABELS,
   DEFAULT_ANALYSIS_MODEL,
+  DEFAULT_RUBRIC_SESSION_TYPE,
+  DEFAULT_SEGMENTATION_PROMPT,
+  RUBRIC_SESSION_TYPE_PRESETS,
+  buildRubricAnalysisPrompt,
+  isRubricSessionTypePreset,
+  normalizeRubricPromptOverride,
   type AnalysisModelId,
   type AiProvider,
+  type RubricDefinition,
+  type RubricSessionTypePresetId,
 } from "@tour/shared";
 
 import {
@@ -30,6 +38,34 @@ import { uploadFileForRubricExtract } from "@/lib/client-upload";
 type Step = 1 | 2 | 3;
 
 type PropertyOption = { id: string; name: string };
+
+type SessionTypeMode = RubricSessionTypePresetId | "custom";
+
+function buildDefinitionPayload(
+  categories: RubricCategory[],
+  selectedProperties: string[],
+  draft: boolean
+): RubricDefinition {
+  return {
+    sections: categories.map((category, index) => ({
+      name: category.name,
+      items: category.criteria
+        .filter((criterion) => criterion.text.trim())
+        .map((criterion, criterionIndex) => ({
+          id: criterion.id || `R${index + 1}.${criterionIndex + 1}`,
+          text: criterion.text.trim(),
+          points: Math.max(0, Number(criterion.points) || 0),
+          note: criterion.note.trim() || category.description || undefined,
+        })),
+    })),
+    notes: `Assigned properties: ${selectedProperties.join(", ")}${draft ? " (draft)" : ""}`,
+  };
+}
+
+function initialSessionTypeMode(sessionType?: string): SessionTypeMode {
+  if (!sessionType) return DEFAULT_RUBRIC_SESSION_TYPE;
+  return isRubricSessionTypePreset(sessionType) ? sessionType : "custom";
+}
 
 export function RubricCreationFlow({
   properties,
@@ -65,9 +101,37 @@ export function RubricCreationFlow({
   const [analysisModel, setAnalysisModel] = useState<AnalysisModelId>(
     initialRubric?.analysisModel ?? DEFAULT_ANALYSIS_MODEL
   );
+  const initialSessionType = initialRubric?.sessionType ?? DEFAULT_RUBRIC_SESSION_TYPE;
+  const [sessionTypeMode, setSessionTypeMode] = useState<SessionTypeMode>(
+    initialSessionTypeMode(initialSessionType)
+  );
+  const [customSessionType, setCustomSessionType] = useState(
+    isRubricSessionTypePreset(initialSessionType) ? "" : initialSessionType
+  );
+  const [showAdvanced, setShowAdvanced] = useState(
+    Boolean(initialRubric?.segmentationPrompt || initialRubric?.analysisPrompt)
+  );
+  const [segmentationPrompt, setSegmentationPrompt] = useState(
+    initialRubric?.segmentationPrompt ?? DEFAULT_SEGMENTATION_PROMPT
+  );
+  const [analysisPrompt, setAnalysisPrompt] = useState(
+    initialRubric?.analysisPrompt
+      ?? buildRubricAnalysisPrompt(initialRubric?.definition ?? { sections: [] })
+  );
+  const [analysisPromptTouched, setAnalysisPromptTouched] = useState(Boolean(initialRubric?.analysisPrompt));
 
   const totalPoints = categoriesTotalPoints(categories);
   const pointsMatch = baselineTotalPoints === null || totalPoints === baselineTotalPoints;
+
+  useEffect(() => {
+    if (step !== 3 || analysisPromptTouched) return;
+    const definition = buildDefinitionPayload(categories, selectedProperties, false);
+    setAnalysisPrompt(buildRubricAnalysisPrompt(definition));
+  }, [step, categories, selectedProperties, analysisPromptTouched]);
+
+  const resolvedSessionType = sessionTypeMode === "custom"
+    ? customSessionType.trim()
+    : sessionTypeMode;
 
   const extractWithAi = async () => {
     if (uploading || (!selectedFile && !pastedText.trim())) return;
@@ -171,20 +235,8 @@ export function RubricCreationFlow({
 
     try {
       const name = rubricName.trim() || "Untitled rubric";
-      const definition = {
-        sections: categories.map((category, index) => ({
-          name: category.name,
-          items: category.criteria
-            .filter((criterion) => criterion.text.trim())
-            .map((criterion, criterionIndex) => ({
-              id: criterion.id || `R${index + 1}.${criterionIndex + 1}`,
-              text: criterion.text.trim(),
-              points: Math.max(0, Number(criterion.points) || 0),
-              note: criterion.note.trim() || category.description || undefined,
-            })),
-        })),
-        notes: `Assigned properties: ${selectedProperties.join(", ")}${draft ? " (draft)" : ""}`,
-      };
+      const definition = buildDefinitionPayload(categories, selectedProperties, draft);
+      const defaultAnalysisPrompt = buildRubricAnalysisPrompt(definition);
 
       const response = await fetch(initialRubric ? `/api/admin/rubrics/${initialRubric.id}` : "/api/admin/rubrics", {
         method: initialRubric ? "PATCH" : "POST",
@@ -194,6 +246,9 @@ export function RubricCreationFlow({
           name,
           definition,
           analysisModel,
+          sessionType: resolvedSessionType || DEFAULT_RUBRIC_SESSION_TYPE,
+          segmentationPrompt: normalizeRubricPromptOverride(segmentationPrompt, DEFAULT_SEGMENTATION_PROMPT),
+          analysisPrompt: normalizeRubricPromptOverride(analysisPrompt, defaultAnalysisPrompt),
           isDefault: initialRubric?.isDefault ?? !draft,
         }),
       });
@@ -421,6 +476,30 @@ export function RubricCreationFlow({
                     />
                   </div>
                   <div>
+                    <label className="block text-sm font-semibold text-foreground mb-1.5">Session type</label>
+                    <select
+                      value={sessionTypeMode}
+                      onChange={(event) => setSessionTypeMode(event.target.value as SessionTypeMode)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {RUBRIC_SESSION_TYPE_PRESETS.map((preset) => (
+                        <option key={preset.id} value={preset.id}>{preset.label}</option>
+                      ))}
+                      <option value="custom">Custom</option>
+                    </select>
+                    {sessionTypeMode === "custom" && (
+                      <input
+                        value={customSessionType}
+                        onChange={(event) => setCustomSessionType(event.target.value)}
+                        placeholder="Describe the session format"
+                        className="mt-2 w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    )}
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      Used to tailor segmentation and analysis for this rubric&apos;s session format.
+                    </p>
+                  </div>
+                  <div>
                     <label className="block text-sm font-semibold text-foreground mb-1.5">Analysis model</label>
                     <select
                       value={analysisModel}
@@ -461,6 +540,65 @@ export function RubricCreationFlow({
                         </label>
                       ))}
                     </div>
+                  </div>
+                  <div className="rounded-xl border border-border overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvanced((value) => !value)}
+                      className="w-full flex items-center justify-between px-4 py-3 bg-secondary/30 text-sm font-semibold text-foreground"
+                    >
+                      Advanced prompts
+                      {showAdvanced ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                    </button>
+                    {showAdvanced && (
+                      <div className="px-4 py-4 space-y-4 border-t border-border">
+                        <div>
+                          <div className="flex items-center justify-between gap-3 mb-1.5">
+                            <label className="text-sm font-semibold text-foreground">Segmentation prompt</label>
+                            <button
+                              type="button"
+                              onClick={() => setSegmentationPrompt(DEFAULT_SEGMENTATION_PROMPT)}
+                              className="text-xs font-semibold text-primary hover:opacity-80"
+                            >
+                              Reset to default
+                            </button>
+                          </div>
+                          <textarea
+                            value={segmentationPrompt}
+                            onChange={(event) => setSegmentationPrompt(event.target.value)}
+                            rows={8}
+                            className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-xs font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between gap-3 mb-1.5">
+                            <label className="text-sm font-semibold text-foreground">Analysis prompt</label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAnalysisPromptTouched(false);
+                                setAnalysisPrompt(buildRubricAnalysisPrompt(buildDefinitionPayload(categories, selectedProperties, false)));
+                              }}
+                              className="text-xs font-semibold text-primary hover:opacity-80"
+                            >
+                              Reset to default
+                            </button>
+                          </div>
+                          <textarea
+                            value={analysisPrompt}
+                            onChange={(event) => {
+                              setAnalysisPromptTouched(true);
+                              setAnalysisPrompt(event.target.value);
+                            }}
+                            rows={10}
+                            className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-xs font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                          />
+                          <p className="mt-1.5 text-xs text-muted-foreground">
+                            Default includes your rubric categories. Customize instructions while keeping scoring items in sync via reset.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   {baselineTotalPoints !== null && !pointsMatch && (
                     <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200">
@@ -525,7 +663,7 @@ export function RubricCreationFlow({
               <button
                 type="button"
                 onClick={() => void saveRubric(false)}
-                disabled={saving || !rubricName || selectedProperties.length === 0 || !pointsMatch}
+                disabled={saving || !rubricName || selectedProperties.length === 0 || !pointsMatch || (sessionTypeMode === "custom" && !customSessionType.trim())}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
               >
                 {saving ? (

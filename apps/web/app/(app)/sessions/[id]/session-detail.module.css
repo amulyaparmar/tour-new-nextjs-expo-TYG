@@ -820,14 +820,14 @@
 .inlineKeyMomentComposeSubmit {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   border: none;
   border-radius: 8px;
   background: #ea580c;
   color: white;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 6px 10px;
+  padding: 0;
   cursor: pointer;
   font-family: inherit;
 }
@@ -923,6 +923,7 @@
   box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.08);
   backdrop-filter: blur(12px);
   pointer-events: auto;
+  --player-timeline-blue: #1674ff;
 }
 
 .floatingPlayerCompact {
@@ -967,7 +968,7 @@
   height: 36px;
   border-radius: 999px;
   border: none;
-  background: #111827;
+  background: var(--player-timeline-blue, #1674ff);
   color: white;
   display: inline-flex;
   align-items: center;
@@ -994,6 +995,9 @@
   position: relative;
   min-width: 0;
   overflow: visible;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .playerTimelineStack {
@@ -1026,10 +1030,6 @@
 }
 
 .playerCommentsToggle {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 2;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1044,17 +1044,35 @@
   font-family: inherit;
   white-space: nowrap;
   flex-shrink: 0;
-  margin-left: auto;
+}
+
+.playerCommentsToggleCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--slate-100);
+  color: var(--slate-600);
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.playerCommentsToggleActive .playerCommentsToggleCount {
+  background: #c7d2fe;
+  color: #4338ca;
 }
 
 .playerCommentsNav {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 2;
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
+  flex-shrink: 0;
+  min-height: 30px;
 }
 
 .playerCommentsNavCount {
@@ -1135,6 +1153,7 @@
   flex: 1 1 0;
   min-width: 4px;
   border-radius: 3px;
+  background: var(--player-timeline-blue, #1674ff);
   pointer-events: none;
   transition: filter 0.12s ease, transform 0.12s ease;
 }

@@ -41,8 +41,15 @@ export async function segmentPhasesStep(sessionId: string) {
   "use step";
 
   await setSessionStatus(sessionId, "segmenting");
+  const session = await getSessionById(sessionId);
+  if (!session) throw new FatalError("Session not found.");
+
   const transcript = await getTranscript(sessionId);
-  const segmentation = await segmentConversationPhases(transcript);
+  const rubric = await getRubricForSession(session.rubricId);
+  const segmentation = await segmentConversationPhases(transcript, {
+    segmentationPrompt: rubric.segmentationPrompt,
+    sessionType: rubric.sessionType,
+  });
   await saveConversationPhases(sessionId, segmentation);
 
   return { spanCount: segmentation.spans.length };
@@ -64,7 +71,9 @@ export async function analyzeSessionStep(sessionId: string) {
     notes: session.notes,
     transcript,
     rubricDefinition: rubric.definition,
-    analysisModel: rubric.analysisModel
+    analysisModel: rubric.analysisModel,
+    analysisPrompt: rubric.analysisPrompt,
+    sessionType: rubric.sessionType,
   });
 
   await upsertAnalysis(sessionId, analysis);

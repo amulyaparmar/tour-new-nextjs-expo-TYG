@@ -25,6 +25,12 @@ export type Rubric = {
   definition: RubricDefinition;
   /** Standardized model id for AI rubric analysis (mapped to provider at runtime). */
   analysisModel: AnalysisModelId;
+  /** Preset id or custom label describing the session format this rubric targets. */
+  sessionType: string;
+  /** Optional override for the segmentation system prompt. */
+  segmentationPrompt: string | null;
+  /** Optional override for the analysis system prompt. */
+  analysisPrompt: string | null;
   sourceUrl: string | null;
   isDefault: boolean;
   createdAt: string;
@@ -34,6 +40,9 @@ export type CreateRubricInput = {
   name: string;
   definition: RubricDefinition;
   analysisModel?: AnalysisModelId;
+  sessionType?: string;
+  segmentationPrompt?: string | null;
+  analysisPrompt?: string | null;
   sourceUrl?: string | null;
   isDefault?: boolean;
 };

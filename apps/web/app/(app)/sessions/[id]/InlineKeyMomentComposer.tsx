@@ -83,9 +83,13 @@ export function InlineKeyMomentComposer({
       />
       <div className={styles.inlineCommentComposeActions}>
         <span className={styles.inlineCommentComposeHint}>Enter to save · Esc to cancel</span>
-        <button type="submit" className={styles.inlineKeyMomentComposeSubmit} disabled={!label.trim() || submitting}>
+        <button
+          type="submit"
+          className={styles.inlineKeyMomentComposeSubmit}
+          disabled={!label.trim() || submitting}
+          aria-label={submitting ? "Saving key moment" : "Add key moment"}
+        >
           <Send size={13} />
-          {submitting ? "Saving..." : "Add moment"}
         </button>
       </div>
     </form>

@@ -379,14 +379,11 @@ export function SessionDetailExperience({
           comments={topLevelComments}
           showComments={showComments}
           activeCommentId={activeCommentId}
-          commentNavIndex={selectedCommentIndex}
-          commentNavTotal={navigableComments.length}
           seekTo={(seconds) => seekTo(seconds, { play: true })}
           onScrollTimeChange={handleScrollTimeChange}
           onCommentsUpdated={refreshComments}
           onInlineComposeOpen={() => setShowComments(true)}
           onCommentSelect={handleCommentSelect}
-          onCommentNavigate={navigateComment}
           onMomentClick={handleMomentSelect}
           chatScrollRequest={chatScrollRequest}
         />

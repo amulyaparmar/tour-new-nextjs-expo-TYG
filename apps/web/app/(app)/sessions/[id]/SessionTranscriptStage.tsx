@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConversationPhaseSegmentation } from "@tour/shared";
 import { findPhaseForTimestamp, formatSegmentTimeRange, shortPhaseLabel } from "@tour/shared";
-import { ChevronDown, ChevronUp, MessageSquare, MoreHorizontal, Pencil, Search, Tag, Trash2 } from "lucide-react";
+import { MessageSquare, MoreHorizontal, Pencil, Search, Tag, Trash2 } from "lucide-react";
 
 import styles from "./session-detail.module.css";
 import { InlineCommentComposer } from "./InlineCommentComposer";
@@ -33,14 +33,11 @@ type Props = {
   comments: SessionComment[];
   showComments: boolean;
   activeCommentId: string | null;
-  commentNavIndex: number;
-  commentNavTotal: number;
   seekTo: (seconds: number) => void;
   onScrollTimeChange: (seconds: number) => void;
   onCommentsUpdated: () => void;
   onInlineComposeOpen?: () => void;
   onCommentSelect: (commentId: string) => void;
-  onCommentNavigate: (direction: -1 | 1) => void;
   onMomentClick: (moment: SessionMoment) => void;
   chatScrollRequest?: { key: number; seconds: number } | null;
 };
@@ -72,14 +69,11 @@ export function SessionTranscriptStage({
   comments,
   showComments,
   activeCommentId,
-  commentNavIndex,
-  commentNavTotal,
   seekTo,
   onScrollTimeChange,
   onCommentsUpdated,
   onInlineComposeOpen,
   onCommentSelect,
-  onCommentNavigate,
   onMomentClick,
   chatScrollRequest,
 }: Props) {
@@ -522,18 +516,6 @@ export function SessionTranscriptStage({
             })
           )}
         </div>
-
-        {showComments && commentNavTotal > 0 && (
-          <div className={styles.floatingCommentNav} aria-label="Navigate comments">
-            <button type="button" aria-label="Previous comment" onClick={() => onCommentNavigate(-1)}>
-              <ChevronUp size={16} />
-            </button>
-            <span>{commentNavIndex + 1}/{commentNavTotal}</span>
-            <button type="button" aria-label="Next comment" onClick={() => onCommentNavigate(1)}>
-              <ChevronDown size={16} />
-            </button>
-          </div>
-        )}
       </div>
 
       <div className={styles.stageStatus} aria-live="polite">

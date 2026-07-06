@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 
 import type { PhaseTrackSegment } from "@tour/shared";
-import { formatSegmentTimeRange, tourSegmentColor } from "@tour/shared";
+import { formatSegmentTimeRange } from "@tour/shared";
 
 import styles from "./session-detail.module.css";
 import {
@@ -126,13 +126,12 @@ export function PlayerProgressBar({
       <div className={styles.playerProgress}>
         {phaseTracks.length > 0 ? (
           <div className={styles.playerPhaseRow} aria-hidden>
-            {phaseTracks.map((segment, index) => (
+            {phaseTracks.map((segment) => (
               <div
                 key={segment.id}
                 className={`${styles.playerPhaseSlice} ${activeSegmentId === segment.id ? styles.playerPhaseSliceActive : ""}`}
                 style={{
                   flex: `${Math.max(segment.endTime - segment.startTime, 0.5)} 1 0`,
-                  backgroundColor: tourSegmentColor(index),
                 }}
               />
             ))}

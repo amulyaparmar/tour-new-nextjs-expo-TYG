@@ -1,9 +1,8 @@
 import "server-only";
 
 import type { AnalysisResult, AnalysisModelId, RubricDefinition } from "@tour/shared";
-import { rubricTotalPoints } from "@tour/shared";
+import { buildRubricAnalysisPrompt, rubricSessionTypeLabel, rubricTotalPoints } from "@tour/shared";
 import { DEFAULT_RBG_RUBRIC_DEFINITION } from "./default-rubric";
-import { buildRubricAnalysisPrompt } from "./rubric-prompt";
 import type { TranscriptSegment } from "./transcribe";
 import { type ClaudeTool } from "./bedrock";
 import { invokeAnalysisTool } from "./analysis-model-invoke";
@@ -16,6 +15,8 @@ export async function generateAnalysis(params: {
   transcript?: TranscriptSegment[];
   rubricDefinition?: RubricDefinition;
   analysisModel?: AnalysisModelId | null;
+  analysisPrompt?: string | null;
+  sessionType?: string | null;
 }): Promise<AnalysisResult> {
   const transcriptText = params.transcript && params.transcript.length > 0
     ? params.transcript
@@ -25,10 +26,12 @@ export async function generateAnalysis(params: {
 
   const definition = params.rubricDefinition ?? DEFAULT_RBG_RUBRIC_DEFINITION;
   const totalPoints = rubricTotalPoints(definition);
-  const systemPrompt = buildRubricAnalysisPrompt(definition);
+  const systemPrompt = params.analysisPrompt?.trim() || buildRubricAnalysisPrompt(definition);
+  const sessionTypeLabel = rubricSessionTypeLabel(params.sessionType);
 
   const userPrompt = [
     `Session: ${params.title}`,
+    `Session type: ${sessionTypeLabel}`,
     `Prospect: ${params.prospectName ?? "Unknown"}`,
     `Location: ${params.location ?? "Unknown"}`,
     `Agent Notes: ${params.notes ?? "None provided"}`,

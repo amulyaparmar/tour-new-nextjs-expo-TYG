@@ -43,7 +43,9 @@ export async function POST(_request: Request, context: Context) {
       notes: session.notes,
       transcript: transcript.length > 0 ? transcript : undefined,
       rubricDefinition: rubric.definition,
-      analysisModel: rubric.analysisModel
+      analysisModel: rubric.analysisModel,
+      analysisPrompt: rubric.analysisPrompt,
+      sessionType: rubric.sessionType,
     });
 
     await upsertAnalysis(id, analysis);

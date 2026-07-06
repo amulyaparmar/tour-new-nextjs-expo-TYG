@@ -25,8 +25,15 @@ import {
   TextInput,
   View,
 } from "react-native";
-import type { AnalysisResult, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionSummary } from "@tour/shared";
-import { rubricItemCount, rubricTotalPoints } from "@tour/shared";
+import {
+  type AnalysisResult,
+  type ConversationPhaseSegmentation,
+  type FollowUpAction,
+  type Rubric,
+  type SessionSummary,
+  rubricItemCount,
+  rubricTotalPoints,
+} from "@tour/shared";
 import {
   buildPhaseTracks,
   findPhaseForTimestamp,

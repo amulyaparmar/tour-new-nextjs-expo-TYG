@@ -24,6 +24,7 @@
     "mobile:testflight": "npm --workspace @tour/mobile run testflight"
   },
   "devDependencies": {
+    "next": "^16.0.0",
     "turbo": "^2.8.0",
     "typescript": "^6.0.3"
   }

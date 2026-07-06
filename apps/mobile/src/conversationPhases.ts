@@ -1,8 +1,8 @@
-import type { ConversationPhaseId } from "@tour/shared";
 import {
   buildPhaseTracks,
   findPhaseForTimestamp,
   shortPhaseLabel,
+  type ConversationPhaseId,
   type ConversationPhaseSegmentation,
   type PhaseTrackSegment,
 } from "@tour/shared";

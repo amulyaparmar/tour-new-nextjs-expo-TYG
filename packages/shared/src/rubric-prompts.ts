@@ -4,6 +4,7 @@ import { rubricTotalPoints, sectionPoints } from "./rubric";
 export const RUBRIC_SESSION_TYPE_PRESETS = [
   { id: "in_person", label: "In person" },
   { id: "call", label: "Call" },
+  { id: "phone_shop", label: "Phone shop" },
   { id: "virtual_tour", label: "Virtual tour" },
   { id: "in_person_tour", label: "In person tour" },
 ] as const;

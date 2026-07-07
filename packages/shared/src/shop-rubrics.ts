@@ -1,4 +1,4 @@
-export type ShopRubricType = "in_person_shop" | "phone_ai_shop";
+export type ShopRubricType = "in_person_shop" | "phone_shop" | "phone_ai_shop";
 
 export type ShopRubricItem = {
   id: string;
@@ -77,10 +77,10 @@ export const inPersonShopRubric = {
   ]
 } as const satisfies ShopRubric;
 
-export const phoneAiShopRubric = {
+export const phoneShopRubric = {
   id: "phone-ai-leasing-shop",
-  type: "phone_ai_shop",
-  title: "Phone AI leasing shop rubric",
+  type: "phone_shop",
+  title: "Phone shop rubric",
   source: "usevoice.ai-TYG/components/popups/AiRubricPopup.tsx and usevoice.ai-TYG/app/api/twilio/openaiTYG/route.tsx",
   totalPossible: 135,
   preShopPrompts: [
@@ -195,4 +195,6 @@ export const phoneAiShopRubric = {
   ]
 } as const satisfies ShopRubric;
 
-export const shopRubrics = [inPersonShopRubric, phoneAiShopRubric] as const;
+export const phoneAiShopRubric = phoneShopRubric;
+
+export const shopRubrics = [inPersonShopRubric, phoneShopRubric] as const;

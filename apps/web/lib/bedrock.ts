@@ -10,8 +10,8 @@ import {
  * Minimal AWS Bedrock client for Claude, using the long-term Bedrock API key
  * (bearer-token auth) rather than SigV4 signing. Plain fetch — no aws-sdk dep.
  *
- * Structured outputs (strict tool use + JSON schema) are applied automatically
- * on every request. @see https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
+ * Structured outputs apply schema normalization on every tool request.
+ * `strict: true` is only sent for Bedrock Claude models that accept it.
  *
  * Env:
  *   AWS_BEARER_TOKEN_BEDROCK  long-term Bedrock API key
@@ -129,12 +129,13 @@ export type InvokeClaudeToolParams = Omit<InvokeClaudeParams, "outputSchema"> & 
 
 /**
  * Forces Claude to call `tool` and returns its validated `input` object.
- * Uses Bedrock strict tool use (strict: true) with a normalized JSON schema.
+ * Schema is normalized; strict tool use is applied only when the model supports it.
  */
 export async function invokeClaudeTool<T = Record<string, unknown>>(
   params: InvokeClaudeToolParams
 ): Promise<T> {
-  const tool = prepareStructuredTool(params.tool);
+  const resolvedModelId = params.modelId ?? getConfig().modelId;
+  const tool = prepareStructuredTool(params.tool, { modelId: resolvedModelId });
   const data = await invokeRaw({
     max_tokens: params.maxTokens ?? 8192,
     temperature: params.temperature ?? 0.3,

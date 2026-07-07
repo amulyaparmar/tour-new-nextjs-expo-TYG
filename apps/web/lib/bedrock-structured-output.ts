@@ -45,15 +45,32 @@ export function prepareStructuredJsonSchema(schema: JsonSchema): JsonSchema {
   return result;
 }
 
-export type StructuredClaudeTool = ClaudeTool & { strict: true };
+export type StructuredClaudeTool = ClaudeTool & { strict?: true };
 
-/** Applies Bedrock strict tool-use and schema normalization. */
-export function prepareStructuredTool(tool: ClaudeTool): StructuredClaudeTool {
-  return {
-    ...tool,
-    strict: true,
-    input_schema: prepareStructuredJsonSchema(tool.input_schema)
-  };
+/** Bedrock Messages API rejects tools[].strict on newer Anthropic model families. */
+export function bedrockSupportsStrictTools(modelId: string): boolean {
+  const id = modelId.toLowerCase();
+  if (
+    id.includes("claude-sonnet-5")
+    || id.includes("claude-opus-4-7")
+    || id.includes("claude-opus-4-8")
+  ) {
+    return false;
+  }
+  return id.includes("anthropic.claude");
+}
+
+/** Applies schema normalization and optional strict tool-use when the model supports it. */
+export function prepareStructuredTool(
+  tool: ClaudeTool,
+  options?: { modelId?: string }
+): ClaudeTool {
+  const input_schema = prepareStructuredJsonSchema(tool.input_schema);
+  const modelId = options?.modelId ?? "";
+  if (modelId && bedrockSupportsStrictTools(modelId)) {
+    return { ...tool, strict: true, input_schema };
+  }
+  return { ...tool, input_schema };
 }
 
 export type BedrockJsonSchemaOutputConfig = {

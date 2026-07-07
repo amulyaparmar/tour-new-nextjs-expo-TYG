@@ -60,7 +60,7 @@ export const ANALYSIS_MODELS: readonly AnalysisModel[] = [
   }
 ] as const;
 
-export const DEFAULT_ANALYSIS_MODEL: AnalysisModelId = "claude-sonnet-5";
+export const DEFAULT_ANALYSIS_MODEL: AnalysisModelId = "claude-sonnet-4.5";
 
 const MODEL_BY_ID = new Map(ANALYSIS_MODELS.map((model) => [model.id, model]));
 

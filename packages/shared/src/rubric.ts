@@ -1,4 +1,5 @@
 import type { AnalysisModelId } from "./ai-models";
+import type { TranscribeProviderId } from "./transcribe-providers";
 
 export type RubricItem = {
   id: string;
@@ -25,6 +26,10 @@ export type Rubric = {
   definition: RubricDefinition;
   /** Standardized model id for AI rubric analysis (mapped to provider at runtime). */
   analysisModel: AnalysisModelId;
+  /** Transcription provider used when processing sessions with this rubric. */
+  transcribeProvider: TranscribeProviderId;
+  /** Gemini-only multimodal audio insights (sentiment, emotion, ambience). */
+  audioUnderstandingEnabled: boolean;
   /** Preset id or custom label describing the session format this rubric targets. */
   sessionType: string;
   /** Optional override for the segmentation system prompt. */
@@ -40,6 +45,8 @@ export type CreateRubricInput = {
   name: string;
   definition: RubricDefinition;
   analysisModel?: AnalysisModelId;
+  transcribeProvider?: TranscribeProviderId;
+  audioUnderstandingEnabled?: boolean;
   sessionType?: string;
   segmentationPrompt?: string | null;
   analysisPrompt?: string | null;

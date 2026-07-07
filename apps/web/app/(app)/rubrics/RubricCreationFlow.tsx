@@ -17,10 +17,13 @@ import {
   buildRubricAnalysisPrompt,
   isRubricSessionTypePreset,
   normalizeRubricPromptOverride,
+  DEFAULT_TRANSCRIBE_PROVIDER,
+  TRANSCRIBE_PROVIDERS,
   type AnalysisModelId,
   type AiProvider,
   type RubricDefinition,
   type RubricSessionTypePresetId,
+  type TranscribeProviderId,
 } from "@tour/shared";
 
 import {
@@ -101,6 +104,12 @@ export function RubricCreationFlow({
   const [analysisModel, setAnalysisModel] = useState<AnalysisModelId>(
     initialRubric?.analysisModel ?? DEFAULT_ANALYSIS_MODEL
   );
+  const [transcribeProvider, setTranscribeProvider] = useState<TranscribeProviderId>(
+    initialRubric?.transcribeProvider ?? DEFAULT_TRANSCRIBE_PROVIDER
+  );
+  const [audioUnderstandingEnabled, setAudioUnderstandingEnabled] = useState(
+    initialRubric?.audioUnderstandingEnabled ?? false
+  );
   const initialSessionType = initialRubric?.sessionType ?? DEFAULT_RUBRIC_SESSION_TYPE;
   const [sessionTypeMode, setSessionTypeMode] = useState<SessionTypeMode>(
     initialSessionTypeMode(initialSessionType)
@@ -132,6 +141,14 @@ export function RubricCreationFlow({
   const resolvedSessionType = sessionTypeMode === "custom"
     ? customSessionType.trim()
     : sessionTypeMode;
+
+  const geminiAudioSelected = transcribeProvider === "gemini";
+
+  useEffect(() => {
+    if (!geminiAudioSelected && audioUnderstandingEnabled) {
+      setAudioUnderstandingEnabled(false);
+    }
+  }, [geminiAudioSelected, audioUnderstandingEnabled]);
 
   const extractWithAi = async () => {
     if (uploading || (!selectedFile && !pastedText.trim())) return;
@@ -246,6 +263,8 @@ export function RubricCreationFlow({
           name,
           definition,
           analysisModel,
+          transcribeProvider,
+          audioUnderstandingEnabled: geminiAudioSelected && audioUnderstandingEnabled,
           sessionType: resolvedSessionType || DEFAULT_RUBRIC_SESSION_TYPE,
           segmentationPrompt: normalizeRubricPromptOverride(segmentationPrompt, DEFAULT_SEGMENTATION_PROMPT),
           analysisPrompt: normalizeRubricPromptOverride(analysisPrompt, defaultAnalysisPrompt),
@@ -520,6 +539,40 @@ export function RubricCreationFlow({
                       {ANALYSIS_MODELS.find((model) => model.id === analysisModel)?.description}
                     </p>
                   </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-foreground mb-1.5">Audio provider</label>
+                    <select
+                      value={transcribeProvider}
+                      onChange={(event) => setTranscribeProvider(event.target.value as TranscribeProviderId)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {TRANSCRIBE_PROVIDERS.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      {TRANSCRIBE_PROVIDERS.find((provider) => provider.id === transcribeProvider)?.description}
+                    </p>
+                  </div>
+                  <label
+                    className={`flex items-start gap-3 p-3 rounded-xl border border-border ${geminiAudioSelected ? "cursor-pointer hover:bg-secondary/50" : "opacity-60 cursor-not-allowed"}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={audioUnderstandingEnabled}
+                      disabled={!geminiAudioSelected}
+                      onChange={(event) => setAudioUnderstandingEnabled(event.target.checked)}
+                      className="mt-1"
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold text-foreground">Enable audio understanding</span>
+                      <span className="block text-xs text-muted-foreground mt-1">
+                        Gemini-only: sentiment timeline, speaker dynamics, ambience cues, and coaching highlights from the raw recording.
+                      </span>
+                    </span>
+                  </label>
                   <div>
                     <label className="block text-sm font-semibold text-foreground mb-1.5">Assign to properties</label>
                     <div className="space-y-2">

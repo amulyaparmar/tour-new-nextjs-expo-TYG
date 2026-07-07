@@ -1,4 +1,5 @@
 export * from "./ai-models";
+export * from "./transcribe-providers";
 export * from "./shop-rubrics";
 export * from "./rubric";
 export * from "./rubric-prompts";

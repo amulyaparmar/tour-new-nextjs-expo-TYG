@@ -26,6 +26,8 @@ export async function POST(request: Request) {
       sourceUrl?: string | null;
       isDefault?: boolean;
       analysisModel?: string;
+      transcribeProvider?: string;
+      audioUnderstandingEnabled?: boolean;
       sessionType?: string;
       segmentationPrompt?: string | null;
       analysisPrompt?: string | null;
@@ -44,6 +46,8 @@ export async function POST(request: Request) {
       sourceUrl: body.sourceUrl ?? null,
       isDefault: body.isDefault ?? false,
       analysisModel: body.analysisModel as never,
+      transcribeProvider: body.transcribeProvider as never,
+      audioUnderstandingEnabled: body.audioUnderstandingEnabled,
       sessionType: body.sessionType,
       segmentationPrompt: body.segmentationPrompt ?? null,
       analysisPrompt: body.analysisPrompt ?? null,

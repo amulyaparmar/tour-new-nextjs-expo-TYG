@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ClipboardList, Loader2 } from "lucide-react";
 
 import type { Rubric } from "@tour/shared";
-import { rubricItemCount, rubricTotalPoints } from "@tour/shared";
+import { rubricItemCount, rubricTotalPoints, getTranscribeProvider } from "@tour/shared";
 
 type RubricSelectorProps = {
   name?: string;
@@ -109,6 +109,13 @@ export function RubricSelector({
             </option>
           ))}
         </select>
+      )}
+
+      {selectedRubric && (
+        <p style={{ fontSize: 12, color: "var(--slate-500)", marginTop: 6 }}>
+          Audio: {getTranscribeProvider(selectedRubric.transcribeProvider).label}
+          {selectedRubric.audioUnderstandingEnabled ? " · sentiment & ambience insights enabled" : ""}
+        </p>
       )}
 
       {selectedRubric?.definition.notes && (

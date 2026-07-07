@@ -28,10 +28,17 @@ export async function transcribeSessionStep(sessionId: string) {
   const session = await getSessionById(sessionId);
   if (!session) throw new FatalError("Session not found.");
 
+  const rubric = await getRubricForSession(session.rubricId);
   const file = await fetchRecordingFile(sessionId);
   if (!file) throw new FatalError("No recording found in storage for this session.");
 
-  const transcript = await transcribeAudio(sessionId, file.buffer, file.mimeType, file.fileName);
+  const transcript = await transcribeAudio(
+    sessionId,
+    file.buffer,
+    file.mimeType,
+    file.fileName,
+    rubric.transcribeProvider
+  );
   await saveTranscript(
     sessionId,
     transcript.map((seg) => ({ ...seg, sessionId }))
@@ -43,13 +50,19 @@ export async function transcribeSessionStep(sessionId: string) {
 export async function analyzeAudioStep(sessionId: string) {
   "use step";
 
+  const session = await getSessionById(sessionId);
+  if (!session) throw new FatalError("Session not found.");
+
+  const rubric = await getRubricForSession(session.rubricId);
+  if (!rubric.audioUnderstandingEnabled || rubric.transcribeProvider !== "gemini") {
+    return { skipped: true, reason: "disabled" };
+  }
+
   if (!isGeminiConfigured()) {
-    return { skipped: true };
+    return { skipped: true, reason: "missing_api_key" };
   }
 
   await setSessionStatus(sessionId, "analyzing_audio");
-  const session = await getSessionById(sessionId);
-  if (!session) throw new FatalError("Session not found.");
 
   const file = await fetchRecordingFile(sessionId);
   if (!file) throw new FatalError("No recording found in storage for audio insights.");

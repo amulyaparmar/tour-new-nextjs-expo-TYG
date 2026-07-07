@@ -82,9 +82,22 @@ export async function transcribeAudio(
   sessionId: string,
   audioBuffer: Buffer,
   mimeType: string,
-  fileName?: string
+  fileName?: string,
+  providerOverride?: TranscribeProvider
 ): Promise<TranscriptSegment[]> {
-  const provider = resolveTranscribeProvider();
+  let provider: TranscribeProvider;
+  if (providerOverride) {
+    if (isProviderConfigured(providerOverride)) {
+      provider = providerOverride;
+    } else {
+      console.warn(
+        `[transcribe] Rubric provider ${providerOverride} is not configured; falling back to env default.`
+      );
+      provider = resolveTranscribeProvider();
+    }
+  } else {
+    provider = resolveTranscribeProvider();
+  }
 
   if (provider === "deepgram") {
     const { transcribeWithDeepgram } = await import("./transcribe-deepgram");

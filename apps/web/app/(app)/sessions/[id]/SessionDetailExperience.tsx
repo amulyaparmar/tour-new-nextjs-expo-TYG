@@ -10,7 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
-import type { AnalysisResult, ConversationPhaseSegmentation } from "@tour/shared";
+import type { AnalysisResult, AudioInsights, ConversationPhaseSegmentation } from "@tour/shared";
 import { buildPhaseTracks } from "@tour/shared";
 
 import { FloatingSessionPlayer } from "./FloatingSessionPlayer";
@@ -38,6 +38,7 @@ type Props = {
   audioUrl: string | null;
   duration: number;
   phases: ConversationPhaseSegmentation | null;
+  audioInsights: AudioInsights | null;
   rubric: {
     id: string;
     name: string | null;
@@ -69,6 +70,7 @@ export function SessionDetailExperience({
   audioUrl,
   duration,
   phases,
+  audioInsights,
   rubric,
 }: Props) {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
@@ -432,6 +434,7 @@ export function SessionDetailExperience({
         analysis={analysis}
         rubric={rubric}
         phases={phases}
+        audioInsights={audioInsights}
         duration={effectiveDuration}
         tab={sidebarTab}
         onTabChange={setSidebarTab}

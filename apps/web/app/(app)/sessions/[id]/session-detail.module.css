@@ -3383,3 +3383,225 @@
     right: 8px;
   }
 }
+
+.sidebarTabDisabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.audioPanel,
+.audioPanelEmpty {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 2px 16px;
+}
+
+.audioPanelEmptyHint {
+  color: var(--slate-500);
+  font-size: 13px;
+}
+
+.audioSummary {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--slate-700);
+}
+
+.audioSentimentBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--slate-100);
+  color: var(--slate-700);
+}
+
+.audioSentimentBadge[data-sentiment="positive"] {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.audioSentimentBadge[data-sentiment="negative"] {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.audioSentimentBadge[data-sentiment="mixed"] {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.audioMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audioMetaPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--slate-100);
+  color: var(--slate-600);
+  font-size: 12px;
+}
+
+.audioSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.audioSectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--slate-800);
+}
+
+.audioSpeakerGrid {
+  display: grid;
+  gap: 10px;
+}
+
+.audioSpeakerCard {
+  padding: 10px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.audioSpeakerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.audioEmotionDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.audioSpeakerStat,
+.audioSpeakerNotes {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--slate-600);
+}
+
+.audioHighlightList,
+.audioAmbienceList,
+.audioSegmentList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.audioHighlightCard,
+.audioAmbienceCard,
+.audioSegmentCard {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: 12px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.audioHighlightCard strong,
+.audioAmbienceCard strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.audioHighlightCard p,
+.audioAmbienceCard p,
+.audioSegmentText,
+.audioSegmentTranslation {
+  margin: 0;
+  font-size: 13px;
+  color: var(--slate-600);
+  line-height: 1.45;
+}
+
+.audioHighlightTime,
+.audioSegmentTime {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+
+.audioSegmentCardActive {
+  border-color: #1674ff;
+  box-shadow: 0 0 0 1px rgba(22, 116, 255, 0.15);
+}
+
+.audioSegmentHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.audioSegmentSpeaker {
+  font-weight: 600;
+  color: var(--slate-800);
+}
+
+.audioEmotionPill,
+.audioEnergyPill,
+.audioSegmentLanguage {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.audioEnergyPill,
+.audioSegmentLanguage {
+  color: var(--slate-500);
+}
+
+.audioTimeline {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--slate-100);
+  overflow: hidden;
+}
+
+.audioTimelineSegment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.audioTimelinePlayhead {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: #111827;
+  transform: translateX(-1px);
+  pointer-events: none;
+}

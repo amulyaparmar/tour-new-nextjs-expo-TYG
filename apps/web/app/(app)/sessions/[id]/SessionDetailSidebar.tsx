@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import type { AnalysisResult, ConversationPhaseSegmentation } from "@tour/shared";
-import { CheckCircle2, ExternalLink, MessageSquare } from "lucide-react";
+import type { AnalysisResult, AudioInsights, ConversationPhaseSegmentation } from "@tour/shared";
+import { Activity, CheckCircle2, ExternalLink, MessageSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
 
 import { SidebarCommentsPanel } from "./SidebarCommentsPanel";
 import { SessionAiChat } from "./SessionAiChat";
+import { SessionAudioInsightsPanel } from "./SessionAudioInsightsPanel";
 import { TourSegmentSummary } from "./TourSegmentSummary";
 import { ClickableTimestampText } from "./ClickableTimestampText";
 import { ReprocessButton } from "./ReprocessButton";
@@ -15,13 +16,14 @@ import { rubricPctByColor } from "./session-detail-class-maps";
 import styles from "./session-detail.module.css";
 import { isDiscussionComment, scoreColor, type SessionComment } from "./session-detail-utils";
 
-export type SidebarTab = "rubric" | "comments" | "ai";
+export type SidebarTab = "rubric" | "comments" | "audio" | "ai";
 
 export function SessionDetailSidebar({
   sessionId,
   analysis,
   rubric,
   phases,
+  audioInsights,
   duration,
   tab,
   onTabChange,
@@ -40,6 +42,7 @@ export function SessionDetailSidebar({
     name: string | null;
   } | null;
   phases: ConversationPhaseSegmentation | null;
+  audioInsights: AudioInsights | null;
   duration: number;
   tab: SidebarTab;
   onTabChange: (tab: SidebarTab) => void;
@@ -76,6 +79,17 @@ export function SessionDetailSidebar({
         >
           <MessageSquare size={18} />
           {commentCount > 0 && <span className={styles.sidebarTabBadge}>{commentCount}</span>}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "audio"}
+          className={`${styles.sidebarTab} ${tab === "audio" ? styles.sidebarTabActive : ""} ${!audioInsights ? styles.sidebarTabDisabled : ""}`}
+          onClick={() => audioInsights && onTabChange("audio")}
+          title={audioInsights ? "Audio insights" : "Audio insights unavailable"}
+          disabled={!audioInsights}
+        >
+          <Activity size={18} />
         </button>
         <button
           type="button"
@@ -123,6 +137,24 @@ export function SessionDetailSidebar({
               onCommentSelect={onCommentSelect}
             />
           </div>
+        </div>
+        <div
+          className={`${styles.sidebarPanel} ${tab === "audio" ? styles.sidebarPanelActive : ""}`}
+          hidden={tab !== "audio"}
+        >
+          {audioInsights ? (
+            <SessionAudioInsightsPanel
+              insights={audioInsights}
+              duration={duration}
+              currentTime={currentTime}
+              onSeek={onSeek}
+            />
+          ) : (
+            <div className={styles.audioPanelEmpty}>
+              <p>Gemini audio insights are not available for this session.</p>
+              <p className={styles.audioPanelEmptyHint}>Set GEMINI_API_KEY and re-process to generate sentiment, emotion, and ambience analysis.</p>
+            </div>
+          )}
         </div>
         <div
           className={`${styles.sidebarPanel} ${tab === "ai" ? styles.sidebarPanelActive : ""}`}

@@ -17,19 +17,23 @@ export type TranscriptSegment = {
  *    One fast request, no size cap.
  *  - "elevenlabs": ElevenLabs Scribe STT + native diarization. Just ELEVENLABS_API_KEY.
  *    One synchronous request, up to 5GB uploads.
+ *  - "gemini": Google Gemini multimodal audio — transcription + rich audio
+ *    understanding (emotion, ambience, diarization). Just GEMINI_API_KEY.
  *  - "aws": AWS Transcribe batch, native diarization. Keeps audio in your AWS
  *    account (stages to S3, polls to completion). Needs IAM keys + TRANSCRIBE_S3_BUCKET.
  *
- * Select with TRANSCRIBE_PROVIDER=whisper|deepgram|elevenlabs|aws (defaults to whisper).
+ * Select with TRANSCRIBE_PROVIDER=whisper|deepgram|elevenlabs|gemini|aws (defaults to whisper).
  * If the requested provider is missing credentials, falls back to the first
- * configured provider in order: deepgram → elevenlabs → whisper → aws.
+ * configured provider in order: gemini → deepgram → elevenlabs → whisper → aws.
  * Each provider module is dynamically imported so an unconfigured provider's deps
  * never affect the active path. Public signature is stable so /process is untouched.
  */
-type TranscribeProvider = "whisper" | "deepgram" | "elevenlabs" | "aws";
+type TranscribeProvider = "whisper" | "deepgram" | "elevenlabs" | "gemini" | "aws";
 
 function isProviderConfigured(provider: TranscribeProvider): boolean {
   switch (provider) {
+    case "gemini":
+      return Boolean(process.env.GEMINI_API_KEY?.trim());
     case "deepgram":
       return Boolean(process.env.DEEPGRAM_API_KEY?.trim());
     case "elevenlabs":
@@ -50,6 +54,7 @@ function resolveTranscribeProvider(): TranscribeProvider {
   const requestedProvider =
     requested === "deepgram" ||
     requested === "elevenlabs" ||
+    requested === "gemini" ||
     requested === "aws" ||
     requested === "whisper"
       ? requested
@@ -59,11 +64,11 @@ function resolveTranscribeProvider(): TranscribeProvider {
     return requestedProvider;
   }
 
-  const fallbackOrder: TranscribeProvider[] = ["deepgram", "elevenlabs", "whisper", "aws"];
+  const fallbackOrder: TranscribeProvider[] = ["gemini", "deepgram", "elevenlabs", "whisper", "aws"];
   const fallback = fallbackOrder.find((provider) => isProviderConfigured(provider));
   if (!fallback) {
     throw new Error(
-      "No transcription provider is configured. Set DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, OPENAI_API_KEY, or AWS Transcribe credentials (TRANSCRIBE_S3_BUCKET + AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY)."
+      "No transcription provider is configured. Set GEMINI_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, OPENAI_API_KEY, or AWS Transcribe credentials (TRANSCRIBE_S3_BUCKET + AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY)."
     );
   }
 
@@ -89,6 +94,11 @@ export async function transcribeAudio(
   if (provider === "elevenlabs") {
     const { transcribeWithElevenLabs } = await import("./transcribe-elevenlabs");
     return transcribeWithElevenLabs(sessionId, audioBuffer, mimeType, fileName);
+  }
+
+  if (provider === "gemini") {
+    const { transcribeWithGemini } = await import("./transcribe-gemini");
+    return transcribeWithGemini(sessionId, audioBuffer, mimeType, fileName);
   }
 
   if (provider === "aws") {

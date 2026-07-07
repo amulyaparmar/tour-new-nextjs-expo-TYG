@@ -1,4 +1,5 @@
 import {
+  analyzeAudioStep,
   analyzeSessionStep,
   extractScreenshotsStep,
   finalizeSessionStep,
@@ -13,6 +14,7 @@ export async function processSessionWorkflow(sessionId: string) {
 
   try {
     const { segmentCount: transcriptSegments } = await transcribeSessionStep(sessionId);
+    const audioInsights = await analyzeAudioStep(sessionId);
     await segmentPhasesStep(sessionId);
     const { overallScore } = await analyzeSessionStep(sessionId);
     await extractScreenshotsStep(sessionId);
@@ -23,6 +25,7 @@ export async function processSessionWorkflow(sessionId: string) {
       ok: true,
       overallScore,
       transcriptSegments,
+      audioInsights,
       actionsGenerated
     };
   } catch (error) {

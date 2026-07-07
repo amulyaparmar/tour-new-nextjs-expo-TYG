@@ -5,4 +5,5 @@ export * from "./rubric-prompts";
 export * from "./tour";
 export * from "./session";
 export * from "./conversation-phases";
+export * from "./audio-insights";
 export * from "./presigned-upload";

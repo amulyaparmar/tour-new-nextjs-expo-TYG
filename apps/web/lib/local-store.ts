@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AnalysisResult, ConversationPhaseSegmentation, FollowUpAction, SessionDetail, SessionLead, SessionSource, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, AudioInsights, ConversationPhaseSegmentation, FollowUpAction, SessionDetail, SessionLead, SessionSource, SessionSummary } from "@tour/shared";
+import { normalizeAudioInsights } from "@tour/shared";
 
 type TranscriptSegment = {
   id: string;
@@ -21,6 +22,7 @@ type StoreShape = {
   actions: FollowUpAction[];
   transcripts: Record<string, TranscriptSegment[]>;
   conversationPhases: Record<string, ConversationPhaseSegmentation>;
+  audioInsights: Record<string, AudioInsights>;
 };
 
 const STORE_PATH = path.join(process.cwd(), ".codex", "local-session-store.json");
@@ -39,7 +41,8 @@ async function loadStore(): Promise<StoreShape> {
       analyses: parsed.analyses ?? {},
       actions: parsed.actions ?? [],
       transcripts: parsed.transcripts ?? {},
-      conversationPhases: parsed.conversationPhases ?? {}
+      conversationPhases: parsed.conversationPhases ?? {},
+      audioInsights: parsed.audioInsights ?? {}
     };
   } catch {
     return {
@@ -47,7 +50,8 @@ async function loadStore(): Promise<StoreShape> {
       analyses: {},
       actions: [],
       transcripts: {},
-      conversationPhases: {}
+      conversationPhases: {},
+      audioInsights: {}
     };
   }
 }
@@ -254,4 +258,15 @@ export async function getLocalConversationPhases(
 ): Promise<ConversationPhaseSegmentation | null> {
   const store = await loadStore();
   return store.conversationPhases[sessionId] ?? null;
+}
+
+export async function saveLocalAudioInsights(sessionId: string, insights: AudioInsights) {
+  const store = await loadStore();
+  store.audioInsights[sessionId] = insights;
+  await saveStore(store);
+}
+
+export async function getLocalAudioInsights(sessionId: string): Promise<AudioInsights | null> {
+  const store = await loadStore();
+  return store.audioInsights[sessionId] ?? null;
 }

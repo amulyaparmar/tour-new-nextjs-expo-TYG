@@ -3,6 +3,7 @@ export type SessionStatus =
   | "in_progress"
   | "uploaded"
   | "transcribing"
+  | "analyzing_audio"
   | "segmenting"
   | "extracting_screenshots"
   | "analyzing"
@@ -118,6 +119,7 @@ export const SESSION_STATUS_LABELS: Record<SessionStatus, string> = {
   in_progress: "In progress",
   uploaded: "Uploaded",
   transcribing: "Transcribing",
+  analyzing_audio: "Analyzing audio",
   segmenting: "Segmenting conversation",
   extracting_screenshots: "Extracting screenshots",
   analyzing: "Analyzing",

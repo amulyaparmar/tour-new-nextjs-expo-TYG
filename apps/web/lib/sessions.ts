@@ -2,6 +2,7 @@ import "server-only";
 
 import type {
   AnalysisResult,
+  AudioInsights,
   ConversationPhaseSegmentation,
   CreateSessionInput,
   FollowUpAction,
@@ -11,7 +12,7 @@ import type {
   SessionStatus,
   SessionSummary
 } from "@tour/shared";
-import { normalizeConversationPhaseSegmentation } from "@tour/shared";
+import { normalizeAudioInsights, normalizeConversationPhaseSegmentation } from "@tour/shared";
 
 import {
   addLocalSessionLead,
@@ -19,12 +20,14 @@ import {
   deleteLocalSession,
   findOpenLocalQrSession,
   getLocalAnalysis,
+  getLocalAudioInsights,
   getLocalConversationPhases,
   getLocalSessionById,
   getLocalTranscript,
   listLocalActions,
   listLocalSessions,
   replaceLocalActions,
+  saveLocalAudioInsights,
   saveLocalConversationPhases,
   saveLocalTranscript,
   setLocalSessionStatus,
@@ -673,6 +676,40 @@ export async function getConversationPhases(
     return normalizeConversationPhaseSegmentation(await getLocalConversationPhases(sessionId));
   } catch {
     return normalizeConversationPhaseSegmentation(await getLocalConversationPhases(sessionId));
+  }
+}
+
+export async function saveAudioInsights(sessionId: string, insights: AudioInsights) {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { error } = await supabase
+      .from("sessions")
+      .update({ audio_insights_json: insights } as never)
+      .eq("id", sessionId);
+
+    if (error) throw error;
+  } catch {
+    await saveLocalAudioInsights(sessionId, insights);
+  }
+}
+
+export async function getAudioInsights(sessionId: string): Promise<AudioInsights | null> {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("sessions")
+      .select("audio_insights_json")
+      .eq("id", sessionId)
+      .single<{ audio_insights_json: AudioInsights | null }>();
+
+    if (error) throw error;
+
+    const normalized = normalizeAudioInsights(data?.audio_insights_json);
+    if (normalized) return normalized;
+
+    return normalizeAudioInsights(await getLocalAudioInsights(sessionId));
+  } catch {
+    return normalizeAudioInsights(await getLocalAudioInsights(sessionId));
   }
 }
 

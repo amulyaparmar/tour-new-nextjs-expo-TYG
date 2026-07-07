@@ -1,6 +1,8 @@
 import { FatalError } from "workflow";
 
 import { generateAnalysis, generateFollowUpActions } from "@/lib/analysis";
+import { generateAudioInsights } from "@/lib/audio-insights";
+import { isGeminiConfigured } from "@/lib/gemini-client";
 import { segmentConversationPhases } from "@/lib/conversation-phases";
 import { createMaterial, findMaterialBySessionId } from "@/lib/materials";
 import { getRubricForSession } from "@/lib/rubrics";
@@ -10,6 +12,7 @@ import {
   getSessionById,
   getTranscript,
   replaceFollowUpActions,
+  saveAudioInsights,
   saveConversationPhases,
   saveTranscript,
   setSessionStatus,
@@ -35,6 +38,36 @@ export async function transcribeSessionStep(sessionId: string) {
   );
 
   return { segmentCount: transcript.length };
+}
+
+export async function analyzeAudioStep(sessionId: string) {
+  "use step";
+
+  if (!isGeminiConfigured()) {
+    return { skipped: true };
+  }
+
+  await setSessionStatus(sessionId, "analyzing_audio");
+  const session = await getSessionById(sessionId);
+  if (!session) throw new FatalError("Session not found.");
+
+  const file = await fetchRecordingFile(sessionId);
+  if (!file) throw new FatalError("No recording found in storage for audio insights.");
+
+  const transcript = await getTranscript(sessionId);
+  const insights = await generateAudioInsights({
+    audioBuffer: file.buffer,
+    mimeType: file.mimeType,
+    fileName: file.fileName,
+    transcript,
+  });
+  await saveAudioInsights(sessionId, insights);
+
+  return {
+    skipped: false,
+    segmentCount: insights.segments.length,
+    sentiment: insights.overallSentiment,
+  };
 }
 
 export async function segmentPhasesStep(sessionId: string) {

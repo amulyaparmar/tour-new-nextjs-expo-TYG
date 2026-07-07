@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { waitForSessionProcessing } from "@/lib/wait-for-session-processing";
+
 export function GenerateAnalysisButton({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -22,6 +24,10 @@ export function GenerateAnalysisButton({ sessionId }: { sessionId: string }) {
           | { error?: string }
           | null;
         throw new Error(payload?.error ?? "Failed to generate analysis.");
+      }
+
+      if (response.status === 202) {
+        await waitForSessionProcessing(sessionId);
       }
 
       router.refresh();

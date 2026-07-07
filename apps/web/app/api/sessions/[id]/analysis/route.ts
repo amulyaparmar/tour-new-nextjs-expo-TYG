@@ -1,22 +1,29 @@
 import { NextResponse } from "next/server";
 
-import { generateAnalysis, generateFollowUpActions } from "@/lib/analysis";
-import { getRubricForSession } from "@/lib/rubrics";
-import {
-  getAnalysisBySessionId,
-  getSessionById,
-  getTranscript,
-  replaceFollowUpActions,
-  upsertAnalysis
-} from "@/lib/sessions";
+import { startReanalyzeSessionWorkflow } from "@/lib/start-reanalyze-session-workflow";
+import { getAnalysisRun, getSessionById } from "@/lib/sessions";
 
 type Context = { params: Promise<{ id: string }> };
 
-export async function GET(_request: Request, context: Context) {
+const PROCESSING_STATUSES = new Set([
+  "transcribing",
+  "segmenting",
+  "analyzing",
+  "extracting_screenshots",
+]);
+
+type ReanalyzeBody = {
+  rubricId?: string;
+  resegment?: boolean;
+};
+
+export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
+  const version = new URL(request.url).searchParams.get("version");
+
   try {
-    const analysis = await getAnalysisBySessionId(id);
-    return NextResponse.json({ analysis });
+    const run = await getAnalysisRun(id, version);
+    return NextResponse.json({ analysis: run?.result ?? null, run });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch analysis." },
@@ -25,7 +32,7 @@ export async function GET(_request: Request, context: Context) {
   }
 }
 
-export async function POST(_request: Request, context: Context) {
+export async function POST(request: Request, context: Context) {
   const { id } = await context.params;
   try {
     const session = await getSessionById(id);
@@ -33,35 +40,33 @@ export async function POST(_request: Request, context: Context) {
       return NextResponse.json({ error: "Session not found." }, { status: 404 });
     }
 
-    const rubric = await getRubricForSession(session.rubricId);
-    const transcript = await getTranscript(id);
+    if (PROCESSING_STATUSES.has(session.status)) {
+      return NextResponse.json(
+        { ok: true, async: true, message: "Processing already in progress." },
+        { status: 202 }
+      );
+    }
 
-    const analysis = await generateAnalysis({
-      title: session.title,
-      prospectName: session.prospectName,
-      location: session.location,
-      notes: session.notes,
-      transcript: transcript.length > 0 ? transcript : undefined,
-      rubricDefinition: rubric.definition,
-      analysisModel: rubric.analysisModel,
-      analysisPrompt: rubric.analysisPrompt,
-      sessionType: rubric.sessionType,
+    const body = await request.json().catch(() => ({})) as ReanalyzeBody;
+    const { runId, rubricId, resegment } = await startReanalyzeSessionWorkflow(id, {
+      rubricId: body.rubricId,
+      resegment: body.resegment,
     });
 
-    await upsertAnalysis(id, analysis);
-
-    const actions = await generateFollowUpActions(analysis, {
-      title: session.title,
-      prospectName: session.prospectName,
-      notes: session.notes,
-      analysisModel: rubric.analysisModel
-    });
-    await replaceFollowUpActions(id, actions);
-
-    return NextResponse.json({ analysis }, { status: 201 });
+    return NextResponse.json(
+      {
+        ok: true,
+        async: true,
+        runId,
+        rubricId,
+        resegment,
+        message: "Re-analysis started.",
+      },
+      { status: 202 }
+    );
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to generate analysis." },
+      { error: error instanceof Error ? error.message : "Failed to start re-analysis." },
       { status: 500 }
     );
   }

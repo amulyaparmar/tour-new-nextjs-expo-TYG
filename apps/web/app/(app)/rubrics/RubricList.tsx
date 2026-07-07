@@ -7,6 +7,8 @@ import { Trash2 } from "lucide-react";
 import type { Rubric } from "@tour/shared";
 import { rubricItemCount, rubricTotalPoints } from "@tour/shared";
 
+import { invalidateRubricsCache } from "@/lib/client-rubrics-cache";
+
 export function RubricList({ rubrics }: { rubrics: Rubric[] }) {
   const router = useRouter();
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -22,6 +24,7 @@ export function RubricList({ rubrics }: { rubrics: Rubric[] }) {
       const res = await fetch(`/api/admin/rubrics/${rubricId}`, { method: "DELETE" });
       const body = await res.json().catch(() => null) as { error?: string } | null;
       if (!res.ok) throw new Error(body?.error ?? "Delete failed");
+      invalidateRubricsCache();
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed");

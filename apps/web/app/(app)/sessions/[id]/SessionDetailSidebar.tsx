@@ -1,16 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import type { AnalysisResult, AudioInsights, ConversationPhaseSegmentation } from "@tour/shared";
+import type { AnalysisModelId, AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, SessionParticipants } from "@tour/shared";
 import { Activity, CheckCircle2, ExternalLink, MessageSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
 
 import { SidebarCommentsPanel } from "./SidebarCommentsPanel";
+import { SessionAudioInsightsSidebarTab } from "./SessionAudioInsightsSidebarTab";
 import { SessionAiChat } from "./SessionAiChat";
-import { SessionAudioInsightsPanel } from "./SessionAudioInsightsPanel";
 import { TourSegmentSummary } from "./TourSegmentSummary";
 import { ClickableTimestampText } from "./ClickableTimestampText";
+import { ReanalyzeWithRubric } from "./ReanalyzeWithRubric";
 import { ReprocessButton } from "./ReprocessButton";
 import { rubricPctByColor } from "./session-detail-class-maps";
 import styles from "./session-detail.module.css";
@@ -23,7 +24,9 @@ export function SessionDetailSidebar({
   analysis,
   rubric,
   phases,
-  audioInsights,
+  initialAudioInsightsStatus,
+  initialAudioInsights,
+  participants,
   duration,
   tab,
   onTabChange,
@@ -40,9 +43,12 @@ export function SessionDetailSidebar({
   rubric: {
     id: string;
     name: string | null;
+    analysisModel?: AnalysisModelId;
   } | null;
   phases: ConversationPhaseSegmentation | null;
-  audioInsights: AudioInsights | null;
+  initialAudioInsightsStatus: AudioInsightsStatus;
+  initialAudioInsights: AudioInsights | null;
+  participants: SessionParticipants;
   duration: number;
   tab: SidebarTab;
   onTabChange: (tab: SidebarTab) => void;
@@ -84,10 +90,9 @@ export function SessionDetailSidebar({
           type="button"
           role="tab"
           aria-selected={tab === "audio"}
-          className={`${styles.sidebarTab} ${tab === "audio" ? styles.sidebarTabActive : ""} ${!audioInsights ? styles.sidebarTabDisabled : ""}`}
-          onClick={() => audioInsights && onTabChange("audio")}
-          title={audioInsights ? "Audio insights" : "Audio insights unavailable"}
-          disabled={!audioInsights}
+          className={`${styles.sidebarTab} ${tab === "audio" ? styles.sidebarTabActive : ""}`}
+          onClick={() => onTabChange("audio")}
+          title="Audio insights"
         >
           <Activity size={18} />
         </button>
@@ -142,25 +147,26 @@ export function SessionDetailSidebar({
           className={`${styles.sidebarPanel} ${tab === "audio" ? styles.sidebarPanelActive : ""}`}
           hidden={tab !== "audio"}
         >
-          {audioInsights ? (
-            <SessionAudioInsightsPanel
-              insights={audioInsights}
-              duration={duration}
-              currentTime={currentTime}
-              onSeek={onSeek}
-            />
-          ) : (
-            <div className={styles.audioPanelEmpty}>
-              <p>Gemini audio insights are not available for this session.</p>
-              <p className={styles.audioPanelEmptyHint}>Set GEMINI_API_KEY and re-process to generate sentiment, emotion, and ambience analysis.</p>
-            </div>
-          )}
+          <SessionAudioInsightsSidebarTab
+            sessionId={sessionId}
+            initialStatus={initialAudioInsightsStatus}
+            initialInsights={initialAudioInsights}
+            participants={participants}
+            duration={duration}
+            currentTime={currentTime}
+            onSeek={onSeek}
+          />
         </div>
         <div
           className={`${styles.sidebarPanel} ${tab === "ai" ? styles.sidebarPanelActive : ""}`}
           hidden={tab !== "ai"}
         >
-          <SessionAiChat sessionId={sessionId} analysis={analysis} onSeek={onAiSeek} />
+          <SessionAiChat
+            sessionId={sessionId}
+            analysis={analysis}
+            defaultModel={rubric?.analysisModel}
+            onSeek={onAiSeek}
+          />
         </div>
       </div>
     </aside>
@@ -226,6 +232,8 @@ function SessionRubricPanel({
           <span className={styles.sidebarScore}>{analysis.overallScore}%</span>
         </div>
       </div>
+
+      <ReanalyzeWithRubric sessionId={sessionId} currentRubricId={rubric?.id ?? null} />
 
       {!anyQuestions && (
         <div className={styles.rubricLegacy}>

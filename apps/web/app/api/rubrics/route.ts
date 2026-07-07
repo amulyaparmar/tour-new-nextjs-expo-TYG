@@ -3,13 +3,17 @@ import { NextResponse } from "next/server";
 import { hasAdminSession, requireAdminContext } from "@/lib/admin-auth";
 import { createRubric, listRubrics, listRubricsForCommunity } from "@/lib/rubrics";
 
+const RUBRICS_CACHE_CONTROL = "private, max-age=60, stale-while-revalidate=300";
+
 export async function GET(request: Request) {
   try {
     const workspace = hasAdminSession(request) ? await requireAdminContext(request) : null;
     const rubrics = workspace
       ? await listRubricsForCommunity(workspace.community.id)
       : await listRubrics();
-    return NextResponse.json({ rubrics });
+    return NextResponse.json({ rubrics }, {
+      headers: { "Cache-Control": RUBRICS_CACHE_CONTROL },
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch rubrics." },

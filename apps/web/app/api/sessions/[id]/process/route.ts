@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { start } from "workflow/api";
 
+import {
+  prepareAudioInsightsProcessing,
+  startAudioInsightsWorkflow,
+} from "@/lib/start-audio-insights-workflow";
 import { getSessionById, setSessionStatus } from "@/lib/sessions";
 import { processSessionWorkflow } from "@/workflows/process-session";
 
@@ -10,7 +14,7 @@ const PROCESSING_STATUSES = new Set([
   "transcribing",
   "segmenting",
   "analyzing",
-  "extracting_screenshots"
+  "extracting_screenshots", // legacy rows still in flight
 ]);
 
 export async function POST(_request: Request, context: Context) {
@@ -30,8 +34,12 @@ export async function POST(_request: Request, context: Context) {
     }
 
     await setSessionStatus(id, "transcribing");
+    await prepareAudioInsightsProcessing(id);
 
     const run = await start(processSessionWorkflow, [id]);
+    void startAudioInsightsWorkflow(id).catch((error) => {
+      console.error(`[audio-insights] Failed to start workflow for session ${id}:`, error);
+    });
 
     return NextResponse.json(
       {

@@ -10,7 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
-import type { AnalysisResult, AudioInsights, ConversationPhaseSegmentation } from "@tour/shared";
+import type { AnalysisModelId, AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, SessionParticipants } from "@tour/shared";
 import { buildPhaseTracks } from "@tour/shared";
 
 import { FloatingSessionPlayer } from "./FloatingSessionPlayer";
@@ -23,7 +23,6 @@ import {
   PLAYBACK_RATES,
   type SessionComment,
   type SessionMoment,
-  type SessionScreenshot,
   type TranscriptSegment,
 } from "./session-detail-utils";
 import styles from "./session-detail.module.css";
@@ -32,16 +31,18 @@ type Props = {
   sessionId: string;
   analysis: AnalysisResult;
   transcript: TranscriptSegment[];
-  screenshots: SessionScreenshot[];
   recordingUrl: string | null;
   videoUrl: string | null;
   audioUrl: string | null;
   duration: number;
   phases: ConversationPhaseSegmentation | null;
-  audioInsights: AudioInsights | null;
+  initialAudioInsightsStatus: AudioInsightsStatus;
+  initialAudioInsights: AudioInsights | null;
+  participants: SessionParticipants;
   rubric: {
     id: string;
     name: string | null;
+    analysisModel?: AnalysisModelId;
   } | null;
 };
 
@@ -64,13 +65,14 @@ export function SessionDetailExperience({
   sessionId,
   analysis,
   transcript,
-  screenshots,
   recordingUrl,
   videoUrl,
   audioUrl,
   duration,
   phases,
-  audioInsights,
+  initialAudioInsightsStatus,
+  initialAudioInsights,
+  participants,
   rubric,
 }: Props) {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
@@ -133,9 +135,9 @@ export function SessionDetailExperience({
   const effectiveDuration = loadedDuration || duration || transcriptEnd;
 
   const moments = useMemo(() => {
-    const base = buildSessionMoments(analysis, transcript, screenshots, effectiveDuration, phases);
+    const base = buildSessionMoments(analysis, transcript, phases);
     return mergeKeyMomentComments(base, comments, analysis, transcript, effectiveDuration, phases);
-  }, [analysis, transcript, screenshots, effectiveDuration, comments, phases]);
+  }, [analysis, transcript, effectiveDuration, comments, phases]);
 
   const seekTo = useCallback((seconds: number, options?: { play?: boolean }) => {
     const clamped = effectiveDuration > 0
@@ -372,6 +374,7 @@ export function SessionDetailExperience({
         <SessionTranscriptStage
           sessionId={sessionId}
           transcript={transcript}
+          participants={participants}
           phases={phases}
           summary={analysis.summary}
           currentTime={currentTime}
@@ -403,6 +406,7 @@ export function SessionDetailExperience({
           playbackRate={playbackRate}
           selectedMomentIndex={selectedMomentIndex}
           transcript={transcript}
+          participants={participants}
           phases={phases}
           onToggleComments={toggleComments}
           onCommentNavigate={navigateComment}
@@ -434,7 +438,9 @@ export function SessionDetailExperience({
         analysis={analysis}
         rubric={rubric}
         phases={phases}
-        audioInsights={audioInsights}
+        initialAudioInsightsStatus={initialAudioInsightsStatus}
+        initialAudioInsights={initialAudioInsights}
+        participants={participants}
         duration={effectiveDuration}
         tab={sidebarTab}
         onTabChange={setSidebarTab}

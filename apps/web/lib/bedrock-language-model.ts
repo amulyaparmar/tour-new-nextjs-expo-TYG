@@ -1,5 +1,6 @@
 import "server-only";
 
+import { normalizeAnalysisModelId, resolveProviderModelId } from "@tour/shared";
 import type {
   LanguageModelV4,
   LanguageModelV4CallOptions,
@@ -12,6 +13,7 @@ import type {
 } from "@ai-sdk/provider";
 
 import { getBedrockRuntimeConfig } from "./bedrock";
+import { createBedrockOpenAiLanguageModel } from "./bedrock-openai-language-model";
 import { bedrockSupportsSamplingParams, buildConverseJsonOutputConfig } from "./bedrock-structured-output";
 import { decodeBedrockEventStream } from "./bedrock-event-stream";
 
@@ -356,5 +358,16 @@ function createBedrockLanguageModel(modelId: string): LanguageModelV4 {
 
 export function getBedrockModel(): LanguageModelV4 {
   const { modelId } = getBedrockRuntimeConfig();
+  return createBedrockLanguageModel(modelId);
+}
+
+export function getBedrockLanguageModelForAnalysis(
+  analysisModelId?: string | null
+): LanguageModelV4 {
+  const id = normalizeAnalysisModelId(analysisModelId);
+  const { provider, modelId } = resolveProviderModelId(id);
+  if (provider === "bedrock-openai") {
+    return createBedrockOpenAiLanguageModel(modelId);
+  }
   return createBedrockLanguageModel(modelId);
 }

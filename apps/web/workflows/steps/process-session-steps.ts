@@ -1,21 +1,19 @@
 import { FatalError } from "workflow";
 
 import { generateAnalysis, generateFollowUpActions } from "@/lib/analysis";
-import { generateAudioInsights } from "@/lib/audio-insights";
-import { isGeminiConfigured } from "@/lib/gemini-client";
 import { segmentConversationPhases } from "@/lib/conversation-phases";
+import { resolveRubricForReanalysis } from "@/lib/reanalyze-session";
 import { createMaterial, findMaterialBySessionId } from "@/lib/materials";
 import { getRubricForSession } from "@/lib/rubrics";
-import { extractScreenshots } from "@/lib/screenshots";
 import {
   getAnalysisBySessionId,
   getSessionById,
   getTranscript,
   replaceFollowUpActions,
-  saveAudioInsights,
   saveConversationPhases,
   saveTranscript,
   setSessionStatus,
+  updateSession,
   upsertAnalysis
 } from "@/lib/sessions";
 import { transcribeAudio } from "@/lib/transcribe";
@@ -28,7 +26,6 @@ export async function transcribeSessionStep(sessionId: string) {
   const session = await getSessionById(sessionId);
   if (!session) throw new FatalError("Session not found.");
 
-  const rubric = await getRubricForSession(session.rubricId);
   const file = await fetchRecordingFile(sessionId);
   if (!file) throw new FatalError("No recording found in storage for this session.");
 
@@ -37,7 +34,6 @@ export async function transcribeSessionStep(sessionId: string) {
     file.buffer,
     file.mimeType,
     file.fileName,
-    rubric.transcribeProvider
   );
   await saveTranscript(
     sessionId,
@@ -47,40 +43,18 @@ export async function transcribeSessionStep(sessionId: string) {
   return { segmentCount: transcript.length };
 }
 
-export async function analyzeAudioStep(sessionId: string) {
+export async function applySessionRubricStep(sessionId: string, rubricId: string) {
   "use step";
 
   const session = await getSessionById(sessionId);
   if (!session) throw new FatalError("Session not found.");
 
-  const rubric = await getRubricForSession(session.rubricId);
-  if (!rubric.audioUnderstandingEnabled || rubric.transcribeProvider !== "gemini") {
-    return { skipped: true, reason: "disabled" };
+  const rubric = await resolveRubricForReanalysis(session, rubricId);
+  if (rubric.id !== session.rubricId) {
+    await updateSession(sessionId, { rubricId: rubric.id });
   }
 
-  if (!isGeminiConfigured()) {
-    return { skipped: true, reason: "missing_api_key" };
-  }
-
-  await setSessionStatus(sessionId, "analyzing_audio");
-
-  const file = await fetchRecordingFile(sessionId);
-  if (!file) throw new FatalError("No recording found in storage for audio insights.");
-
-  const transcript = await getTranscript(sessionId);
-  const insights = await generateAudioInsights({
-    audioBuffer: file.buffer,
-    mimeType: file.mimeType,
-    fileName: file.fileName,
-    transcript,
-  });
-  await saveAudioInsights(sessionId, insights);
-
-  return {
-    skipped: false,
-    segmentCount: insights.segments.length,
-    sentiment: insights.overallSentiment,
-  };
+  return { rubricId: rubric.id };
 }
 
 export async function segmentPhasesStep(sessionId: string) {
@@ -92,11 +66,18 @@ export async function segmentPhasesStep(sessionId: string) {
 
   const transcript = await getTranscript(sessionId);
   const rubric = await getRubricForSession(session.rubricId);
-  const segmentation = await segmentConversationPhases(transcript, {
+  const { segmentation, participants } = await segmentConversationPhases(transcript, {
     segmentationPrompt: rubric.segmentationPrompt,
     sessionType: rubric.sessionType,
   });
   await saveConversationPhases(sessionId, segmentation);
+
+  const nameUpdates: { agentName?: string; prospectName?: string } = {};
+  if (participants.agentName) nameUpdates.agentName = participants.agentName;
+  if (participants.prospectName) nameUpdates.prospectName = participants.prospectName;
+  if (Object.keys(nameUpdates).length > 0) {
+    await updateSession(sessionId, nameUpdates);
+  }
 
   return { spanCount: segmentation.spans.length };
 }
@@ -122,26 +103,11 @@ export async function analyzeSessionStep(sessionId: string) {
     sessionType: rubric.sessionType,
   });
 
-  await upsertAnalysis(sessionId, analysis);
+  await upsertAnalysis(sessionId, analysis, {
+    rubricId: rubric.id,
+    rubricName: rubric.name,
+  });
   return { overallScore: analysis.overallScore };
-}
-
-export async function extractScreenshotsStep(sessionId: string) {
-  "use step";
-
-  await setSessionStatus(sessionId, "extracting_screenshots");
-  const analysis = await getAnalysisBySessionId(sessionId);
-  if (!analysis) throw new FatalError("Analysis missing before screenshot extraction.");
-
-  const momentTimestamps = analysis.exactMoments
-    .map((m) => ({
-      seconds: parseTimestamp(m.timestamp),
-      label: m.explanation
-    }))
-    .filter((t) => t.seconds >= 0);
-
-  await extractScreenshots(sessionId, momentTimestamps);
-  return { screenshotCount: momentTimestamps.length };
 }
 
 export async function followUpActionsStep(sessionId: string) {
@@ -196,15 +162,4 @@ export async function finalizeSessionStep(sessionId: string) {
 export async function markSessionFailedStep(sessionId: string) {
   "use step";
   await setSessionStatus(sessionId, "failed").catch(() => {});
-}
-
-function parseTimestamp(ts: string): number {
-  const parts = ts.split(":").map(Number);
-  if (parts.length === 2 && parts.every((n) => !isNaN(n))) {
-    return parts[0]! * 60 + parts[1]!;
-  }
-  if (parts.length === 3 && parts.every((n) => !isNaN(n))) {
-    return parts[0]! * 3600 + parts[1]! * 60 + parts[2]!;
-  }
-  return -1;
 }

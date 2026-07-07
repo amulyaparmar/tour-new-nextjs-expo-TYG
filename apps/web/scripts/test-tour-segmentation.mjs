@@ -63,6 +63,11 @@ console.log(`Runs: ${runs}`);
 
 for (let i = 1; i <= runs; i++) {
   console.error(`Starting run ${i}/${runs}...`);
-  const segmentation = await segmentConversationPhases(transcript);
+  const { segmentation, participants } = await segmentConversationPhases(transcript);
   console.log(formatOutput(i, segmentation));
+  if (participants.agentName || participants.prospectName) {
+    console.log(
+      `Participants: agent=${participants.agentName ?? "—"}, prospect=${participants.prospectName ?? "—"}`
+    );
+  }
 }

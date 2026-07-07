@@ -1,18 +1,24 @@
 import {
   analyzeSessionStep,
+  applySessionRubricStep,
   finalizeSessionStep,
   followUpActionsStep,
   markSessionFailedStep,
   segmentPhasesStep,
-  transcribeSessionStep
 } from "./steps/process-session-steps";
 
-export async function processSessionWorkflow(sessionId: string) {
+export async function reanalyzeSessionWorkflow(
+  sessionId: string,
+  rubricId: string,
+  resegment: boolean,
+) {
   "use workflow";
 
   try {
-    const { segmentCount: transcriptSegments } = await transcribeSessionStep(sessionId);
-    await segmentPhasesStep(sessionId);
+    await applySessionRubricStep(sessionId, rubricId);
+    if (resegment) {
+      await segmentPhasesStep(sessionId);
+    }
     const { overallScore } = await analyzeSessionStep(sessionId);
     const { actionsGenerated } = await followUpActionsStep(sessionId);
     await finalizeSessionStep(sessionId);
@@ -20,8 +26,9 @@ export async function processSessionWorkflow(sessionId: string) {
     return {
       ok: true,
       overallScore,
-      transcriptSegments,
-      actionsGenerated
+      actionsGenerated,
+      rubricId,
+      resegment,
     };
   } catch (error) {
     await markSessionFailedStep(sessionId);

@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ConversationPhaseSegmentation } from "@tour/shared";
-import { findPhaseForTimestamp, formatSegmentTimeRange, shortPhaseLabel } from "@tour/shared";
+import type { ConversationPhaseSegmentation, SessionParticipants } from "@tour/shared";
+import { findPhaseForTimestamp, formatSegmentTimeRange, formatSpeakerAnnotation, shortPhaseLabel } from "@tour/shared";
 import { MessageSquare, MoreHorizontal, Pencil, Search, Tag, Trash2 } from "lucide-react";
 
 import styles from "./session-detail.module.css";
@@ -24,6 +24,7 @@ import {
 type Props = {
   sessionId: string;
   transcript: TranscriptSegment[];
+  participants: SessionParticipants;
   phases?: ConversationPhaseSegmentation | null;
   summary?: string | null;
   currentTime: number;
@@ -60,6 +61,7 @@ function isEditableTarget(target: EventTarget | null) {
 export function SessionTranscriptStage({
   sessionId,
   transcript,
+  participants,
   phases,
   summary,
   currentTime,
@@ -130,13 +132,20 @@ export function SessionTranscriptStage({
     }, null) ?? transcript[0]!;
   }, [currentTime, transcript]);
 
+  const labelForSpeaker = useCallback(
+    (speaker: string | null | undefined) => formatSpeakerAnnotation(speaker, participants),
+    [participants]
+  );
+
   const filteredTranscript = useMemo(() => {
     const trimmed = query.trim().toLowerCase();
     if (!trimmed) return transcript;
     return transcript.filter((seg) =>
-      seg.text.toLowerCase().includes(trimmed) || seg.speaker.toLowerCase().includes(trimmed)
+      seg.text.toLowerCase().includes(trimmed)
+      || seg.speaker.toLowerCase().includes(trimmed)
+      || labelForSpeaker(seg.speaker).toLowerCase().includes(trimmed)
     );
-  }, [query, transcript]);
+  }, [query, transcript, labelForSpeaker]);
 
   const commentsBySegment = useMemo(() => {
     const map = new Map<string, SessionComment[]>();
@@ -391,11 +400,11 @@ export function SessionTranscriptStage({
                       }}
                     >
                       <span className={styles.transcriptAvatar} style={{ background: palette.soft, color: palette.color }}>
-                        {initialsFor(seg.speaker || "Speaker")}
+                        {initialsFor(labelForSpeaker(seg.speaker))}
                       </span>
                       <span className={styles.transcriptCopy}>
                         <span className={styles.transcriptMeta}>
-                          <strong style={{ color: palette.color }}>{seg.speaker || "Speaker"}</strong>
+                          <strong style={{ color: palette.color }}>{labelForSpeaker(seg.speaker)}</strong>
                           {phase && (
                             <span className={styles.transcriptPhase}>{shortPhaseLabel(phase.label)}</span>
                           )}
@@ -520,7 +529,7 @@ export function SessionTranscriptStage({
 
       <div className={styles.stageStatus} aria-live="polite">
         <span>{formatTime(currentTime)}</span>
-        <span>{activeSegment ? `${activeSegment.speaker} speaking` : "Ready"}</span>
+        <span>{activeSegment ? `${labelForSpeaker(activeSegment.speaker)} speaking` : "Ready"}</span>
         <span>{formatTime(duration)}</span>
       </div>
     </div>

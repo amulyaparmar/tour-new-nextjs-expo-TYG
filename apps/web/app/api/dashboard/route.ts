@@ -7,7 +7,7 @@ export async function GET() {
     const sessions = await listSessions();
     const now = Date.now();
     const oneDayMs = 24 * 60 * 60 * 1000;
-    const inProgressStatuses = ["uploaded", "transcribing", "segmenting", "extracting_screenshots", "analyzing"];
+    const inProgressStatuses = ["uploaded", "transcribing", "segmenting", "analyzing"];
 
     const todaySessions = sessions.filter((session) => {
       if (!session.scheduledAt) {

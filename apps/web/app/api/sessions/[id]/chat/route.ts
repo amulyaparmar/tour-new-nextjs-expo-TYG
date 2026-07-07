@@ -6,10 +6,11 @@ import {
   type UIMessage,
 } from "ai";
 
-import { getBedrockModel } from "@/lib/bedrock-language-model";
+import { getBedrockLanguageModelForAnalysis } from "@/lib/bedrock-language-model";
 import { getTranscriptForSession } from "@/lib/evidence";
 import { buildSessionAiInstructions } from "@/lib/session-ai-context";
 import { getAnalysisBySessionId } from "@/lib/sessions";
+import { normalizeAnalysisModelId } from "@tour/shared";
 
 export const maxDuration = 60;
 
@@ -19,7 +20,7 @@ export async function POST(request: Request, context: Context) {
   const { id: sessionId } = await context.params;
 
   try {
-    const { messages }: { messages: UIMessage[] } = await request.json();
+    const { messages, model }: { messages: UIMessage[]; model?: string } = await request.json();
     const analysis = await getAnalysisBySessionId(sessionId);
 
     if (!analysis) {
@@ -28,9 +29,10 @@ export async function POST(request: Request, context: Context) {
 
     const transcript = await getTranscriptForSession(sessionId);
     const instructions = buildSessionAiInstructions(analysis, transcript);
+    const analysisModel = normalizeAnalysisModelId(model);
 
     const result = streamText({
-      model: getBedrockModel(),
+      model: getBedrockLanguageModelForAnalysis(analysisModel),
       instructions,
       messages: await convertToModelMessages(messages),
       temperature: 0.4,

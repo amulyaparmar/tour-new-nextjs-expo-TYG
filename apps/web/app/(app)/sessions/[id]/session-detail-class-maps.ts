@@ -9,7 +9,6 @@ export const rubricPctByColor: Record<"green" | "amber" | "red", string> = {
 export const playerMarkerByType: Record<string, string> = {
   key_moment: styles.playerMarkerKeyMoment ?? "",
   moment: styles.playerMarkerMoment ?? "",
-  screenshot: styles.playerMarkerScreenshot ?? "",
 };
 
 export const playerSpeakerPct = [styles.playerSpeakerPct0 ?? "", styles.playerSpeakerPct1 ?? ""] as const;

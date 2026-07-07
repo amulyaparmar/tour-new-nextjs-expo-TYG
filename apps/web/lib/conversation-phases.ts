@@ -2,9 +2,13 @@ import "server-only";
 
 import {
   DEFAULT_SEGMENTATION_PROMPT,
+  buildDiarizedRoleHint,
+  hasDiarizedRoleLabels,
   normalizeConversationPhaseSpan,
   type ConversationPhaseSegmentation,
-  type ConversationPhaseSpan
+  type ConversationPhaseSegmentationResult,
+  type ConversationPhaseSpan,
+  type SegmentationParticipants,
 } from "@tour/shared";
 
 import { invokeClaudeTool, type ClaudeTool } from "./bedrock";
@@ -25,9 +29,12 @@ export async function segmentConversationPhases(
     segmentationPrompt?: string | null;
     sessionType?: string | null;
   }
-): Promise<ConversationPhaseSegmentation> {
+): Promise<ConversationPhaseSegmentationResult> {
   if (transcript.length === 0) {
-    return { spans: [], structureNotes: "No transcript available." };
+    return {
+      segmentation: { spans: [], structureNotes: "No transcript available." },
+      participants: { agentName: null, prospectName: null },
+    };
   }
 
   const transcriptText = transcript
@@ -39,13 +46,17 @@ export async function segmentConversationPhases(
     ? `Session type: ${options.sessionType.trim()}\n\n`
     : "";
 
+  const roleHint = hasDiarizedRoleLabels(transcript)
+    ? `${buildDiarizedRoleHint()}\n\n`
+    : "";
+
   const raw = await invokeClaudeTool<Record<string, unknown>>({
     system: systemPrompt,
     messages: [
       {
         role: "user",
         content: [
-          sessionTypeNote + "I would segment this tour into the following sections based on natural transitions and content.",
+          sessionTypeNote + roleHint + "I would segment this tour into the following sections based on natural transitions and content.",
           "",
           "=== TRANSCRIPT ===",
           transcriptText
@@ -57,18 +68,29 @@ export async function segmentConversationPhases(
     temperature: 0.2
   });
 
-  return normalizeSegmentation(raw, transcript);
+  return {
+    segmentation: normalizeSegmentation(raw, transcript),
+    participants: extractParticipants(raw),
+  };
 }
 
 const SEGMENTATION_TOOL: ClaudeTool = {
   name: "submit_tour_segmentation",
-  description: "Your segmentation of the tour into coach-facing sections with highlights and a key observation.",
+  description: "Your segmentation of the tour into coach-facing sections with highlights, a key observation, and participant names when inferable.",
   input_schema: {
     type: "object",
     properties: {
       structureNotes: {
         type: "string",
         description: "Key observation: 2–4 sentences on the most problematic segments, missed opportunities, and how they connect (e.g. weak close followed by prospect still asking questions)"
+      },
+      agentName: {
+        type: "string",
+        description: "Leasing agent name if stated or clearly inferable from introductions; empty string if unknown"
+      },
+      prospectName: {
+        type: "string",
+        description: "Prospect or visitor name if stated or clearly inferable; empty string if unknown"
       },
       segments: {
         type: "array",
@@ -100,6 +122,21 @@ const SEGMENTATION_TOOL: ClaudeTool = {
     required: ["segments", "structureNotes"]
   }
 };
+
+function extractParticipants(raw: Record<string, unknown>): SegmentationParticipants {
+  const agentName = normalizeName(raw.agentName);
+  const prospectName = normalizeName(raw.prospectName);
+  return { agentName, prospectName };
+}
+
+function normalizeName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === "null" || trimmed.toLowerCase() === "unknown") {
+    return null;
+  }
+  return trimmed;
+}
 
 function normalizeSegmentation(
   raw: Record<string, unknown>,

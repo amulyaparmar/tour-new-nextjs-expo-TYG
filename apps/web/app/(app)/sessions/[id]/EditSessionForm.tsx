@@ -7,6 +7,7 @@ type Props = {
   sessionId: string;
   title: string;
   scheduledAt: string | null;
+  agentName: string | null;
   prospectName: string | null;
   location: string | null;
   notes: string | null;
@@ -20,7 +21,15 @@ function toLocalDatetime(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function EditSessionForm({ sessionId, title, scheduledAt, prospectName, location, notes }: Props) {
+export function EditSessionForm({
+  sessionId,
+  title,
+  scheduledAt,
+  agentName,
+  prospectName,
+  location,
+  notes,
+}: Props) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
@@ -36,6 +45,9 @@ export function EditSessionForm({ sessionId, title, scheduledAt, prospectName, l
 
     const dt = String(fd.get("scheduledAt") ?? "").trim();
     if (dt) body.scheduledAt = new Date(dt).toISOString();
+
+    const an = String(fd.get("agentName") ?? "").trim();
+    if (an !== (agentName ?? "")) body.agentName = an;
 
     const pn = String(fd.get("prospectName") ?? "").trim();
     if (pn !== (prospectName ?? "")) body.prospectName = pn;
@@ -75,6 +87,10 @@ export function EditSessionForm({ sessionId, title, scheduledAt, prospectName, l
       <div className="form-group">
         <label htmlFor="scheduledAt" className="form-label">Date &amp; time</label>
         <input id="scheduledAt" name="scheduledAt" type="datetime-local" className="form-input" defaultValue={toLocalDatetime(scheduledAt)} />
+      </div>
+      <div className="form-group">
+        <label htmlFor="agentName" className="form-label">Agent name</label>
+        <input id="agentName" name="agentName" type="text" className="form-input" defaultValue={agentName ?? ""} placeholder="Your name" />
       </div>
       <div className="form-group">
         <label htmlFor="prospectName" className="form-label">Prospect name</label>

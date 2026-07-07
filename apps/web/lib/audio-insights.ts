@@ -5,7 +5,14 @@ import {
   type AudioInsights,
 } from "@tour/shared";
 
-import { geminiGenerateJson, getGeminiConfig, parseGeminiTimestamp } from "./gemini-client";
+import {
+  geminiGenerateJson,
+  geminiChatWithAudioFile,
+  getGeminiConfig,
+  parseGeminiTimestamp,
+  uploadGeminiAudioFile,
+  type GeminiChatMessage,
+} from "./gemini-client";
 import type { TranscriptSegment } from "./transcribe";
 
 const AUDIO_INSIGHTS_SCHEMA = {
@@ -80,8 +87,59 @@ const AUDIO_INSIGHTS_SCHEMA = {
         required: ["timestamp", "label", "explanation"],
       },
     },
+    conversationStats: {
+      type: "object",
+      properties: {
+        talkRatioPercent: {
+          type: "number",
+          description: "Rep/agent share of total talk time, 0-100",
+        },
+        repTalkTimeSeconds: {
+          type: "number",
+          description: "Total seconds the rep/agent spoke",
+        },
+        longestProspectTalkSeconds: {
+          type: "number",
+          description: "Longest uninterrupted prospect/customer monologue in seconds",
+        },
+        longestTalkSeconds: {
+          type: "number",
+          description: "Longest uninterrupted monologue by either party in seconds",
+        },
+        interactivityScore: {
+          type: "number",
+          description: "Count of meaningful back-and-forth exchanges; passive acks should not count",
+        },
+        interactivityTotal: {
+          type: "number",
+          description: "Total speaker turns in the conversation (denominator for interactivity)",
+        },
+        patienceSeconds: {
+          type: "number",
+          description: "Average pause in seconds after prospect stops before rep responds",
+        },
+        talkSpeedWordsPerMinute: {
+          type: "number",
+          description: "Rep/agent speaking rate in words per minute",
+        },
+        interactivityNotes: {
+          type: "string",
+          description: "Brief note on engagement quality and turn-taking patterns",
+        },
+      },
+      required: [
+        "talkRatioPercent",
+        "repTalkTimeSeconds",
+        "longestProspectTalkSeconds",
+        "longestTalkSeconds",
+        "interactivityScore",
+        "interactivityTotal",
+        "patienceSeconds",
+        "talkSpeedWordsPerMinute",
+      ],
+    },
   },
-  required: ["summary", "overallSentiment", "segments"],
+  required: ["summary", "overallSentiment", "segments", "conversationStats"],
 } as const;
 
 type GeminiAudioInsightsPayload = {
@@ -109,6 +167,17 @@ type GeminiAudioInsightsPayload = {
     label: string;
     explanation: string;
   }>;
+  conversationStats: {
+    talkRatioPercent: number;
+    repTalkTimeSeconds: number;
+    longestProspectTalkSeconds: number;
+    longestTalkSeconds: number;
+    interactivityScore: number;
+    interactivityTotal: number;
+    patienceSeconds: number;
+    talkSpeedWordsPerMinute: number;
+    interactivityNotes?: string;
+  };
 };
 
 function buildAudioInsightsPrompt(transcript?: TranscriptSegment[]): string {
@@ -123,6 +192,16 @@ function buildAudioInsightsPrompt(transcript?: TranscriptSegment[]): string {
     "4. Note non-speech ambience cues (background noise, doors, music, HVAC, etc.).",
     "5. Flag 3-6 coaching highlights (rapport wins, hesitation, objections, missed closes).",
     "6. Summarize overall sentiment for the interaction.",
+    "7. Compute conversationStats from the audio:",
+    "   - talkRatioPercent: rep/agent talk time ÷ total talk time × 100",
+    "   - repTalkTimeSeconds: total rep/agent speaking time",
+    "   - longestProspectTalkSeconds: longest uninterrupted prospect/customer monologue",
+    "   - longestTalkSeconds: longest uninterrupted monologue by either party",
+    "   - interactivityScore: count of meaningful back-and-forth exchanges where ideas or questions exchange; ignore passive acks ('yeah', 'uh-huh', 'right') and brief overlaps",
+    "   - interactivityTotal: total speaker turns in the conversation (including brief acks)",
+    "   - patienceSeconds: average pause after the prospect finishes before the rep starts (lower = more interruptive)",
+    "   - talkSpeedWordsPerMinute: rep/agent words per minute",
+    "   - interactivityNotes: 1-2 sentences on engagement quality",
   ];
 
   if (transcript?.length) {
@@ -151,6 +230,12 @@ export async function generateAudioInsights(params: {
   transcript?: TranscriptSegment[];
 }): Promise<AudioInsights> {
   const { model } = getGeminiConfig();
+  const uploadedFile = await uploadGeminiAudioFile(
+    params.audioBuffer,
+    params.mimeType,
+    params.fileName ?? "recording"
+  );
+
   const payload = await geminiGenerateJson<GeminiAudioInsightsPayload>({
     prompt: buildAudioInsightsPrompt(params.transcript),
     schema: AUDIO_INSIGHTS_SCHEMA,
@@ -158,6 +243,7 @@ export async function generateAudioInsights(params: {
     mimeType: params.mimeType,
     fileName: params.fileName,
     model,
+    uploadedFile,
   });
 
   const insights: AudioInsights = {
@@ -165,6 +251,11 @@ export async function generateAudioInsights(params: {
     model,
     summary: payload.summary,
     overallSentiment: payload.overallSentiment,
+    audioFile: {
+      uri: uploadedFile.uri,
+      mimeType: uploadedFile.mimeType,
+      name: uploadedFile.name,
+    },
     speakerDynamics: (payload.speakerDynamics ?? []).map((item) => ({
       speaker: item.speaker,
       talkTimeSeconds: item.talkTimeSeconds,
@@ -202,9 +293,52 @@ export async function generateAudioInsights(params: {
       label: item.label,
       explanation: item.explanation,
     })),
+    conversationStats: {
+      talkRatioPercent: payload.conversationStats.talkRatioPercent,
+      repTalkTimeSeconds: payload.conversationStats.repTalkTimeSeconds,
+      longestProspectTalkSeconds: payload.conversationStats.longestProspectTalkSeconds,
+      longestTalkSeconds: payload.conversationStats.longestTalkSeconds,
+      interactivityScore: payload.conversationStats.interactivityScore,
+      interactivityTotal: payload.conversationStats.interactivityTotal,
+      patienceSeconds: payload.conversationStats.patienceSeconds,
+      talkSpeedWordsPerMinute: payload.conversationStats.talkSpeedWordsPerMinute,
+      interactivityNotes: payload.conversationStats.interactivityNotes,
+    },
   };
 
   const normalized = normalizeAudioInsights(insights);
   if (!normalized) throw new Error("Gemini audio insights failed normalization");
   return normalized;
+}
+
+export async function chatWithAudioRecording(params: {
+  insights: AudioInsights;
+  messages: GeminiChatMessage[];
+  model?: string;
+}): Promise<string> {
+  if (!params.insights.audioFile) {
+    throw new Error("Audio file reference is not available for chat.");
+  }
+
+  const contextLines = [
+    "You are a leasing tour coach with direct access to the session recording.",
+    "Answer using what you hear in the audio — tone, pacing, pauses, and non-speech cues matter.",
+    "Reference timestamps as MM:SS when helpful.",
+    "",
+    `Prior analysis summary: ${params.insights.summary}`,
+  ];
+
+  const messages = params.messages.map((message, index) => {
+    if (index !== 0 || message.role !== "user") return message;
+    return {
+      ...message,
+      content: `${contextLines.join("\n")}\n\nUser question: ${message.content}`,
+    };
+  });
+
+  return geminiChatWithAudioFile({
+    file: params.insights.audioFile,
+    messages,
+    model: params.model ?? params.insights.model,
+  });
 }

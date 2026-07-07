@@ -2,7 +2,70 @@ import "server-only";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com";
 const GEMINI_UPLOAD_BASE = "https://generativelanguage.googleapis.com/upload";
-const INLINE_AUDIO_MAX_BYTES = 20 * 1024 * 1024;
+
+/** Transient Gemini / upstream failures — retried with backoff. */
+const GEMINI_RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const GEMINI_MAX_ATTEMPTS = 6;
+const GEMINI_BASE_DELAY_MS = 3_000;
+const GEMINI_MAX_DELAY_MS = 90_000;
+
+function geminiRetryDelayMs(attempt: number): number {
+  const exponential = GEMINI_BASE_DELAY_MS * 2 ** (attempt - 1);
+  const jitter = Math.floor(Math.random() * 750);
+  return Math.min(GEMINI_MAX_DELAY_MS, exponential + jitter);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableGeminiStatus(status: number): boolean {
+  return GEMINI_RETRYABLE_STATUSES.has(status);
+}
+
+async function fetchWithGeminiRetry(
+  url: string,
+  init: RequestInit,
+  label: string
+): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(url, init);
+      if (response.ok) return response;
+
+      const errText = await response.text();
+      lastError = new Error(`${label} error ${response.status}: ${errText}`);
+
+      if (!isRetryableGeminiStatus(response.status) || attempt === GEMINI_MAX_ATTEMPTS) {
+        throw lastError;
+      }
+
+      const delayMs = geminiRetryDelayMs(attempt);
+      console.warn(
+        `[gemini] ${label} returned ${response.status}; retry ${attempt}/${GEMINI_MAX_ATTEMPTS} in ${delayMs}ms`
+      );
+      await sleep(delayMs);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes(`${label} error`)) {
+        throw error;
+      }
+
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt === GEMINI_MAX_ATTEMPTS) throw lastError;
+
+      const delayMs = geminiRetryDelayMs(attempt);
+      console.warn(
+        `[gemini] ${label} network error; retry ${attempt}/${GEMINI_MAX_ATTEMPTS} in ${delayMs}ms:`,
+        lastError.message
+      );
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError ?? new Error(`${label} failed after ${GEMINI_MAX_ATTEMPTS} attempts`);
+}
 
 export type GeminiUploadedFile = {
   uri: string;
@@ -13,7 +76,7 @@ export type GeminiUploadedFile = {
 export function getGeminiConfig() {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
-  const model = process.env.GEMINI_AUDIO_MODEL?.trim() || "gemini-2.5-flash";
+  const model = process.env.GEMINI_AUDIO_MODEL?.trim() || "gemini-3.5-flash";
   return { apiKey, model };
 }
 
@@ -49,41 +112,39 @@ export async function uploadGeminiFile(
   displayName: string
 ): Promise<GeminiUploadedFile> {
   const { apiKey } = getGeminiConfig();
-  const startResponse = await fetch(`${GEMINI_UPLOAD_BASE}/v1beta/files`, {
-    method: "POST",
-    headers: {
-      "x-goog-api-key": apiKey,
-      "X-Goog-Upload-Protocol": "resumable",
-      "X-Goog-Upload-Command": "start",
-      "X-Goog-Upload-Header-Content-Length": String(buffer.length),
-      "X-Goog-Upload-Header-Content-Type": mimeType,
-      "Content-Type": "application/json",
+  const startResponse = await fetchWithGeminiRetry(
+    `${GEMINI_UPLOAD_BASE}/v1beta/files`,
+    {
+      method: "POST",
+      headers: {
+        "x-goog-api-key": apiKey,
+        "X-Goog-Upload-Protocol": "resumable",
+        "X-Goog-Upload-Command": "start",
+        "X-Goog-Upload-Header-Content-Length": String(buffer.length),
+        "X-Goog-Upload-Header-Content-Type": mimeType,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ file: { display_name: displayName } }),
     },
-    body: JSON.stringify({ file: { display_name: displayName } }),
-  });
-
-  if (!startResponse.ok) {
-    const errText = await startResponse.text();
-    throw new Error(`Gemini file upload start error ${startResponse.status}: ${errText}`);
-  }
+    "Gemini file upload start"
+  );
 
   const uploadUrl = startResponse.headers.get("x-goog-upload-url");
   if (!uploadUrl) throw new Error("Gemini file upload did not return x-goog-upload-url");
 
-  const uploadResponse = await fetch(uploadUrl, {
-    method: "POST",
-    headers: {
-      "Content-Length": String(buffer.length),
-      "X-Goog-Upload-Offset": "0",
-      "X-Goog-Upload-Command": "upload, finalize",
+  const uploadResponse = await fetchWithGeminiRetry(
+    uploadUrl,
+    {
+      method: "POST",
+      headers: {
+        "Content-Length": String(buffer.length),
+        "X-Goog-Upload-Offset": "0",
+        "X-Goog-Upload-Command": "upload, finalize",
+      },
+      body: new Uint8Array(buffer),
     },
-    body: new Uint8Array(buffer),
-  });
-
-  if (!uploadResponse.ok) {
-    const errText = await uploadResponse.text();
-    throw new Error(`Gemini file upload finalize error ${uploadResponse.status}: ${errText}`);
-  }
+    "Gemini file upload finalize"
+  );
 
   const payload = (await uploadResponse.json()) as {
     file?: { uri?: string; mimeType?: string; name?: string };
@@ -98,6 +159,108 @@ export async function uploadGeminiFile(
   };
 }
 
+/** Upload via Files API and wait until Gemini marks the file ACTIVE. */
+export async function uploadGeminiAudioFile(
+  buffer: Buffer,
+  mimeType: string,
+  displayName: string
+): Promise<GeminiUploadedFile> {
+  const normalizedMime = geminiMimeTypeForRecording(mimeType, displayName);
+  const uploaded = await uploadGeminiFile(buffer, normalizedMime, displayName);
+  if (uploaded.name) {
+    await waitForGeminiFileActive(uploaded.name);
+  }
+  return uploaded;
+}
+
+async function waitForGeminiFileActive(
+  fileName: string,
+  maxAttempts = 30,
+  delayMs = 2_000
+): Promise<void> {
+  const { apiKey } = getGeminiConfig();
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const response = await fetchWithGeminiRetry(
+      `${GEMINI_BASE}/v1beta/${fileName}`,
+      { headers: { "x-goog-api-key": apiKey } },
+      "Gemini file get"
+    );
+
+    const payload = (await response.json()) as { state?: string; error?: { message?: string } };
+    const state = payload.state ?? "ACTIVE";
+
+    if (state === "ACTIVE") return;
+    if (state === "FAILED") {
+      throw new Error(
+        `Gemini file processing failed: ${payload.error?.message ?? "unknown error"}`
+      );
+    }
+
+    if (attempt === maxAttempts) {
+      throw new Error(`Gemini file not active after ${maxAttempts} attempts (last state: ${state})`);
+    }
+
+    await sleep(delayMs);
+  }
+}
+
+export type GeminiChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export async function geminiChatWithAudioFile(params: {
+  file: { uri: string; mimeType: string };
+  messages: GeminiChatMessage[];
+  model?: string;
+}): Promise<string> {
+  const { apiKey, model: defaultModel } = getGeminiConfig();
+  const model = params.model ?? defaultModel;
+
+  if (params.messages.length === 0) {
+    throw new Error("At least one message is required.");
+  }
+
+  const contents = params.messages.map((message, index) => {
+    const parts: Array<GeminiAudioPart | { text: string }> = [{ text: message.content }];
+    if (index === 0 && message.role === "user") {
+      parts.unshift({
+        file_data: { mime_type: params.file.mimeType, file_uri: params.file.uri },
+      });
+    }
+    return {
+      role: message.role === "assistant" ? "model" : "user",
+      parts,
+    };
+  });
+
+  const response = await fetchWithGeminiRetry(
+    `${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({ contents }),
+    },
+    "Gemini audio chat"
+  );
+
+  const payload = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+
+  const text = payload.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text ?? "")
+    .join("")
+    .trim();
+
+  if (!text) throw new Error("Gemini returned an empty chat response");
+  return text;
+}
+
 type GeminiAudioPart =
   | { file_data: { mime_type: string; file_uri: string } }
   | { inline_data: { mime_type: string; data: string } };
@@ -105,17 +268,9 @@ type GeminiAudioPart =
 function buildAudioPart(
   buffer: Buffer,
   mimeType: string,
-  uploaded?: GeminiUploadedFile
+  uploaded: GeminiUploadedFile
 ): GeminiAudioPart {
-  if (uploaded) {
-    return { file_data: { mime_type: uploaded.mimeType, file_uri: uploaded.uri } };
-  }
-  return {
-    inline_data: {
-      mime_type: mimeType,
-      data: buffer.toString("base64"),
-    },
-  };
+  return { file_data: { mime_type: uploaded.mimeType, file_uri: uploaded.uri } };
 }
 
 export async function geminiGenerateJson<T>(params: {
@@ -125,14 +280,18 @@ export async function geminiGenerateJson<T>(params: {
   mimeType: string;
   fileName?: string;
   model?: string;
+  uploadedFile?: GeminiUploadedFile;
 }): Promise<T> {
   const { apiKey, model: defaultModel } = getGeminiConfig();
   const model = params.model ?? defaultModel;
   const mimeType = geminiMimeTypeForRecording(params.mimeType, params.fileName);
 
-  const uploaded = params.audioBuffer.length > INLINE_AUDIO_MAX_BYTES
-    ? await uploadGeminiFile(params.audioBuffer, mimeType, params.fileName ?? "recording")
-    : undefined;
+  const uploaded = params.uploadedFile
+    ?? await uploadGeminiAudioFile(
+      params.audioBuffer,
+      mimeType,
+      params.fileName ?? "recording"
+    );
 
   const body = {
     contents: [
@@ -149,7 +308,7 @@ export async function geminiGenerateJson<T>(params: {
     },
   };
 
-  const response = await fetch(
+  const response = await fetchWithGeminiRetry(
     `${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {
       method: "POST",
@@ -158,13 +317,9 @@ export async function geminiGenerateJson<T>(params: {
         "x-goog-api-key": apiKey,
       },
       body: JSON.stringify(body),
-    }
+    },
+    "Gemini generateContent"
   );
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Gemini generateContent error ${response.status}: ${errText}`);
-  }
 
   const payload = (await response.json()) as {
     candidates?: Array<{

@@ -13,7 +13,7 @@ export default async function DashboardPage() {
   const sessions = await listSessions({ limit: 100, propertyId: workspace.community.id });
   const now = Date.now();
   const oneDayMs = 24 * 60 * 60 * 1000;
-  const inProgressStatuses = ["uploaded", "transcribing", "segmenting", "extracting_screenshots", "analyzing"];
+  const inProgressStatuses = ["uploaded", "transcribing", "segmenting", "analyzing"];
   const analyzedOrActiveStatuses = [...inProgressStatuses, "analysis_ready", "reviewed"];
 
   const todayCount = sessions.filter((s) => {

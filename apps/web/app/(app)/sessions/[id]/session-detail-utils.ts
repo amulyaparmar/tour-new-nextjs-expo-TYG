@@ -1,4 +1,6 @@
 import type { AnalysisResult, ConversationPhaseSegmentation } from "@tour/shared";
+import type { SessionParticipants } from "@tour/shared";
+import { formatSpeakerAnnotation } from "@tour/shared";
 import { findPhaseForTimestamp, shortPhaseLabel } from "@tour/shared";
 
 export type TranscriptSegment = {
@@ -10,23 +12,13 @@ export type TranscriptSegment = {
   text: string;
 };
 
-export type SessionScreenshot = {
-  id: string;
-  sessionId: string;
-  timestamp: number;
-  imageUrl: string;
-  reason: "key_moment" | "interval";
-  label: string;
-};
-
 export type SessionMoment = {
   id: string;
   timestamp: number;
   label: string;
-  type: "screenshot" | "key_moment" | "moment";
+  type: "key_moment" | "moment";
   transcriptQuote?: string;
   explanation?: string;
-  screenshot?: SessionScreenshot;
   /** Conversation phase at this timestamp (semantic segmentation) */
   phase?: string;
   phaseSummary?: string;
@@ -89,25 +81,9 @@ export function relativeTime(iso: string) {
 export function buildSessionMoments(
   analysis: AnalysisResult,
   transcript: TranscriptSegment[],
-  screenshots: SessionScreenshot[],
-  duration: number,
   phases?: ConversationPhaseSegmentation | null
 ): SessionMoment[] {
   const moments: SessionMoment[] = [];
-
-  for (const shot of screenshots) {
-    const phase = findPhaseForTimestamp(shot.timestamp, phases);
-    moments.push({
-      id: `ss-${shot.id}`,
-      timestamp: shot.timestamp,
-      label: shot.label,
-      type: shot.reason === "key_moment" ? "key_moment" : "screenshot",
-      screenshot: shot,
-      phase: phase ? shortPhaseLabel(phase.label) : undefined,
-      phaseSummary: phase?.summary,
-      transcriptQuote: findNearestTranscript(shot.timestamp, transcript),
-    });
-  }
 
   for (const moment of analysis.exactMoments) {
     const sec = parseTimestampToSeconds(moment.timestamp);
@@ -265,16 +241,20 @@ export function normalizeTranscriptSegments(
   });
 }
 
-export function buildSpeakerTracks(transcript: TranscriptSegment[], duration: number): SpeakerTrack[] {
+export function buildSpeakerTracks(
+  transcript: TranscriptSegment[],
+  duration: number,
+  participants?: SessionParticipants
+): SpeakerTrack[] {
   if (transcript.length === 0 || duration <= 0) return [];
 
   const normalized = normalizeTranscriptSegments(transcript, duration);
   const stats = speakerStats(transcript);
   const speakers = stats.map((item) => item.speaker);
 
-  return speakers.slice(0, 2).map((speaker, colorIndex) => {
+  return speakers.slice(0, 2).map((rawSpeaker, colorIndex) => {
     const segments = normalized
-      .filter((seg) => (seg.speaker || "Speaker") === speaker)
+      .filter((seg) => (seg.speaker || "Speaker") === rawSpeaker)
       .map((seg) => ({
         id: seg.id,
         leftPct: Math.max(0, Math.min(100, (seg.startTime / duration) * 100)),
@@ -282,9 +262,11 @@ export function buildSpeakerTracks(transcript: TranscriptSegment[], duration: nu
       }));
 
     return {
-      speaker,
+      speaker: participants
+        ? formatSpeakerAnnotation(rawSpeaker, participants)
+        : rawSpeaker,
       colorIndex,
-      pct: stats.find((item) => item.speaker === speaker)?.pct ?? 0,
+      pct: stats.find((item) => item.speaker === rawSpeaker)?.pct ?? 0,
       segments,
     };
   });
@@ -298,9 +280,10 @@ export type UnifiedSpeakerSegment = SpeakerTrackSegment & {
 /** Flatten agent + prospect segments onto one timeline lane. */
 export function buildUnifiedSpeakerSegments(
   transcript: TranscriptSegment[],
-  duration: number
+  duration: number,
+  participants?: SessionParticipants
 ): { segments: UnifiedSpeakerSegment[]; speakers: SpeakerTrack[] } {
-  const speakers = buildSpeakerTracks(transcript, duration);
+  const speakers = buildSpeakerTracks(transcript, duration, participants);
   const segments: UnifiedSpeakerSegment[] = [];
 
   for (const track of speakers) {
@@ -331,7 +314,8 @@ function findNearestTranscript(timestamp: number, transcript: TranscriptSegment[
 }
 
 export function initialsFor(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const displayName = name.split("·")[0]?.trim() || name.trim();
+  const parts = displayName.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return `${parts[0]![0] ?? ""}${parts[parts.length - 1]![0] ?? ""}`.toUpperCase();

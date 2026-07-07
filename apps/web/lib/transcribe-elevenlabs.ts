@@ -1,5 +1,11 @@
 import "server-only";
 
+import {
+  mapElevenLabsSpeakerId,
+  TRANSCRIPT_SPEAKER_AGENT,
+  TRANSCRIPT_SPEAKER_PROSPECT,
+} from "@tour/shared";
+
 import { extensionFromMimeType, mimeTypeForExtension } from "./recording-format";
 import type { TranscriptSegment } from "./transcribe";
 
@@ -19,8 +25,8 @@ type ElevenLabsChunk = {
 };
 
 /**
- * ElevenLabs Scribe STT + native diarization. Just ELEVENLABS_API_KEY.
- * Uses scribe_v2 with diarize + detect_speaker_roles (agent/customer labels).
+ * ElevenLabs Scribe STT with diarize + detect_speaker_roles.
+ * Maps ElevenLabs agent/customer speaker IDs to Agent/Prospect transcript labels.
  */
 export async function transcribeWithElevenLabs(
   sessionId: string,
@@ -48,9 +54,6 @@ export async function transcribeWithElevenLabs(
 
   const languageCode = process.env.ELEVENLABS_LANGUAGE_CODE?.trim();
   if (languageCode) formData.append("language_code", languageCode);
-
-  const numSpeakers = process.env.ELEVENLABS_NUM_SPEAKERS?.trim();
-  if (numSpeakers) formData.append("num_speakers", numSpeakers);
 
   const response = await fetch(ELEVENLABS_STT_URL, {
     method: "POST",
@@ -143,17 +146,28 @@ function groupWordsIntoSegments(words: ElevenLabsWord[]): GroupedSegment[] {
 
 function labelSpeakers(segments: GroupedSegment[]): Map<string, string> {
   const labels = new Map<string, string>();
+  const roleDetected = segments.some((segment) => mapElevenLabsSpeakerId(segment.speakerId) != null);
 
   for (const segment of segments) {
     if (labels.has(segment.speakerId)) continue;
-    labels.set(segment.speakerId, mapSpeakerRole(segment.speakerId));
+
+    const mapped = mapElevenLabsSpeakerId(segment.speakerId);
+    if (mapped) {
+      labels.set(segment.speakerId, mapped);
+    }
   }
 
-  const unmapped = segments.filter((s) => labels.get(s.speakerId) === "Unknown");
-  if (unmapped.length === 0) return labels;
+  if (roleDetected) {
+    for (const segment of segments) {
+      if (!labels.has(segment.speakerId)) {
+        labels.set(segment.speakerId, "Unknown");
+      }
+    }
+    return labels;
+  }
 
   const talkTime = new Map<string, number>();
-  for (const segment of unmapped) {
+  for (const segment of segments) {
     talkTime.set(
       segment.speakerId,
       (talkTime.get(segment.speakerId) ?? 0) + Math.max(0, segment.end - segment.start)
@@ -164,20 +178,9 @@ function labelSpeakers(segments: GroupedSegment[]): Map<string, string> {
   ranked.forEach((speakerId, rank) => {
     labels.set(
       speakerId,
-      rank === 0 ? "Agent" : rank === 1 ? "Prospect" : `Speaker ${rank + 1}`
+      rank === 0 ? TRANSCRIPT_SPEAKER_AGENT : rank === 1 ? TRANSCRIPT_SPEAKER_PROSPECT : `Speaker ${rank + 1}`
     );
   });
 
   return labels;
-}
-
-function mapSpeakerRole(speakerId: string): string {
-  switch (speakerId.toLowerCase()) {
-    case "agent":
-      return "Agent";
-    case "customer":
-      return "Prospect";
-    default:
-      return "Unknown";
-  }
 }

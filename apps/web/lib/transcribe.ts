@@ -15,8 +15,8 @@ export type TranscriptSegment = {
  *    an LLM guess.
  *  - "deepgram": hosted Deepgram nova-3, native diarization. Just DEEPGRAM_API_KEY.
  *    One fast request, no size cap.
- *  - "elevenlabs": ElevenLabs Scribe STT + native diarization. Just ELEVENLABS_API_KEY.
- *    One synchronous request, up to 5GB uploads.
+ *  - "elevenlabs": ElevenLabs Scribe STT + diarization with detect_speaker_roles
+ *    (agent/customer → Agent/Prospect labels). Just ELEVENLABS_API_KEY.
  *  - "gemini": Google Gemini multimodal audio — transcription + rich audio
  *    understanding (emotion, ambience, diarization). Just GEMINI_API_KEY.
  *  - "aws": AWS Transcribe batch, native diarization. Keeps audio in your AWS

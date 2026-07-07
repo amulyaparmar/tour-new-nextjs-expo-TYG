@@ -5,7 +5,6 @@ export const SESSION_PROCESSING_STATUSES: SessionStatus[] = [
   "transcribing",
   "segmenting",
   "analyzing",
-  "extracting_screenshots"
 ];
 
 export function isSessionProcessing(status: SessionStatus): boolean {

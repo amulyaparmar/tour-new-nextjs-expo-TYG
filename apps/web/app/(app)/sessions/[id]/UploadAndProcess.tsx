@@ -2,19 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookmarkPlus, CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle, Brain, Sparkles, Image as ImageIcon, Upload, Video, GitBranch } from "lucide-react";
+import { BookmarkPlus, CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle, Brain, Sparkles, Upload, Video, GitBranch } from "lucide-react";
 
 import type { SessionStatus } from "@tour/shared";
 import { waitForSessionProcessing } from "@/lib/wait-for-session-processing";
 import { uploadFileWithPresign } from "@/lib/client-upload";
 
 type Phase = "choose" | "recording" | "details" | "processing";
-type Step = "idle" | "uploading" | "uploaded" | "transcribing" | "segmenting" | "extracting_screenshots" | "analyzing" | "generating_actions" | "done" | "error";
+type Step = "idle" | "uploading" | "uploaded" | "transcribing" | "segmenting" | "analyzing" | "generating_actions" | "done" | "error";
 type RecordingMode = "audio" | "video";
 
 export type SessionDetailDefaults = {
   title: string;
   prospectName: string;
+  agentName: string;
   location: string;
 };
 
@@ -25,12 +26,11 @@ export type NoteAsset = {
   url: string | null;
 };
 
-const PIPELINE_STEPS: Array<{ key: Step; label: string; description: string; icon: "upload" | "mic" | "branch" | "brain" | "image" | "sparkles" | "check" }> = [
+const PIPELINE_STEPS: Array<{ key: Step; label: string; description: string; icon: "upload" | "mic" | "branch" | "brain" | "sparkles" | "check" }> = [
   { key: "uploading", label: "Uploading", description: "Sending recording to server", icon: "upload" },
   { key: "transcribing", label: "Transcribing", description: "Converting speech to text with speaker detection", icon: "mic" },
   { key: "segmenting", label: "Segmenting", description: "Detecting conversation phases in the tour", icon: "branch" },
   { key: "analyzing", label: "Analyzing", description: "AI scoring against the rubric", icon: "brain" },
-  { key: "extracting_screenshots", label: "Extracting Frames", description: "Capturing key moments from video", icon: "image" },
   { key: "generating_actions", label: "Follow-Up Actions", description: "Creating next steps for this prospect", icon: "sparkles" },
   { key: "done", label: "Complete", description: "Analysis ready", icon: "check" },
 ];
@@ -40,7 +40,6 @@ const STEP_ICONS = {
   mic: Mic,
   branch: GitBranch,
   brain: Brain,
-  image: ImageIcon,
   sparkles: Sparkles,
   check: CheckCircle2,
 };
@@ -50,7 +49,6 @@ function statusToStep(status: SessionStatus): Step {
     case "transcribing": return "transcribing";
     case "segmenting": return "segmenting";
     case "analyzing": return "analyzing";
-    case "extracting_screenshots": return "extracting_screenshots";
     case "analysis_ready":
     case "reviewed":
       return "done";
@@ -266,7 +264,7 @@ export function UploadAndProcess({
 
       await startProcessingAndWait(sessionId, (status) => {
         const mapped = statusToStep(status);
-        if (mapped === "analyzing" || mapped === "extracting_screenshots") {
+        if (mapped === "analyzing") {
           setStep(mapped);
         } else if (mapped === "segmenting" || mapped === "transcribing") {
           setStep(mapped);
@@ -289,6 +287,8 @@ export function UploadAndProcess({
     if (title) body.title = title;
     const pn = String(fd.get("prospectName") ?? "").trim();
     if (pn) body.prospectName = pn;
+    const an = String(fd.get("agentName") ?? "").trim();
+    if (an) body.agentName = an;
     const loc = String(fd.get("location") ?? "").trim();
     if (loc) body.location = loc;
     const notes = String(fd.get("notes") ?? "").trim();
@@ -510,6 +510,10 @@ export function UploadAndProcess({
             <div className="form-group">
               <label htmlFor="title" className="form-label">Session title</label>
               <input id="title" name="title" type="text" className="form-input" defaultValue={defaults?.title ?? ""} placeholder="Downtown Unit Tour" />
+            </div>
+            <div className="form-group">
+              <label htmlFor="agentName" className="form-label">Agent name</label>
+              <input id="agentName" name="agentName" type="text" className="form-input" defaultValue={defaults?.agentName ?? ""} placeholder="Your name" />
             </div>
             <div className="form-group">
               <label htmlFor="prospectName" className="form-label">Prospect name</label>

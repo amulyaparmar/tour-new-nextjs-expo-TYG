@@ -9,8 +9,9 @@ import {
 } from "lucide-react";
 
 import type { Rubric } from "@tour/shared";
-import { getAnalysisModel, getTranscribeProvider, rubricSessionTypeLabel } from "@tour/shared";
+import { getAnalysisModel, rubricSessionTypeLabel } from "@tour/shared";
 
+import { invalidateRubricsCache } from "@/lib/client-rubrics-cache";
 import { RubricCreationFlow } from "./RubricCreationFlow";
 import { mapRubricToDisplay, type DisplayRubric, type RubricStatus } from "./rubric-utils";
 import "./rubric-admin-theme.css";
@@ -83,6 +84,7 @@ export function RubricsDashboard({
       });
       const body = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Failed to activate rubric.");
+      invalidateRubricsCache();
       refresh();
     } catch (caught) {
       setActivateError(caught instanceof Error ? caught.message : "Failed to activate rubric.");
@@ -106,6 +108,7 @@ export function RubricsDashboard({
       const body = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Failed to delete rubric.");
 
+      invalidateRubricsCache();
       if (selectedRubricId === rubric.id) {
         router.push("/rubrics");
       }
@@ -238,7 +241,7 @@ export function RubricsDashboard({
                     <span className="text-xs text-muted-foreground font-mono">{selectedRubric.version}</span>
                   </div>
                   <p className="text-muted-foreground text-sm">
-                    {selectedRubric.propertyIds.length} properties · {rubricSessionTypeLabel(selectedRubric.sessionType)} · {getTranscribeProvider(selectedRubric.transcribeProvider).label}{selectedRubric.audioUnderstandingEnabled ? " · audio insights" : ""} · {selectedRubric.categories.length} categories · {selectedRubric.sessionCount} sessions scored · {getAnalysisModel(selectedRubric.analysisModel).label}
+                    {selectedRubric.propertyIds.length} properties · {rubricSessionTypeLabel(selectedRubric.sessionType)} · {selectedRubric.categories.length} categories · {selectedRubric.sessionCount} sessions scored · {getAnalysisModel(selectedRubric.analysisModel).label}
                   </p>
                 </div>
                 <div className="flex gap-2 shrink-0 flex-wrap justify-end">

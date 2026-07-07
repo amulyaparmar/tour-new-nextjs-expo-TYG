@@ -2,7 +2,11 @@ import "server-only";
 
 import type {
   AnalysisResult,
+  AnalysisRun,
+  AnalysisRunSummary,
+  AnalysisRunTrigger,
   AudioInsights,
+  AudioInsightsStatus,
   ConversationPhaseSegmentation,
   CreateSessionInput,
   FollowUpAction,
@@ -12,7 +16,7 @@ import type {
   SessionStatus,
   SessionSummary
 } from "@tour/shared";
-import { normalizeAudioInsights, normalizeConversationPhaseSegmentation } from "@tour/shared";
+import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeConversationPhaseSegmentation, normalizeSessionStatus } from "@tour/shared";
 
 import {
   addLocalSessionLead,
@@ -20,20 +24,24 @@ import {
   deleteLocalSession,
   findOpenLocalQrSession,
   getLocalAnalysis,
+  getLocalAnalysisRun,
   getLocalAudioInsights,
   getLocalConversationPhases,
   getLocalSessionById,
   getLocalTranscript,
   listLocalActions,
+  listLocalAnalysisRuns,
   listLocalSessions,
   replaceLocalActions,
+  saveLocalAnalysisRun,
   saveLocalAudioInsights,
   saveLocalConversationPhases,
   saveLocalTranscript,
+  setLocalAudioInsightsStatus,
+  clearLocalAudioInsights,
   setLocalSessionStatus,
   updateLocalActionStatus,
   updateLocalSession,
-  upsertLocalAnalysis
 } from "./local-store";
 import { getSupabaseServiceClient } from "./supabase";
 
@@ -41,6 +49,7 @@ type SessionRow = {
   id: string;
   title: string;
   prospect_name: string | null;
+  agent_name: string | null;
   scheduled_at: string | null;
   location: string | null;
   status: SessionStatus;
@@ -59,10 +68,11 @@ type SessionRow = {
   audio_url: string | null;
   duration: number | null;
   created_at: string;
+  audio_insights_status: AudioInsightsStatus | null;
 };
 
 const SESSION_COLUMNS =
-  "id,title,prospect_name,scheduled_at,location,status,source,leads,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at";
+  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,leads,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status";
 
 type AnalysisRow = {
   id: string;
@@ -71,6 +81,53 @@ type AnalysisRow = {
   result_json: AnalysisResult;
   created_at: string;
 };
+
+type AnalysisRunRow = {
+  id: string;
+  session_id: string;
+  version: number;
+  is_current: boolean;
+  status: "processing" | "ready" | "failed";
+  result_json: AnalysisResult;
+  rubric_id: string | null;
+  rubric_name: string | null;
+  trigger: string | null;
+  created_at: string;
+};
+
+function mapAnalysisRunSummary(row: AnalysisRunRow): AnalysisRunSummary {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    version: row.version,
+    isCurrent: row.is_current,
+    overallScore: row.result_json.overallScore,
+    rubricId: row.rubric_id,
+    rubricName: row.rubric_name,
+    trigger: row.trigger === "initial" || row.trigger === "reanalyze" ? row.trigger : null,
+    createdAt: row.created_at,
+  };
+}
+
+function mapAnalysisRun(row: AnalysisRunRow): AnalysisRun {
+  return {
+    ...mapAnalysisRunSummary(row),
+    result: row.result_json,
+  };
+}
+
+function resolveVersionFilter(version?: string | null) {
+  if (!version) return null;
+  const uuidPattern = /^[0-9a-f-]{36}$/i;
+  if (uuidPattern.test(version)) {
+    return { kind: "id" as const, value: version };
+  }
+  const versionNumber = Number(version);
+  if (!Number.isNaN(versionNumber) && versionNumber > 0) {
+    return { kind: "version" as const, value: versionNumber };
+  }
+  return null;
+}
 
 type FollowUpActionRow = {
   id: string;
@@ -254,6 +311,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     scheduled_at: input.scheduledAt ?? null,
     location: input.location?.trim() ? input.location.trim() : null,
     prospect_name: input.prospectName?.trim() ? input.prospectName.trim() : null,
+    agent_name: input.agentName?.trim() ? input.agentName.trim() : null,
     notes: input.notes?.trim() ? input.notes.trim() : null,
     status: "scheduled" as const,
     source: input.source ?? "manual",
@@ -283,6 +341,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       scheduledAt: input.scheduledAt ?? null,
       location: input.location ?? null,
       prospectName: input.prospectName ?? null,
+      agentName: input.agentName ?? null,
       notes: input.notes ?? null,
       source: input.source ?? "manual",
       leads: input.leads ?? [],
@@ -348,6 +407,7 @@ export async function updateSession(
     title?: string;
     scheduledAt?: string | null;
     prospectName?: string | null;
+    agentName?: string | null;
     location?: string | null;
     notes?: string | null;
     videoUrl?: string | null;
@@ -365,6 +425,7 @@ export async function updateSession(
     if (fields.title !== undefined) row.title = fields.title;
     if (fields.scheduledAt !== undefined) row.scheduled_at = fields.scheduledAt;
     if (fields.prospectName !== undefined) row.prospect_name = fields.prospectName;
+    if (fields.agentName !== undefined) row.agent_name = fields.agentName;
     if (fields.location !== undefined) row.location = fields.location;
     if (fields.notes !== undefined) row.notes = fields.notes;
     if (fields.videoUrl !== undefined) row.video_url = fields.videoUrl;
@@ -417,7 +478,136 @@ export async function getSessionById(sessionId: string): Promise<SessionDetail |
   }
 }
 
-export async function getAnalysisBySessionId(sessionId: string): Promise<AnalysisResult | null> {
+export async function listAnalysisRuns(sessionId: string): Promise<AnalysisRunSummary[]> {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("analysis_runs")
+      .select("id,session_id,version,is_current,status,result_json,rubric_id,rubric_name,trigger,created_at")
+      .eq("session_id", sessionId)
+      .order("version", { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const rows = (data as AnalysisRunRow[] | null) ?? [];
+    if (rows.length > 0) {
+      return rows.map(mapAnalysisRunSummary);
+    }
+
+    const { data: legacy, error: legacyError } = await supabase
+      .from("analyses")
+      .select("id,session_id,status,result_json,created_at")
+      .eq("session_id", sessionId)
+      .maybeSingle<AnalysisRow>();
+
+    if (legacyError) {
+      throw new Error(legacyError.message);
+    }
+
+    if (legacy) {
+      return [{
+        id: legacy.id,
+        sessionId,
+        version: 1,
+        isCurrent: true,
+        overallScore: legacy.result_json.overallScore,
+        rubricId: null,
+        rubricName: null,
+        trigger: "initial",
+        createdAt: legacy.created_at,
+      }];
+    }
+
+    return [];
+  } catch {
+    return listLocalAnalysisRuns(sessionId);
+  }
+}
+
+export async function getAnalysisRun(
+  sessionId: string,
+  version?: string | null
+): Promise<AnalysisRun | null> {
+  const filter = resolveVersionFilter(version);
+
+  try {
+    const supabase = getSupabaseServiceClient();
+
+    if (filter?.kind === "id") {
+      const { data, error } = await supabase
+        .from("analysis_runs")
+        .select("id,session_id,version,is_current,status,result_json,rubric_id,rubric_name,trigger,created_at")
+        .eq("session_id", sessionId)
+        .eq("id", filter.value)
+        .maybeSingle<AnalysisRunRow>();
+      if (error) throw new Error(error.message);
+      if (data) return mapAnalysisRun(data);
+    } else if (filter?.kind === "version") {
+      const { data, error } = await supabase
+        .from("analysis_runs")
+        .select("id,session_id,version,is_current,status,result_json,rubric_id,rubric_name,trigger,created_at")
+        .eq("session_id", sessionId)
+        .eq("version", filter.value)
+        .maybeSingle<AnalysisRunRow>();
+      if (error) throw new Error(error.message);
+      if (data) return mapAnalysisRun(data);
+    } else {
+      const { data, error } = await supabase
+        .from("analysis_runs")
+        .select("id,session_id,version,is_current,status,result_json,rubric_id,rubric_name,trigger,created_at")
+        .eq("session_id", sessionId)
+        .eq("is_current", true)
+        .order("version", { ascending: false })
+        .limit(1);
+      if (error) throw new Error(error.message);
+      const row = (data as AnalysisRunRow[] | null)?.[0];
+      if (row) return mapAnalysisRun(row);
+    }
+  } catch {
+    return getLocalAnalysisRun(sessionId, version);
+  }
+
+  if (version) return null;
+
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("analyses")
+      .select("id,session_id,status,result_json,created_at")
+      .eq("session_id", sessionId)
+      .maybeSingle<AnalysisRow>();
+
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      sessionId,
+      version: 1,
+      isCurrent: true,
+      overallScore: data.result_json.overallScore,
+      rubricId: null,
+      rubricName: null,
+      trigger: "initial",
+      createdAt: data.created_at,
+      result: data.result_json,
+    };
+  } catch {
+    return getLocalAnalysisRun(sessionId, version);
+  }
+}
+
+export async function getAnalysisBySessionId(
+  sessionId: string,
+  version?: string | null
+): Promise<AnalysisResult | null> {
+  const run = await getAnalysisRun(sessionId, version);
+  if (run) return run.result;
+
+  if (version) return null;
+
   try {
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
@@ -436,18 +626,66 @@ export async function getAnalysisBySessionId(sessionId: string): Promise<Analysi
   }
 }
 
-export async function upsertAnalysis(
+export async function saveAnalysisRun(
   sessionId: string,
-  analysis: AnalysisResult
-): Promise<AnalysisResult> {
+  analysis: AnalysisResult,
+  meta?: {
+    rubricId?: string | null;
+    rubricName?: string | null;
+    trigger?: AnalysisRunTrigger;
+  }
+): Promise<{ runId: string; version: number }> {
   try {
     const supabase = getSupabaseServiceClient();
+
+    const { data: existingRows, error: existingError } = await supabase
+      .from("analysis_runs")
+      .select("version")
+      .eq("session_id", sessionId)
+      .order("version", { ascending: false })
+      .limit(1);
+
+    if (existingError) {
+      throw new Error(existingError.message);
+    }
+
+    const nextVersion = ((existingRows as Array<{ version: number }> | null)?.[0]?.version ?? 0) + 1;
+    const trigger = meta?.trigger ?? (nextVersion > 1 ? "reanalyze" : "initial");
+
+    const { error: clearCurrentError } = await supabase
+      .from("analysis_runs")
+      .update({ is_current: false } as never)
+      .eq("session_id", sessionId)
+      .eq("is_current", true);
+
+    if (clearCurrentError) {
+      throw new Error(clearCurrentError.message);
+    }
+
+    const { data: inserted, error: insertError } = await supabase
+      .from("analysis_runs")
+      .insert({
+        session_id: sessionId,
+        version: nextVersion,
+        is_current: true,
+        status: "ready",
+        result_json: analysis,
+        rubric_id: meta?.rubricId ?? null,
+        rubric_name: meta?.rubricName ?? null,
+        trigger,
+      } as never)
+      .select("id,version")
+      .single<{ id: string; version: number }>();
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
 
     const { error: sessionUpdateError } = await supabase
       .from("sessions")
       .update({
         status: "analysis_ready",
-        overall_score: analysis.overallScore
+        overall_score: analysis.overallScore,
       } as never)
       .eq("id", sessionId);
 
@@ -455,26 +693,36 @@ export async function upsertAnalysis(
       throw new Error(`Failed to update session status: ${sessionUpdateError.message}`);
     }
 
-    const { error } = await supabase.from("analyses").upsert(
+    const { error: legacyError } = await supabase.from("analyses").upsert(
       {
         session_id: sessionId,
         status: "ready",
-        result_json: analysis
+        result_json: analysis,
       } as never,
-      {
-        onConflict: "session_id"
-      }
+      { onConflict: "session_id" }
     );
 
-    if (error) {
-      throw new Error(`Failed to save analysis: ${error.message}`);
+    if (legacyError) {
+      throw new Error(`Failed to save analysis: ${legacyError.message}`);
     }
 
-    return analysis;
+    return { runId: inserted.id, version: inserted.version };
   } catch {
-    await upsertLocalAnalysis(sessionId, analysis);
-    return analysis;
+    return saveLocalAnalysisRun(sessionId, analysis, meta);
   }
+}
+
+export async function upsertAnalysis(
+  sessionId: string,
+  analysis: AnalysisResult,
+  meta?: {
+    rubricId?: string | null;
+    rubricName?: string | null;
+    trigger?: AnalysisRunTrigger;
+  }
+): Promise<AnalysisResult> {
+  await saveAnalysisRun(sessionId, analysis, meta);
+  return analysis;
 }
 
 export async function listFollowUpActions(sessionId: string): Promise<FollowUpAction[]> {
@@ -684,12 +932,47 @@ export async function saveAudioInsights(sessionId: string, insights: AudioInsigh
     const supabase = getSupabaseServiceClient();
     const { error } = await supabase
       .from("sessions")
-      .update({ audio_insights_json: insights } as never)
+      .update({
+        audio_insights_json: insights,
+        audio_insights_status: "ready",
+      } as never)
       .eq("id", sessionId);
 
     if (error) throw error;
   } catch {
     await saveLocalAudioInsights(sessionId, insights);
+    await setLocalAudioInsightsStatus(sessionId, "ready");
+  }
+}
+
+export async function clearAudioInsights(sessionId: string) {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { error } = await supabase
+      .from("sessions")
+      .update({ audio_insights_json: null } as never)
+      .eq("id", sessionId);
+
+    if (error) throw error;
+  } catch {
+    await clearLocalAudioInsights(sessionId);
+  }
+}
+
+export async function setAudioInsightsStatus(
+  sessionId: string,
+  status: AudioInsightsStatus
+) {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { error } = await supabase
+      .from("sessions")
+      .update({ audio_insights_status: status } as never)
+      .eq("id", sessionId);
+
+    if (error) throw error;
+  } catch {
+    await setLocalAudioInsightsStatus(sessionId, status);
   }
 }
 
@@ -718,9 +1001,10 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     id: row.id,
     title: row.title,
     prospectName: row.prospect_name,
+    agentName: row.agent_name,
     scheduledAt: row.scheduled_at,
     location: row.location,
-    status: row.status,
+    status: normalizeSessionStatus(row.status),
     source: row.source ?? "manual",
     leads: row.leads ?? [],
     rubricId: row.rubric_id ?? null,
@@ -729,7 +1013,8 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     unitLabel: row.unit_label ?? null,
     overallScore: row.overall_score,
     duration: row.duration,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    audioInsightsStatus: normalizeAudioInsightsStatus(row.audio_insights_status),
   };
 }
 

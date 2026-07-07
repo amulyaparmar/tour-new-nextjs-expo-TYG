@@ -109,14 +109,29 @@ export async function applyRubricToSession(sessionId: string, rubricId: string) 
   return { ok: true as const };
 }
 
-export async function generateAnalysis(sessionId: string) {
+export async function generateAnalysis(
+  sessionId: string,
+  options?: { rubricId?: string; resegment?: boolean },
+) {
   const res = await authenticatedFetch(`/api/sessions/${sessionId}/analysis`, {
-    method: "POST"
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      rubricId: options?.rubricId,
+      resegment: options?.resegment,
+    }),
   });
+  const body = await res.json().catch(() => null) as {
+    error?: string;
+    analysis?: AnalysisResult;
+    async?: boolean;
+    runId?: string;
+    rubricId?: string;
+  } | null;
   if (!res.ok) {
-    throw new Error("Failed to generate analysis.");
+    throw new Error(body?.error ?? "Failed to generate analysis.");
   }
-  return (await res.json()) as { analysis: AnalysisResult };
+  return body ?? { ok: true };
 }
 
 export async function fetchAnalysis(sessionId: string) {
@@ -169,23 +184,6 @@ export async function fetchTranscript(sessionId: string) {
       startTime: number;
       endTime: number;
       text: string;
-    }>;
-  };
-}
-
-export async function fetchScreenshots(sessionId: string) {
-  const res = await authenticatedFetch(`/api/sessions/${sessionId}/screenshots`);
-  if (!res.ok) {
-    throw new Error("Failed to fetch screenshots.");
-  }
-  return (await res.json()) as {
-    screenshots: Array<{
-      id: string;
-      sessionId: string;
-      timestamp: number;
-      imageUrl: string;
-      reason: "interval" | "ai_key_moment" | "rubric_evidence";
-      summary?: string;
     }>;
   };
 }

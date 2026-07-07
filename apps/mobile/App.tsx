@@ -133,7 +133,6 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   transcribing: { bg: C.amberBg, text: C.amber },
   segmenting: { bg: C.amberBg, text: C.amber },
   analyzing: { bg: C.amberBg, text: C.amber },
-  extracting_screenshots: { bg: C.amberBg, text: C.amber },
   analysis_ready: { bg: C.greenBg, text: C.green },
   reviewed: { bg: C.greenBg, text: C.green },
   failed: { bg: C.redBg, text: C.red },
@@ -146,13 +145,12 @@ const STATUS_LABELS: Record<string, string> = {
   transcribing: "Processing",
   segmenting: "Processing",
   analyzing: "Analyzing",
-  extracting_screenshots: "Processing",
   analysis_ready: "Analyzed",
   reviewed: "Reviewed",
   failed: "Failed",
 };
 
-const PROCESSING_STATUSES = new Set(["transcribing", "segmenting", "analyzing", "extracting_screenshots"]);
+const PROCESSING_STATUSES = new Set(["transcribing", "segmenting", "analyzing"]);
 
 function scoreColor(score: number) {
   if (score >= 75) return C.green;
@@ -1860,7 +1858,7 @@ function SessionReviewExperience({
                 </View>
                 <View style={st.flex1}>
                   <View style={reviewSt.metaRow}>
-                    <Text style={reviewSt.speaker}>{segment.speaker || (isAgent ? "Agent" : "Customer")}</Text>
+                    <Text style={reviewSt.speaker}>{segment.speaker || (isAgent ? "Agent" : "Prospect")}</Text>
                     {phase && (
                       <View style={[reviewSt.phasePill, { backgroundColor: `${tourSegmentColor(phases?.spans.findIndex((span) => span.id === phase.id) ?? 0)}22` }]}>
                         <Text style={[reviewSt.phasePillText, { color: tourSegmentColor(phases?.spans.findIndex((span) => span.id === phase.id) ?? 0) }]}>

@@ -4,6 +4,8 @@ import { AdminAuthError, requireAdminContext } from "@/lib/admin-auth";
 import { createRubric, listRubrics } from "@/lib/rubrics";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
+const RUBRICS_CACHE_CONTROL = "private, max-age=60, stale-while-revalidate=300";
+
 export async function GET(request: Request) {
   try {
     const workspace = await requireAdminContext(request);
@@ -18,7 +20,9 @@ export async function GET(request: Request) {
         .map((row) => String(row.rubric_id))
     );
     const rubrics = (await listRubrics()).filter((rubric) => ids.has(rubric.id));
-    return NextResponse.json({ rubrics });
+    return NextResponse.json({ rubrics }, {
+      headers: { "Cache-Control": RUBRICS_CACHE_CONTROL },
+    });
   } catch (caught) {
     return NextResponse.json(
       { error: caught instanceof Error ? caught.message : "Failed to load rubrics." },

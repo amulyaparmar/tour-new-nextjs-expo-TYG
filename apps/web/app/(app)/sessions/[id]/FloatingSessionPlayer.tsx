@@ -13,7 +13,7 @@ import {
   SkipForward,
 } from "lucide-react";
 
-import type { ConversationPhaseSegmentation } from "@tour/shared";
+import type { ConversationPhaseSegmentation, SessionParticipants } from "@tour/shared";
 import { buildPhaseTracks } from "@tour/shared";
 
 import { playerMarkerByType } from "./session-detail-class-maps";
@@ -43,6 +43,7 @@ type Props = {
   playbackRate: number;
   selectedMomentIndex: number;
   transcript: TranscriptSegment[];
+  participants: SessionParticipants;
   phases: ConversationPhaseSegmentation | null;
   onToggleComments: () => void;
   onCommentNavigate: (direction: -1 | 1) => void;
@@ -68,6 +69,7 @@ export function FloatingSessionPlayer({
   playbackRate,
   selectedMomentIndex,
   transcript,
+  participants,
   phases,
   onToggleComments,
   onCommentNavigate,
@@ -78,8 +80,8 @@ export function FloatingSessionPlayer({
   togglePlayback,
 }: Props) {
   const { segments: unifiedSpeakerSegments, speakers: speakerLegend } = useMemo(
-    () => buildUnifiedSpeakerSegments(transcript, duration),
-    [transcript, duration]
+    () => buildUnifiedSpeakerSegments(transcript, duration, participants),
+    [transcript, duration, participants]
   );
   const phaseTracks = useMemo(() => buildPhaseTracks(phases, duration), [phases, duration]);
   const playheadPct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;

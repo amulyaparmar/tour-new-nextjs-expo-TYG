@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { ExternalLink, Globe2, Mail, MessageCircle, Phone, Play, UserRound } from "lucide-react";
 
 import type { AnalysisResult, FollowUpAction, SessionDetail, SessionLead } from "@tour/shared";
-import { getScreenshotsForSession, type SessionScreenshot } from "@/lib/evidence";
 import { listVisibleMaterials, type Material } from "@/lib/materials";
 import { getRepCard, type RepCard } from "@/lib/reps";
 import { getAnalysisBySessionId, getSessionById, listFollowUpActions } from "@/lib/sessions";
@@ -57,10 +56,9 @@ export default async function FollowUpPage({ params }: FollowUpPageProps) {
   const session = await getSessionById(id);
   if (!session) notFound();
 
-  const [analysis, actions, screenshots, materials] = await Promise.all([
+  const [analysis, actions, materials] = await Promise.all([
     getAnalysisBySessionId(id),
     listFollowUpActions(id),
-    getScreenshotsForSession(id),
     listVisibleMaterials()
   ]);
 
@@ -68,7 +66,7 @@ export default async function FollowUpPage({ params }: FollowUpPageProps) {
   const lead = session.leads?.[0] ?? null;
   const propertyName = repCard?.property.name ?? session.location ?? "the property";
   const firstName = lead?.firstName || firstToken(session.prospectName) || firstToken(lead?.name) || "there";
-  const media = buildMedia({ session, repCard, screenshots, materials });
+  const media = buildMedia({ session, repCard, materials });
   const links = buildLinks({ repCard, sessionId: id });
   const details = buildDetails({ session, lead, propertyName });
   const steps = buildSteps(actions);
@@ -285,12 +283,10 @@ function buildDetails({
 function buildMedia({
   session,
   repCard,
-  screenshots,
   materials
 }: {
   session: SessionDetail;
   repCard: RepCard | null;
-  screenshots: SessionScreenshot[];
   materials: Material[];
 }): FollowUpMedia[] {
   const propertyMedia = repCard?.property.mediaUrl
@@ -305,14 +301,6 @@ function buildMedia({
       ]
     : [];
 
-  const screenshotMedia = screenshots.slice(0, 3).map((shot) => ({
-    title: shot.label || `Tour moment at ${formatSeconds(shot.timestamp)}`,
-    description: `Captured around ${formatSeconds(shot.timestamp)}.`,
-    imageUrl: shot.imageUrl,
-    href: shot.imageUrl,
-    kind: "photo" as const
-  }));
-
   const materialMedia = materials
     .filter((material) => material.media?.videoUrl || material.media?.iframeUrl || material.fileUrl)
     .slice(0, 5)
@@ -324,7 +312,7 @@ function buildMedia({
       kind: "link" as const
     }));
 
-  return [...propertyMedia, ...screenshotMedia, ...materialMedia].filter((item) => item.href !== "#").slice(0, 6);
+  return [...propertyMedia, ...materialMedia].filter((item) => item.href !== "#").slice(0, 6);
 }
 
 function buildLinks({ repCard, sessionId }: { repCard: RepCard | null; sessionId: string }) {

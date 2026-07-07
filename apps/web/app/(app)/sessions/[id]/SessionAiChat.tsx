@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AnalysisResult } from "@tour/shared";
+import type { AnalysisModelId, AnalysisResult } from "@tour/shared";
+import { AI_PROVIDER_LABELS, ANALYSIS_MODELS, DEFAULT_ANALYSIS_MODEL, type AiProvider } from "@tour/shared";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { ArrowUp, Loader2 } from "lucide-react";
 
+import { AiChatModelSelect } from "./AiChatModelSelect";
 import { AiChatMarkdown } from "./AiChatMarkdown";
 import styles from "./session-detail.module.css";
 import {
@@ -23,16 +25,27 @@ function messageText(parts: { type: string; text?: string }[]) {
     .join("");
 }
 
+const TOUR_AI_MODEL_OPTIONS = (Object.keys(AI_PROVIDER_LABELS) as AiProvider[]).flatMap((provider) =>
+  ANALYSIS_MODELS.filter((model) => model.provider === provider).map((model) => ({
+    id: model.id,
+    label: model.label,
+    group: AI_PROVIDER_LABELS[provider],
+  }))
+);
+
 export function SessionAiChat({
   sessionId,
   analysis,
+  defaultModel = DEFAULT_ANALYSIS_MODEL,
   onSeek,
 }: {
   sessionId: string;
   analysis: AnalysisResult;
+  defaultModel?: AnalysisModelId;
   onSeek?: (seconds: number) => void;
 }) {
   const [input, setInput] = useState("");
+  const [model, setModel] = useState<AnalysisModelId>(defaultModel);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [savedMessages, setSavedMessages] = useState<SessionAiMessages | null>(null);
@@ -45,6 +58,10 @@ export function SessionAiChat({
   );
 
   const { messages, setMessages, sendMessage, status, error } = useChat({ transport });
+
+  useEffect(() => {
+    setModel(defaultModel);
+  }, [defaultModel]);
 
   const isBusy = status === "submitted" || status === "streaming";
   const mentionOptions = mentionQuery != null ? filterMentionPrompts(mentionQuery) : [];
@@ -93,12 +110,12 @@ export function SessionAiChat({
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || isBusy) return;
-      void sendMessage({ text: trimmed });
+      void sendMessage({ text: trimmed }, { body: { model } });
       setInput("");
       setMentionQuery(null);
       resetInputHeight();
     },
-    [isBusy, resetInputHeight, sendMessage]
+    [isBusy, model, resetInputHeight, sendMessage]
   );
 
   const clearConversation = useCallback(() => {
@@ -194,6 +211,14 @@ export function SessionAiChat({
           </button>
         )}
       </div>
+
+      <AiChatModelSelect
+        id={`tour-ai-model-${sessionId}`}
+        value={model}
+        onChange={(value) => setModel(value as AnalysisModelId)}
+        options={TOUR_AI_MODEL_OPTIONS}
+        disabled={isBusy}
+      />
 
       <div className={styles.aiChatList} ref={listRef}>
         {messages.length === 0 ? (

@@ -5,7 +5,7 @@ import { deleteSession, getAnalysisBySessionId, getConversationPhases, getSessio
 import { getRecordingPlaybackPath, getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
 
 const VALID_STATUSES: SessionStatus[] = [
-  "scheduled", "in_progress", "uploaded", "transcribing", "segmenting", "extracting_screenshots",
+  "scheduled", "in_progress", "uploaded", "transcribing", "segmenting",
   "analyzing", "analysis_ready", "reviewed", "failed",
 ];
 
@@ -76,6 +76,7 @@ export async function PATCH(request: Request, context: Context) {
       title: typeof body.title === "string" ? body.title : undefined,
       scheduledAt: typeof body.scheduledAt === "string" ? body.scheduledAt : undefined,
       prospectName: typeof body.prospectName === "string" ? body.prospectName : undefined,
+      agentName: typeof body.agentName === "string" ? body.agentName : undefined,
       location: typeof body.location === "string" ? body.location : undefined,
       notes: typeof body.notes === "string" ? body.notes : undefined,
       rubricId: body.rubricId === null || typeof body.rubricId === "string" ? body.rubricId as string | null : undefined,

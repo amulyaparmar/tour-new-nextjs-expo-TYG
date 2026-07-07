@@ -12,7 +12,7 @@ import { listTeamAgents } from "@/lib/agents";
 import { createSession, listSessionsPaginated } from "@/lib/sessions";
 
 const VALID_STATUSES: SessionStatus[] = [
-  "scheduled", "in_progress", "uploaded", "transcribing", "segmenting", "extracting_screenshots",
+  "scheduled", "in_progress", "uploaded", "transcribing", "segmenting",
   "analyzing", "analysis_ready", "reviewed", "failed",
 ];
 const COMPLETED_STATUSES: SessionStatus[] = ["analysis_ready", "reviewed"];
@@ -96,6 +96,7 @@ export async function POST(request: Request) {
       scheduledAt?: string | null;
       location?: string | null;
       prospectName?: string | null;
+      agentName?: string | null;
       notes?: string | null;
       rubricId?: string | null;
       agentId?: string | null;
@@ -112,6 +113,7 @@ export async function POST(request: Request) {
       scheduledAt: body.scheduledAt ?? null,
       location: body.location ?? null,
       prospectName: body.prospectName ?? null,
+      agentName: body.agentName ?? workspace.user.fullName ?? null,
       notes: body.notes ?? null,
       rubricId: body.rubricId ?? null,
       agentId: body.agentId ?? `user:${workspace.user.id}`,

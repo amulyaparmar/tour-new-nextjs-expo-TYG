@@ -35,8 +35,6 @@ export function processingStatusMessage(status: string): string {
       return "Mapping tour segments and locations…";
     case "analyzing":
       return "Scoring the tour against your rubric…";
-    case "extracting_screenshots":
-      return "Capturing key moments from the recording…";
     default:
       return "Transcribing, segmenting, scoring, and generating insights…";
   }

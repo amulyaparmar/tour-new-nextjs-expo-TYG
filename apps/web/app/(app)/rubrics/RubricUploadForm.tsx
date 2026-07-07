@@ -7,6 +7,7 @@ import { Loader2, Upload } from "lucide-react";
 import type { Rubric } from "@tour/shared";
 
 import { uploadFileWithPresign } from "@/lib/client-upload";
+import { invalidateRubricsCache } from "@/lib/client-rubrics-cache";
 
 type RubricUploadFormProps = {
   compact?: boolean;
@@ -55,6 +56,7 @@ export function RubricUploadForm({ compact = false, onUploaded }: RubricUploadFo
       if (body?.rubric) {
         onUploaded?.(body.rubric);
       }
+      invalidateRubricsCache();
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");

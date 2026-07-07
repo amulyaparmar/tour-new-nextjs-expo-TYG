@@ -57,6 +57,12 @@ function buildInput(
   return messages;
 }
 
+/** GPT-5+ models on Bedrock reject non-default temperature and top_p. */
+export function bedrockOpenAiSupportsSamplingParams(modelId: string): boolean {
+  const id = modelId.toLowerCase();
+  return !id.includes("gpt-5");
+}
+
 /** Forces an OpenAI function call and returns the parsed arguments object. */
 export async function invokeOpenAiTool<T = Record<string, unknown>>(params: {
   system?: string;
@@ -68,6 +74,28 @@ export async function invokeOpenAiTool<T = Record<string, unknown>>(params: {
 }): Promise<T> {
   const { token, baseUrl } = getBedrockOpenAiConfig();
   const schema = prepareStructuredJsonSchema(params.tool.input_schema);
+  const body: Record<string, unknown> = {
+    model: params.modelId,
+    ...(params.system ? { instructions: params.system } : {}),
+    input: buildInput(params.messages),
+    max_output_tokens: params.maxTokens ?? 8192,
+    tools: [
+      {
+        type: "function",
+        name: params.tool.name,
+        description: params.tool.description,
+        parameters: schema,
+        strict: true
+      }
+    ],
+    tool_choice: { type: "function", name: params.tool.name }
+  };
+
+  if (bedrockOpenAiSupportsSamplingParams(params.modelId) && params.temperature != null) {
+    body.temperature = params.temperature;
+  } else if (bedrockOpenAiSupportsSamplingParams(params.modelId)) {
+    body.temperature = 0.3;
+  }
 
   const response = await fetch(`${baseUrl}/responses`, {
     method: "POST",
@@ -75,23 +103,7 @@ export async function invokeOpenAiTool<T = Record<string, unknown>>(params: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      model: params.modelId,
-      ...(params.system ? { instructions: params.system } : {}),
-      input: buildInput(params.messages),
-      max_output_tokens: params.maxTokens ?? 8192,
-      temperature: params.temperature ?? 0.3,
-      tools: [
-        {
-          type: "function",
-          name: params.tool.name,
-          description: params.tool.description,
-          parameters: schema,
-          strict: true
-        }
-      ],
-      tool_choice: { type: "function", name: params.tool.name }
-    })
+    body: JSON.stringify(body)
   });
 
   if (!response.ok) {

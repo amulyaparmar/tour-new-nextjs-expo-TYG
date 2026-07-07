@@ -1,43 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ClipboardList, Loader2 } from "lucide-react";
 
 import type { Rubric } from "@tour/shared";
-import { rubricItemCount, rubricTotalPoints, getTranscribeProvider } from "@tour/shared";
+import { rubricItemCount, rubricTotalPoints } from "@tour/shared";
+
+import { fetchCommunityRubrics } from "@/lib/client-rubrics-cache";
 
 type RubricSelectorProps = {
   name?: string;
   value?: string | null;
   onChange?: (rubricId: string) => void;
   showManageLink?: boolean;
+  compact?: boolean;
 };
 
 export function RubricSelector({
   name = "rubricId",
   value,
   onChange,
-  showManageLink = true
+  showManageLink = true,
+  compact = false,
 }: RubricSelectorProps) {
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(value ?? "");
   const [error, setError] = useState<string | null>(null);
 
-  const loadRubrics = useCallback(async () => {
-    const res = await fetch("/api/admin/rubrics");
-    if (!res.ok) throw new Error("Failed to load rubrics");
-    const data = await res.json() as { rubrics: Rubric[] };
-    return data.rubrics ?? [];
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       try {
-        const list = await loadRubrics();
+        const list = await fetchCommunityRubrics();
         if (cancelled) return;
 
         setRubrics(list);
@@ -60,7 +57,7 @@ export function RubricSelector({
 
     void load();
     return () => { cancelled = true; };
-  }, [value, onChange, loadRubrics]);
+  }, [value, onChange]);
 
   async function handleChange(next: string) {
     setSelected(next);
@@ -70,11 +67,13 @@ export function RubricSelector({
   const selectedRubric = rubrics.find((r) => r.id === selected);
 
   return (
-    <div className="form-group">
+    <div className={compact ? undefined : "form-group"}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-        <label htmlFor={name} className="form-label" style={{ marginBottom: 0 }}>
-          <ClipboardList size={14} style={{ display: "inline", marginRight: 4, verticalAlign: "-2px" }} />
-          Evaluation rubric
+        <label htmlFor={name} className={compact ? undefined : "form-label"} style={{ marginBottom: compact ? 4 : 0, fontSize: compact ? 11 : undefined, fontWeight: compact ? 700 : undefined, color: compact ? "var(--slate-500)" : undefined, textTransform: compact ? "uppercase" as const : undefined, letterSpacing: compact ? "0.04em" : undefined }}>
+          {!compact && (
+            <ClipboardList size={14} style={{ display: "inline", marginRight: 4, verticalAlign: "-2px" }} />
+          )}
+          {compact ? "Rubric" : "Evaluation rubric"}
         </label>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           {showManageLink && (
@@ -86,16 +85,26 @@ export function RubricSelector({
       </div>
 
       {loading ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--slate-500)", padding: "10px 0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: compact ? 12 : 13, color: "var(--slate-500)", padding: compact ? "6px 0" : "10px 0" }}>
           <Loader2 size={14} className="spin" /> Loading rubrics...
         </div>
       ) : error ? (
-        <p style={{ color: "var(--red-700)", fontSize: 13 }}>{error}</p>
+        <p style={{ color: "var(--red-700)", fontSize: compact ? 12 : 13 }}>{error}</p>
       ) : (
         <select
           id={name}
           name={name}
-          className="form-select"
+          className={compact ? undefined : "form-select"}
+          style={compact ? {
+            width: "100%",
+            border: "1px solid var(--slate-200)",
+            borderRadius: 10,
+            background: "#fff",
+            padding: "8px 10px",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--slate-700)",
+          } : undefined}
           value={selected}
           onChange={(e) => handleChange(e.target.value)}
           required
@@ -111,14 +120,7 @@ export function RubricSelector({
         </select>
       )}
 
-      {selectedRubric && (
-        <p style={{ fontSize: 12, color: "var(--slate-500)", marginTop: 6 }}>
-          Audio: {getTranscribeProvider(selectedRubric.transcribeProvider).label}
-          {selectedRubric.audioUnderstandingEnabled ? " · sentiment & ambience insights enabled" : ""}
-        </p>
-      )}
-
-      {selectedRubric?.definition.notes && (
+      {selectedRubric?.definition.notes && !compact && (
         <p style={{ fontSize: 12, color: "var(--slate-500)", marginTop: 6 }}>
           {selectedRubric.definition.notes}
         </p>

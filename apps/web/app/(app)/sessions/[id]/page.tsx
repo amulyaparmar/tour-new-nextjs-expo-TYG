@@ -3,11 +3,13 @@ import { Download } from "lucide-react";
 
 import { SESSION_STATUS_LABELS } from "@tour/shared";
 
-import { getScreenshotsForSession, getTranscriptForSession } from "@/lib/evidence";
+import { getTranscriptForSession } from "@/lib/evidence";
 import { listVisibleMaterials } from "@/lib/materials";
 import { getRubricForSession } from "@/lib/rubrics";
-import { getAnalysisBySessionId, getAudioInsights, getConversationPhases, getSessionById } from "@/lib/sessions";
+import { enrichSessionWithAgentName, sessionParticipants } from "@/lib/session-participants";
+import { getAnalysisRun, getAudioInsights, getConversationPhases, getSessionById, listAnalysisRuns } from "@/lib/sessions";
 import { getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
+import { AnalysisVersionSelector } from "./AnalysisVersionSelector";
 import { DeleteSessionButton } from "./DeleteSessionButton";
 import { EditSessionForm } from "./EditSessionForm";
 import { SessionDetailExperience } from "./SessionDetailExperience";
@@ -16,14 +18,18 @@ import styles from "./session-detail.module.css";
 import { UploadAndProcess, type NoteAsset, type SessionDetailDefaults } from "./UploadAndProcess";
 import { requireTourWorkspace } from "@/lib/tour-auth";
 
-type Props = { params: Promise<{ id: string }> };
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ version?: string }>;
+};
 
-export default async function SessionDetailPage({ params }: Props) {
+export default async function SessionDetailPage({ params, searchParams }: Props) {
   const workspace = await requireTourWorkspace();
   const { id } = await params;
-  const session = await getSessionById(id);
+  const { version: versionParam } = await searchParams;
+  const rawSession = await getSessionById(id);
 
-  if (!session || session.propertyId !== workspace.community.id) {
+  if (!rawSession || rawSession.propertyId !== workspace.community.id) {
     return (
       <>
         <Link href="/sessions" className="back-link">&larr; Sessions</Link>
@@ -32,17 +38,24 @@ export default async function SessionDetailPage({ params }: Props) {
     );
   }
 
-  const analysis = await getAnalysisBySessionId(id);
+  const session = await enrichSessionWithAgentName(rawSession, workspace);
+  const participants = sessionParticipants(session.agentName, session.prospectName);
+
+  const analysisRun = await getAnalysisRun(id, versionParam ?? null);
+  const analysis = analysisRun?.result ?? null;
+  const analysisRuns = analysis ? await listAnalysisRuns(id) : [];
+  const viewingHistoricalVersion = Boolean(
+    analysisRun && !analysisRun.isCurrent && analysisRuns.length > 1
+  );
 
   const isScheduled = session.status === "scheduled" || session.status === "in_progress";
   const hasRecording = !isScheduled;
   const hasAnalysis = !!analysis;
-  const isProcessing = ["uploaded", "transcribing", "analyzing_audio", "segmenting", "extracting_screenshots", "analyzing"].includes(session.status);
+  const isProcessing = ["uploaded", "transcribing", "segmenting", "analyzing"].includes(session.status);
   const defaults = !hasAnalysis ? getSessionDetailDefaults(session) : null;
   const noteAssetsPromise = !hasAnalysis ? getNoteAssets() : Promise.resolve<NoteAsset[]>([]);
   const detailDataPromise: Promise<[
     Awaited<ReturnType<typeof getTranscriptForSession>>,
-    Awaited<ReturnType<typeof getScreenshotsForSession>>,
     string | null,
     Awaited<ReturnType<typeof getRubricForSession>> | null,
     Awaited<ReturnType<typeof getConversationPhases>>,
@@ -50,15 +63,14 @@ export default async function SessionDetailPage({ params }: Props) {
   ]> = hasAnalysis
     ? Promise.all([
       getTranscriptForSession(id),
-      getScreenshotsForSession(id),
       resolveRecordingUrl(id, session.videoUrl, session.audioUrl),
-      getRubricForSession(session.rubricId),
+      getRubricForSession(analysisRun?.rubricId ?? session.rubricId),
       getConversationPhases(id),
       getAudioInsights(id),
     ])
-    : Promise.resolve([[], [], null, null, null, null]);
+    : Promise.resolve([[], null, null, null, null]);
 
-  const [noteAssets, [transcript, screenshots, recordingUrl, rubric, phases, audioInsights]] = await Promise.all([
+  const [noteAssets, [transcript, recordingUrl, rubric, phases, audioInsights]] = await Promise.all([
     noteAssetsPromise,
     detailDataPromise,
   ]);
@@ -74,11 +86,19 @@ export default async function SessionDetailPage({ params }: Props) {
             {session.scheduledAt
               ? new Date(session.scheduledAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
               : "Unscheduled"}
-            {session.prospectName ? ` \u00B7 ${session.prospectName}` : ""}
-            {session.location ? ` \u00B7 ${session.location}` : ""}
+            {session.agentName ? ` · ${session.agentName} · Agent` : ""}
+            {session.prospectName ? ` · ${session.prospectName} · Prospect` : ""}
+            {session.location ? ` · ${session.location}` : ""}
           </p>
         </div>
         <div className={styles.headerRight}>
+          {hasAnalysis && analysisRuns.length > 0 && (
+            <AnalysisVersionSelector
+              sessionId={id}
+              runs={analysisRuns}
+              selectedVersion={analysisRun?.version ?? null}
+            />
+          )}
           <span className={`badge badge-${session.status}`}>{SESSION_STATUS_LABELS[session.status]}</span>
           {hasAnalysis && session.status === "analysis_ready" && (
             <button type="button" className={`btn btn-outline btn-sm ${styles.downloadBtn}`}>
@@ -99,19 +119,28 @@ export default async function SessionDetailPage({ params }: Props) {
 
       {hasAnalysis && (
         <>
+          {viewingHistoricalVersion && analysisRun && (
+            <p className={styles.analysisVersionBanner}>
+              Viewing analysis v{analysisRun.version}
+              {analysisRun.rubricName ? ` (${analysisRun.rubricName})` : ""}
+              {" · "}
+              <Link href={`/sessions/${encodeURIComponent(id)}`}>View current</Link>
+            </p>
+          )}
           <SessionScoreSummary analysis={analysis} />
           <SessionDetailExperience
             sessionId={id}
             analysis={analysis}
             transcript={transcript}
-            screenshots={screenshots}
             recordingUrl={recordingUrl}
             videoUrl={session.videoUrl}
             audioUrl={session.audioUrl}
             duration={session.duration ?? estimateDuration(analysis.exactMoments)}
             phases={phases}
-            audioInsights={audioInsights}
-            rubric={rubric ? { id: rubric.id, name: rubric.name } : null}
+            initialAudioInsightsStatus={session.audioInsightsStatus}
+            initialAudioInsights={audioInsights}
+            participants={participants}
+            rubric={rubric ? { id: rubric.id, name: rubric.name, analysisModel: rubric.analysisModel } : null}
           />
         </>
       )}
@@ -120,7 +149,15 @@ export default async function SessionDetailPage({ params }: Props) {
         <div className="card" style={{ marginTop: 16 }}>
           <div className="card-header"><h2>Session Details</h2></div>
           <div className="card-body">
-            <EditSessionForm sessionId={id} title={session.title} scheduledAt={session.scheduledAt} prospectName={session.prospectName} location={session.location} notes={session.notes} />
+            <EditSessionForm
+              sessionId={id}
+              title={session.title}
+              scheduledAt={session.scheduledAt}
+              agentName={session.agentName}
+              prospectName={session.prospectName}
+              location={session.location}
+              notes={session.notes}
+            />
           </div>
         </div>
       )}
@@ -150,11 +187,13 @@ function getSessionDetailDefaults(
 ): SessionDetailDefaults {
   const lead = session.leads?.[0];
   const prospectName = session.prospectName || lead?.name || "";
+  const agentName = session.agentName || "";
   const location = session.location || lead?.reason?.replace(/^Tour\s+/i, "") || "";
   const title = session.title || [location || "Tour", prospectName].filter(Boolean).join(" - ");
 
   return {
     title,
+    agentName,
     prospectName,
     location
   };

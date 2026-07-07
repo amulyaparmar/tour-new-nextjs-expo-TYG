@@ -72,7 +72,7 @@ export function bedrockSupportsSamplingParams(modelId: string): boolean {
 export function prepareStructuredTool(
   tool: ClaudeTool,
   options?: { modelId?: string }
-): ClaudeTool {
+): StructuredClaudeTool {
   const input_schema = prepareStructuredJsonSchema(tool.input_schema);
   const modelId = options?.modelId ?? "";
   if (modelId && bedrockSupportsStrictTools(modelId)) {

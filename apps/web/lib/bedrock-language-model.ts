@@ -12,7 +12,7 @@ import type {
 } from "@ai-sdk/provider";
 
 import { getBedrockRuntimeConfig } from "./bedrock";
-import { buildConverseJsonOutputConfig } from "./bedrock-structured-output";
+import { bedrockSupportsSamplingParams, buildConverseJsonOutputConfig } from "./bedrock-structured-output";
 import { decodeBedrockEventStream } from "./bedrock-event-stream";
 
 type ConverseMessage = {
@@ -127,17 +127,19 @@ function convertPromptToConverse(prompt: LanguageModelV4Prompt): ConverseInput {
   };
 }
 
-function buildInferenceConfig(options: LanguageModelV4CallOptions) {
+function buildInferenceConfig(modelId: string, options: LanguageModelV4CallOptions) {
   const inferenceConfig: ConverseInput["inferenceConfig"] = {};
   if (options.maxOutputTokens != null) inferenceConfig.maxTokens = options.maxOutputTokens;
-  if (options.temperature != null) inferenceConfig.temperature = options.temperature;
-  if (options.topP != null) inferenceConfig.topP = options.topP;
+  if (bedrockSupportsSamplingParams(modelId)) {
+    if (options.temperature != null) inferenceConfig.temperature = options.temperature;
+    if (options.topP != null) inferenceConfig.topP = options.topP;
+  }
   if (options.stopSequences != null) inferenceConfig.stopSequences = options.stopSequences;
   return Object.keys(inferenceConfig).length > 0 ? inferenceConfig : undefined;
 }
 
-function buildConverseBody(options: LanguageModelV4CallOptions): ConverseInput {
-  const inferenceConfig = buildInferenceConfig(options);
+function buildConverseBody(modelId: string, options: LanguageModelV4CallOptions): ConverseInput {
+  const inferenceConfig = buildInferenceConfig(modelId, options);
   const structuredOutput =
     options.responseFormat?.type === "json" && options.responseFormat.schema
       ? buildConverseJsonOutputConfig(options.responseFormat.schema as Record<string, unknown>, {
@@ -306,7 +308,7 @@ function createBedrockLanguageModel(modelId: string): LanguageModelV4 {
 
     async doGenerate(options: LanguageModelV4CallOptions): Promise<LanguageModelV4GenerateResult> {
       const warnings = unsupportedWarnings(options);
-      const body = buildConverseBody(options);
+      const body = buildConverseBody(modelId, options);
       const response = await bedrockFetch(modelId, "converse", body);
       const data = (await response.json()) as {
         output?: {
@@ -342,7 +344,7 @@ function createBedrockLanguageModel(modelId: string): LanguageModelV4 {
 
     async doStream(options: LanguageModelV4CallOptions): Promise<LanguageModelV4StreamResult> {
       const warnings = unsupportedWarnings(options);
-      const body = buildConverseBody(options);
+      const body = buildConverseBody(modelId, options);
 
       return {
         stream: createBedrockStream(body, modelId, warnings),

@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  bedrockSupportsSamplingParams,
   buildInvokeModelJsonOutputConfig,
   prepareStructuredTool,
   type StructuredClaudeTool
@@ -11,7 +12,7 @@ import {
  * (bearer-token auth) rather than SigV4 signing. Plain fetch — no aws-sdk dep.
  *
  * Structured outputs apply schema normalization on every tool request.
- * `strict: true` is only sent for Bedrock Claude models that accept it.
+ * `strict: true` and sampling params are only sent for models that accept them.
  *
  * Env:
  *   AWS_BEARER_TOKEN_BEDROCK  long-term Bedrock API key
@@ -64,6 +65,16 @@ function getConfig() {
   return getBedrockRuntimeConfig();
 }
 
+function appendSamplingParams(
+  body: Record<string, unknown>,
+  modelId: string,
+  temperature?: number
+): void {
+  if (bedrockSupportsSamplingParams(modelId)) {
+    body.temperature = temperature ?? 0.3;
+  }
+}
+
 async function invokeRaw(body: Record<string, unknown>, modelId?: string): Promise<ClaudeResponse> {
   const { token, region, modelId: defaultModelId } = getConfig();
   const resolvedModelId = modelId ?? defaultModelId;
@@ -99,13 +110,15 @@ export type InvokeClaudeParams = {
 
 /** Plain text completion. Returns the concatenated text blocks, or parsed JSON when outputSchema is set. */
 export async function invokeClaude(params: InvokeClaudeParams): Promise<string> {
-  const data = await invokeRaw({
+  const resolvedModelId = params.modelId ?? getConfig().modelId;
+  const body: Record<string, unknown> = {
     max_tokens: params.maxTokens ?? 4096,
-    temperature: params.temperature ?? 0.3,
     ...(params.system ? { system: params.system } : {}),
     messages: params.messages,
     ...(params.outputSchema ? buildInvokeModelJsonOutputConfig(params.outputSchema) : {})
-  }, params.modelId);
+  };
+  appendSamplingParams(body, resolvedModelId, params.temperature);
+  const data = await invokeRaw(body, params.modelId);
 
   const text = (data.content ?? [])
     .filter((b): b is { type: "text"; text: string } => b.type === "text")
@@ -136,14 +149,15 @@ export async function invokeClaudeTool<T = Record<string, unknown>>(
 ): Promise<T> {
   const resolvedModelId = params.modelId ?? getConfig().modelId;
   const tool = prepareStructuredTool(params.tool, { modelId: resolvedModelId });
-  const data = await invokeRaw({
+  const body: Record<string, unknown> = {
     max_tokens: params.maxTokens ?? 8192,
-    temperature: params.temperature ?? 0.3,
     ...(params.system ? { system: params.system } : {}),
     messages: params.messages,
     tools: [tool],
     tool_choice: { type: "tool", name: tool.name }
-  }, params.modelId);
+  };
+  appendSamplingParams(body, resolvedModelId, params.temperature);
+  const data = await invokeRaw(body, params.modelId);
 
   const toolUse = (data.content ?? []).find(
     (b): b is { type: "tool_use"; id: string; name: string; input: Record<string, unknown> } =>

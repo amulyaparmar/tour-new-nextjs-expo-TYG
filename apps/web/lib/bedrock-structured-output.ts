@@ -47,17 +47,25 @@ export function prepareStructuredJsonSchema(schema: JsonSchema): JsonSchema {
 
 export type StructuredClaudeTool = ClaudeTool & { strict?: true };
 
-/** Bedrock Messages API rejects tools[].strict on newer Anthropic model families. */
-export function bedrockSupportsStrictTools(modelId: string): boolean {
+/** Newer Anthropic models on Bedrock reject legacy InvokeModel parameters. */
+export function isRestrictedAnthropicBedrockModel(modelId: string): boolean {
   const id = modelId.toLowerCase();
-  if (
+  return (
     id.includes("claude-sonnet-5")
     || id.includes("claude-opus-4-7")
     || id.includes("claude-opus-4-8")
-  ) {
-    return false;
-  }
-  return id.includes("anthropic.claude");
+  );
+}
+
+/** Bedrock Messages API rejects tools[].strict on newer Anthropic model families. */
+export function bedrockSupportsStrictTools(modelId: string): boolean {
+  if (isRestrictedAnthropicBedrockModel(modelId)) return false;
+  return modelId.toLowerCase().includes("anthropic.claude");
+}
+
+/** Sonnet 5 / Opus 4.7+ reject non-default temperature, top_p, and top_k. */
+export function bedrockSupportsSamplingParams(modelId: string): boolean {
+  return !isRestrictedAnthropicBedrockModel(modelId);
 }
 
 /** Applies schema normalization and optional strict tool-use when the model supports it. */

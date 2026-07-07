@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { resolveFallbackAdminContext } from "@/lib/admin-auth";
+import { compareCommunityDisplayName, formatCommunityDisplayName } from "@/lib/community-display";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
 type BusinessRow = {
@@ -13,34 +15,81 @@ type BusinessRow = {
 
 export async function GET(request: Request) {
   const query = new URL(request.url).searchParams.get("q")?.trim() ?? "";
-  const supabase = getSupabaseServiceClient();
-  let builder = supabase
-    .from("communities")
-    .select("id,name,gmb_id,alias,entrata_property_id,companies(id,name,slug)")
-    .eq("portal_enabled", true)
-    .order("name", { ascending: true })
-    .limit(1000);
+  try {
+    const supabase = getSupabaseServiceClient();
+    const builder = supabase
+      .from("communities")
+      .select("id,name,gmb_id,alias,entrata_property_id,companies(id,name,slug)")
+      .eq("portal_enabled", true)
+      .order("name", { ascending: true })
+      .limit(1000);
 
-  if (query) builder = builder.ilike("name", `%${query}%`);
-  const { data, error } = await builder;
+    const { data, error } = await builder;
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as unknown as BusinessRow[];
+    if (rows.length === 0 && !query) {
+      return NextResponse.json(await fallbackBusinesses(query));
+    }
+
+    const normalizedQuery = query.toLowerCase();
+    const businesses = rows
+      .map((row) => {
+        const company = Array.isArray(row.companies)
+          ? row.companies[0]
+          : row.companies;
+        const companyName = company?.name ?? "Company";
+        const name = formatCommunityDisplayName({
+          name: row.name,
+          companyName,
+          companySlug: company?.slug,
+        });
+        return {
+          id: row.id,
+          name,
+          companyName,
+          gmbId: row.gmb_id,
+          alias: row.alias,
+          calendarConnected: Boolean(row.entrata_property_id),
+        };
+      })
+      .filter((business) => {
+        if (!normalizedQuery) return true;
+        return `${business.name} ${business.companyName} ${business.alias ?? ""}`
+          .toLowerCase()
+          .includes(normalizedQuery);
+      })
+      .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+
+    return NextResponse.json({
+      businesses,
+    });
+  } catch {
+    return NextResponse.json(await fallbackBusinesses(query));
   }
+}
 
-  return NextResponse.json({
-    businesses: ((data ?? []) as unknown as BusinessRow[]).map((row) => {
-      const company = Array.isArray(row.companies)
-        ? row.companies[0]
-        : row.companies;
+async function fallbackBusinesses(query: string) {
+  const workspace = await resolveFallbackAdminContext();
+  const normalized = query.trim().toLowerCase();
+  const businesses = workspace.communities
+    .filter((community) => {
+      if (!normalized) return true;
+      return `${community.name} ${community.companyName ?? workspace.membership.companyName} ${community.alias ?? ""}`
+        .toLowerCase()
+        .includes(normalized);
+    })
+    .sort((left, right) => compareCommunityDisplayName(left, right))
+    .map((community) => {
       return {
-        id: row.id,
-        name: row.name,
-        companyName: company?.name ?? "Company",
-        gmbId: row.gmb_id,
-        alias: row.alias,
-        calendarConnected: Boolean(row.entrata_property_id),
+        id: community.id,
+        name: formatCommunityDisplayName(community),
+        companyName: community.companyName ?? workspace.membership.companyName,
+        gmbId: community.gmbId,
+        alias: community.alias,
+        calendarConnected: false,
       };
-    }),
-  });
+    });
+
+  return { businesses };
 }

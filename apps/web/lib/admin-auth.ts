@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient, type User } from "@supabase/supabase-js";
 
+import { compareCommunityDisplayName, formatCommunityDisplayName } from "./community-display";
 import { getSupabaseServiceClient } from "./supabase";
 
 export const ADMIN_ACCESS_COOKIE = "tour_admin_access_token";
@@ -34,6 +35,8 @@ export type AdminWorkspace = {
   communities: Array<{
     id: string;
     name: string;
+    companyName: string | null;
+    companySlug: string | null;
     gmbId: string | null;
     alias: string | null;
   }>;
@@ -55,6 +58,7 @@ type CommunityRow = {
   alias: string | null;
   entrata_property_id: string | null;
   company_id: string;
+  companies?: { id: string; name: string; slug: string } | Array<{ id: string; name: string; slug: string }> | null;
 };
 
 const fallbackCommunityRows: CommunityRow[] = [
@@ -159,13 +163,17 @@ export async function resolveAdminContextForUser(
 
   const { data: properties, error: propertiesError } = await supabase
     .from("communities")
-    .select("id,name,tour_community_id,gmb_id,alias,entrata_property_id,company_id")
+    .select("id,name,tour_community_id,gmb_id,alias,entrata_property_id,company_id,companies(id,name,slug)")
     .in("id", propertyIds)
     .eq("portal_enabled", true)
     .order("name", { ascending: true });
   if (propertiesError) throw new Error(propertiesError.message);
 
-  const communityRows = (properties ?? []) as CommunityRow[];
+  const communityRows = [...((properties ?? []) as CommunityRow[])]
+    .sort((left, right) => compareCommunityDisplayName(
+      communityDisplayInput(left),
+      communityDisplayInput(right)
+    ));
   const community =
     communityRows.find((row) => row.id === requestedCommunityId) ??
     communityRows[0];
@@ -202,18 +210,23 @@ export async function resolveAdminContextForUser(
     },
     community: {
       id: community.id,
-      name: community.name,
+      name: formatCommunityDisplayName(communityDisplayInput(community, company)),
       tourCommunityId: community.tour_community_id,
       gmbId: community.gmb_id,
       alias: community.alias,
       entrataPropertyId: community.entrata_property_id,
     },
-    communities: communityRows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      gmbId: row.gmb_id,
-      alias: row.alias,
-    })),
+    communities: communityRows.map((row) => {
+      const displayInput = communityDisplayInput(row);
+      return {
+        id: row.id,
+        name: formatCommunityDisplayName(displayInput),
+        companyName: displayInput.companyName,
+        companySlug: displayInput.companySlug,
+        gmbId: row.gmb_id,
+        alias: row.alias,
+      };
+    }),
   };
 }
 
@@ -249,7 +262,9 @@ export async function resolveFallbackAdminContext(
     },
     communities: communityRows.map((row) => ({
       id: row.id,
-      name: row.name,
+      name: formatCommunityDisplayName(row),
+      companyName: "LeaseMagnets",
+      companySlug: "leasemagnets",
       gmbId: row.gmb_id,
       alias: row.alias,
     })),
@@ -279,12 +294,29 @@ function readCookie(request: Request, name: string) {
   return null;
 }
 
+function companyForCommunity(row: CommunityRow) {
+  if (!row.companies) return null;
+  return Array.isArray(row.companies) ? row.companies[0] : row.companies;
+}
+
+function communityDisplayInput(
+  row: CommunityRow,
+  fallbackCompany?: { name: string; slug: string } | null
+) {
+  const company = companyForCommunity(row) ?? fallbackCompany ?? null;
+  return {
+    name: row.name,
+    companyName: company?.name ?? null,
+    companySlug: company?.slug ?? null,
+  };
+}
+
 async function listFallbackCommunities(): Promise<CommunityRow[]> {
   try {
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
       .from("communities")
-      .select("id,name,tour_community_id,gmb_id,alias,entrata_property_id,company_id")
+      .select("id,name,tour_community_id,gmb_id,alias,entrata_property_id,company_id,companies(id,name,slug)")
       .eq("portal_enabled", true)
       .order("name", { ascending: true })
       .limit(100);

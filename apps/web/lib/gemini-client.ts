@@ -13,7 +13,7 @@ export type GeminiUploadedFile = {
 export function getGeminiConfig() {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
-  const model = process.env.GEMINI_AUDIO_MODEL?.trim() || "gemini-2.0-flash";
+  const model = process.env.GEMINI_AUDIO_MODEL?.trim() || "gemini-2.5-flash";
   return { apiKey, model };
 }
 
@@ -150,10 +150,13 @@ export async function geminiGenerateJson<T>(params: {
   };
 
   const response = await fetch(
-    `${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    `${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
       body: JSON.stringify(body),
     }
   );

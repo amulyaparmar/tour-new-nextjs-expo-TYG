@@ -48,7 +48,7 @@ export function getBedrockOpenAiConfig() {
   return { token, region, baseUrl };
 }
 
-function buildInput(
+export function buildOpenAiResponsesInput(
   messages: Array<{ role: "user" | "assistant"; content: string }>
 ): string | Array<{ role: "user" | "assistant"; content: string }> {
   if (messages.length === 1 && messages[0]?.role === "user") {
@@ -77,7 +77,7 @@ export async function invokeOpenAiTool<T = Record<string, unknown>>(params: {
   const body: Record<string, unknown> = {
     model: params.modelId,
     ...(params.system ? { instructions: params.system } : {}),
-    input: buildInput(params.messages),
+    input: buildOpenAiResponsesInput(params.messages),
     max_output_tokens: params.maxTokens ?? 8192,
     tools: [
       {

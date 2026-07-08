@@ -11,35 +11,39 @@ import type {
   SharedV4Warning,
 } from "@ai-sdk/provider";
 
-import { getBedrockOpenAiConfig, bedrockOpenAiSupportsSamplingParams } from "./bedrock-openai";
+import {
+  bedrockOpenAiSupportsSamplingParams,
+  buildOpenAiResponsesInput,
+  getBedrockOpenAiConfig,
+} from "./bedrock-openai";
 
 type OpenAiChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
 };
 
-type OpenAiChatCompletionChunk = {
-  choices?: Array<{
-    delta?: { content?: string };
-    finish_reason?: string | null;
-  }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  };
+type ResponsesMessageOutput = {
+  type: "message";
+  content?: Array<{ type: string; text?: string }>;
 };
 
-type OpenAiChatCompletionResponse = {
-  choices?: Array<{
-    message?: { content?: string };
-    finish_reason?: string | null;
-  }>;
+type ResponsesResult = {
+  output?: Array<ResponsesMessageOutput | { type: string; [key: string]: unknown }>;
   usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
     total_tokens?: number;
   };
+  status?: string;
+  incomplete_details?: { reason?: string } | null;
+  error?: { message?: string } | null;
+};
+
+type ResponsesStreamEvent = {
+  type: string;
+  delta?: string;
+  error?: { message?: string };
+  response?: ResponsesResult;
 };
 
 function extractTextParts(content: ReadonlyArray<{ type: string; text?: string }>): string {
@@ -98,21 +102,33 @@ function buildUsage(
   };
 }
 
-function mapFinishReason(finishReason: string | null | undefined): LanguageModelV4FinishReason {
-  switch (finishReason) {
-    case "stop":
-      return { unified: "stop", raw: finishReason };
-    case "length":
-    case "max_tokens":
-      return { unified: "length", raw: finishReason };
-    case "tool_calls":
-    case "function_call":
-      return { unified: "tool-calls", raw: finishReason };
-    case "content_filter":
-      return { unified: "content-filter", raw: finishReason };
-    default:
-      return { unified: finishReason ? "other" : "stop", raw: finishReason ?? undefined };
+function mapFinishReason(
+  status?: string,
+  incompleteReason?: string | null
+): LanguageModelV4FinishReason {
+  if (incompleteReason === "max_output_tokens" || incompleteReason === "max_tokens") {
+    return { unified: "length", raw: incompleteReason };
   }
+  if (status === "incomplete") {
+    return { unified: "length", raw: incompleteReason ?? "incomplete" };
+  }
+  return { unified: "stop", raw: status ?? "completed" };
+}
+
+function extractResponseText(data: ResponsesResult): string {
+  const parts: string[] = [];
+
+  for (const item of data.output ?? []) {
+    if (item.type !== "message") continue;
+    const message = item as ResponsesMessageOutput;
+    for (const part of message.content ?? []) {
+      if (part.type === "output_text" && part.text) {
+        parts.push(part.text);
+      }
+    }
+  }
+
+  return parts.join("");
 }
 
 function unsupportedWarnings(options: LanguageModelV4CallOptions): SharedV4Warning[] {
@@ -129,29 +145,38 @@ function unsupportedWarnings(options: LanguageModelV4CallOptions): SharedV4Warni
   return warnings;
 }
 
-function buildChatCompletionBody(modelId: string, options: LanguageModelV4CallOptions, stream: boolean) {
+function buildResponsesBody(modelId: string, options: LanguageModelV4CallOptions, stream: boolean) {
+  const messages = convertPromptToOpenAiMessages(options.prompt);
+  const systemParts = messages.filter((message) => message.role === "system").map((message) => message.content);
+  const conversation = messages.filter(
+    (message): message is { role: "user" | "assistant"; content: string } => message.role !== "system"
+  );
+
   const body: Record<string, unknown> = {
     model: modelId,
-    messages: convertPromptToOpenAiMessages(options.prompt),
     stream,
+    input: buildOpenAiResponsesInput(conversation),
   };
 
-  if (options.maxOutputTokens != null) body.max_tokens = options.maxOutputTokens;
+  if (systemParts.length > 0) {
+    body.instructions = systemParts.join("\n\n");
+  }
+
+  if (options.maxOutputTokens != null) body.max_output_tokens = options.maxOutputTokens;
   if (bedrockOpenAiSupportsSamplingParams(modelId)) {
     if (options.temperature != null) body.temperature = options.temperature;
     if (options.topP != null) body.top_p = options.topP;
   }
-  if (options.stopSequences != null) body.stop = options.stopSequences;
 
   return body;
 }
 
-async function openAiChatFetch(
+async function openAiResponsesFetch(
   body: Record<string, unknown>,
   stream: boolean
 ): Promise<Response> {
   const { token, baseUrl } = getBedrockOpenAiConfig();
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetch(`${baseUrl}/responses`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -163,13 +188,22 @@ async function openAiChatFetch(
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`Bedrock OpenAI chat error ${response.status}: ${errText}`);
+    throw new Error(`Bedrock OpenAI responses error ${response.status}: ${errText}`);
   }
 
   return response;
 }
 
-function createOpenAiChatStream(
+function parseResponsesStreamEvent(payload: string): ResponsesStreamEvent | null {
+  if (!payload || payload === "[DONE]") return null;
+  try {
+    return JSON.parse(payload) as ResponsesStreamEvent;
+  } catch {
+    return null;
+  }
+}
+
+function createOpenAiResponsesStream(
   body: Record<string, unknown>,
   modelId: string,
   warnings: SharedV4Warning[]
@@ -179,7 +213,7 @@ function createOpenAiChatStream(
       controller.enqueue({ type: "stream-start", warnings });
 
       try {
-        const response = await openAiChatFetch(body, true);
+        const response = await openAiResponsesFetch(body, true);
         controller.enqueue({
           type: "response-metadata",
           id: response.headers.get("x-request-id") ?? undefined,
@@ -188,14 +222,14 @@ function createOpenAiChatStream(
         });
 
         if (!response.body) {
-          throw new Error("Bedrock OpenAI chat stream returned an empty body.");
+          throw new Error("Bedrock OpenAI responses stream returned an empty body.");
         }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
         let textStarted = false;
-        let finishReason: LanguageModelV4FinishReason = { unified: "stop", raw: "stop" };
+        let finishReason: LanguageModelV4FinishReason = { unified: "stop", raw: "completed" };
         let inputTokens: number | undefined;
         let outputTokens: number | undefined;
         let totalTokens: number | undefined;
@@ -205,41 +239,38 @@ function createOpenAiChatStream(
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
+          const blocks = buffer.split("\n\n");
+          buffer = blocks.pop() ?? "";
 
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) continue;
+          for (const block of blocks) {
+            for (const line of block.split("\n")) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith("data:")) continue;
 
-            const payload = trimmed.slice(5).trim();
-            if (!payload || payload === "[DONE]") continue;
+              const event = parseResponsesStreamEvent(trimmed.slice(5).trim());
+              if (!event) continue;
 
-            let chunk: OpenAiChatCompletionChunk;
-            try {
-              chunk = JSON.parse(payload) as OpenAiChatCompletionChunk;
-            } catch {
-              continue;
-            }
-
-            const choice = chunk.choices?.[0];
-            const delta = choice?.delta?.content;
-            if (delta) {
-              if (!textStarted) {
-                textStarted = true;
-                controller.enqueue({ type: "text-start", id: "0" });
+              if (event.type === "response.output_text.delta" && event.delta) {
+                if (!textStarted) {
+                  textStarted = true;
+                  controller.enqueue({ type: "text-start", id: "0" });
+                }
+                controller.enqueue({ type: "text-delta", id: "0", delta: event.delta });
               }
-              controller.enqueue({ type: "text-delta", id: "0", delta });
-            }
 
-            if (choice?.finish_reason) {
-              finishReason = mapFinishReason(choice.finish_reason);
-            }
+              if (event.type === "error" || event.type === "response.failed") {
+                throw new Error(event.error?.message ?? "Bedrock OpenAI responses stream failed.");
+              }
 
-            if (chunk.usage) {
-              inputTokens = chunk.usage.prompt_tokens;
-              outputTokens = chunk.usage.completion_tokens;
-              totalTokens = chunk.usage.total_tokens;
+              if (event.type === "response.completed" && event.response) {
+                finishReason = mapFinishReason(
+                  event.response.status,
+                  event.response.incomplete_details?.reason
+                );
+                inputTokens = event.response.usage?.input_tokens;
+                outputTokens = event.response.usage?.output_tokens;
+                totalTokens = event.response.usage?.total_tokens;
+              }
             }
           }
         }
@@ -271,19 +302,23 @@ export function createBedrockOpenAiLanguageModel(modelId: string): LanguageModel
 
     async doGenerate(options: LanguageModelV4CallOptions): Promise<LanguageModelV4GenerateResult> {
       const warnings = unsupportedWarnings(options);
-      const body = buildChatCompletionBody(modelId, options, false);
-      const response = await openAiChatFetch(body, false);
-      const data = (await response.json()) as OpenAiChatCompletionResponse;
+      const body = buildResponsesBody(modelId, options, false);
+      const response = await openAiResponsesFetch(body, false);
+      const data = (await response.json()) as ResponsesResult;
 
-      const text = data.choices?.[0]?.message?.content ?? "";
-      const finishReason = mapFinishReason(data.choices?.[0]?.finish_reason);
+      if (data.error) {
+        throw new Error(`Bedrock OpenAI error: ${data.error.message ?? "unknown error"}`);
+      }
+
+      const text = extractResponseText(data);
+      const finishReason = mapFinishReason(data.status, data.incomplete_details?.reason);
 
       return {
         content: [{ type: "text", text }],
         finishReason,
         usage: buildUsage(
-          data.usage?.prompt_tokens,
-          data.usage?.completion_tokens,
+          data.usage?.input_tokens,
+          data.usage?.output_tokens,
           data.usage?.total_tokens
         ),
         warnings,
@@ -298,10 +333,10 @@ export function createBedrockOpenAiLanguageModel(modelId: string): LanguageModel
 
     async doStream(options: LanguageModelV4CallOptions): Promise<LanguageModelV4StreamResult> {
       const warnings = unsupportedWarnings(options);
-      const body = buildChatCompletionBody(modelId, options, true);
+      const body = buildResponsesBody(modelId, options, true);
 
       return {
-        stream: createOpenAiChatStream(body, modelId, warnings),
+        stream: createOpenAiResponsesStream(body, modelId, warnings),
         request: { body },
       };
     },

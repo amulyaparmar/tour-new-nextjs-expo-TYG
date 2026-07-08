@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { startAudioInsightsWorkflow } from "@/lib/start-audio-insights-workflow";
+import {
+  prepareAudioInsightsProcessing,
+  startAudioInsightsWorkflow,
+} from "@/lib/start-audio-insights-workflow";
 import { getAudioInsights, getSessionById } from "@/lib/sessions";
 
 type Context = { params: Promise<{ id: string }> };
@@ -40,6 +43,34 @@ export async function GET(_request: Request, context: Context) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load audio insights." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(_request: Request, context: Context) {
+  const { id } = await context.params;
+
+  try {
+    const session = await getSessionById(id);
+    if (!session) {
+      return NextResponse.json({ error: "Session not found." }, { status: 404 });
+    }
+
+    await prepareAudioInsightsProcessing(id);
+    const run = await startAudioInsightsWorkflow(id);
+
+    return NextResponse.json(
+      {
+        ok: true,
+        status: run.skipped ? "unavailable" : "processing",
+        runId: run.skipped ? null : run.runId,
+      },
+      { status: 202 }
+    );
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to start audio insights." },
       { status: 500 }
     );
   }

@@ -16,7 +16,7 @@ import type {
   SessionStatus,
   SessionSummary
 } from "@tour/shared";
-import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeConversationPhaseSegmentation, normalizeSessionStatus } from "@tour/shared";
+import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeConversationPhaseSegmentation, normalizeParticipantName, normalizeSessionStatus } from "@tour/shared";
 
 import {
   addLocalSessionLead,
@@ -310,8 +310,8 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     title: normalizedTitle,
     scheduled_at: input.scheduledAt ?? null,
     location: input.location?.trim() ? input.location.trim() : null,
-    prospect_name: input.prospectName?.trim() ? input.prospectName.trim() : null,
-    agent_name: input.agentName?.trim() ? input.agentName.trim() : null,
+    prospect_name: normalizeParticipantName(input.prospectName),
+    agent_name: normalizeParticipantName(input.agentName),
     notes: input.notes?.trim() ? input.notes.trim() : null,
     status: "scheduled" as const,
     source: input.source ?? "manual",
@@ -340,8 +340,8 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       title: normalizedTitle,
       scheduledAt: input.scheduledAt ?? null,
       location: input.location ?? null,
-      prospectName: input.prospectName ?? null,
-      agentName: input.agentName ?? null,
+      prospectName: normalizeParticipantName(input.prospectName),
+      agentName: normalizeParticipantName(input.agentName),
       notes: input.notes ?? null,
       source: input.source ?? "manual",
       leads: input.leads ?? [],
@@ -424,8 +424,8 @@ export async function updateSession(
     const row: Record<string, unknown> = {};
     if (fields.title !== undefined) row.title = fields.title;
     if (fields.scheduledAt !== undefined) row.scheduled_at = fields.scheduledAt;
-    if (fields.prospectName !== undefined) row.prospect_name = fields.prospectName;
-    if (fields.agentName !== undefined) row.agent_name = fields.agentName;
+    if (fields.prospectName !== undefined) row.prospect_name = normalizeParticipantName(fields.prospectName);
+    if (fields.agentName !== undefined) row.agent_name = normalizeParticipantName(fields.agentName);
     if (fields.location !== undefined) row.location = fields.location;
     if (fields.notes !== undefined) row.notes = fields.notes;
     if (fields.videoUrl !== undefined) row.video_url = fields.videoUrl;
@@ -439,7 +439,11 @@ export async function updateSession(
     const { error } = await supabase.from("sessions").update(row as never).eq("id", sessionId);
     if (error) throw error;
   } catch {
-    await updateLocalSession(sessionId, fields);
+    await updateLocalSession(sessionId, {
+      ...fields,
+      prospectName: fields.prospectName === undefined ? undefined : normalizeParticipantName(fields.prospectName),
+      agentName: fields.agentName === undefined ? undefined : normalizeParticipantName(fields.agentName),
+    });
   }
 }
 
@@ -1000,8 +1004,8 @@ function mapSessionRow(row: SessionRow): SessionSummary {
   return {
     id: row.id,
     title: row.title,
-    prospectName: row.prospect_name,
-    agentName: row.agent_name,
+    prospectName: normalizeParticipantName(row.prospect_name),
+    agentName: normalizeParticipantName(row.agent_name),
     scheduledAt: row.scheduled_at,
     location: row.location,
     status: normalizeSessionStatus(row.status),

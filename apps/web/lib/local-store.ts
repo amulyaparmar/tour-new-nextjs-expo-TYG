@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, SessionDetail, SessionLead, SessionSource, SessionSummary, AnalysisRun, AnalysisRunSummary, AnalysisRunTrigger } from "@tour/shared";
-import { normalizeAudioInsights, normalizeAudioInsightsStatus } from "@tour/shared";
+import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeParticipantName } from "@tour/shared";
 
 type TranscriptSegment = {
   id: string;
@@ -40,6 +40,8 @@ async function loadStore(): Promise<StoreShape> {
       // Sessions saved before source/leads existed are normalized on load.
       sessions: (parsed.sessions ?? []).map((session) => ({
         ...session,
+        prospectName: normalizeParticipantName(session.prospectName),
+        agentName: normalizeParticipantName(session.agentName),
         source: session.source ?? "manual",
         leads: session.leads ?? [],
         audioInsightsStatus: normalizeAudioInsightsStatus(session.audioInsightsStatus),
@@ -93,8 +95,8 @@ export async function createLocalSession(input: {
   const session: SessionDetail = {
     id: randomUUID(),
     title: input.title,
-    prospectName: input.prospectName ?? null,
-    agentName: input.agentName ?? null,
+    prospectName: normalizeParticipantName(input.prospectName),
+    agentName: normalizeParticipantName(input.agentName),
     scheduledAt: input.scheduledAt ?? null,
     location: input.location ?? null,
     status: "scheduled",
@@ -137,8 +139,8 @@ export async function updateLocalSession(
   if (!session) return;
   if (fields.title !== undefined) session.title = fields.title;
   if (fields.scheduledAt !== undefined) session.scheduledAt = fields.scheduledAt;
-  if (fields.prospectName !== undefined) session.prospectName = fields.prospectName;
-  if (fields.agentName !== undefined) session.agentName = fields.agentName;
+  if (fields.prospectName !== undefined) session.prospectName = normalizeParticipantName(fields.prospectName);
+  if (fields.agentName !== undefined) session.agentName = normalizeParticipantName(fields.agentName);
   if (fields.location !== undefined) session.location = fields.location;
   if (fields.notes !== undefined) session.notes = fields.notes;
   if (fields.rubricId !== undefined) session.rubricId = fields.rubricId;

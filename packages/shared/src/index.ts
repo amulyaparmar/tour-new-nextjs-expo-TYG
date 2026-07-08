@@ -7,4 +7,5 @@ export * from "./tour";
 export * from "./session";
 export * from "./conversation-phases";
 export * from "./audio-insights";
+export * from "./speaker-labels";
 export * from "./presigned-upload";

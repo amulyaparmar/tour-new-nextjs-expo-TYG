@@ -4,6 +4,7 @@ import {
   DEFAULT_SEGMENTATION_PROMPT,
   buildDiarizedRoleHint,
   hasDiarizedRoleLabels,
+  normalizeParticipantName,
   normalizeConversationPhaseSpan,
   type ConversationPhaseSegmentation,
   type ConversationPhaseSegmentationResult,
@@ -124,18 +125,9 @@ const SEGMENTATION_TOOL: ClaudeTool = {
 };
 
 function extractParticipants(raw: Record<string, unknown>): SegmentationParticipants {
-  const agentName = normalizeName(raw.agentName);
-  const prospectName = normalizeName(raw.prospectName);
+  const agentName = normalizeParticipantName(raw.agentName);
+  const prospectName = normalizeParticipantName(raw.prospectName);
   return { agentName, prospectName };
-}
-
-function normalizeName(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.toLowerCase() === "null" || trimmed.toLowerCase() === "unknown") {
-    return null;
-  }
-  return trimmed;
 }
 
 function normalizeSegmentation(

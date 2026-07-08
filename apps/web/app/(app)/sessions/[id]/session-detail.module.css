@@ -149,6 +149,46 @@
   gap: 5px;
 }
 
+.participantEditorRoot {
+  position: relative;
+  display: inline-flex;
+}
+
+.participantEditButton {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+}
+
+.participantEditorPopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 80;
+  width: min(320px, calc(100vw - 32px));
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--slate-200);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+  text-align: left;
+}
+
+.participantEditorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.participantEditorError {
+  margin: -2px 0 0;
+  color: var(--red-600);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .analysisVersionSelector {
   display: inline-flex;
   align-items: center;

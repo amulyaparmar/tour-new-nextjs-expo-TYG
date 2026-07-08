@@ -33,11 +33,11 @@ export function getApiBaseUrl(): string {
   if (__DEV__ && debuggerHost) {
     const lanIp = debuggerHost.split(":")[0];
     if (lanIp && lanIp !== "localhost" && lanIp !== "127.0.0.1") {
-      return `http://${lanIp}:3003`;
+      return `http://${lanIp}:3000`;
     }
   }
 
-  return __DEV__ ? "http://localhost:3003" : PRODUCTION_API_BASE_URL;
+  return __DEV__ ? "http://localhost:3000" : PRODUCTION_API_BASE_URL;
 }
 
 /** Public site URL for follow-up links (defaults to API host in dev). */

@@ -4,6 +4,10 @@ export type DashboardMetrics = {
   todaySessions: number;
   upcomingSessions: number;
   processingSessions: number;
+  liveSessions: number;
+  reviewQueue: number;
+  analyzedSessions: number;
+  completedSessions: number;
   averageScore: number | null;
 };
 
@@ -30,6 +34,14 @@ export function computeDashboardMetrics(sessions: SessionSummary[]): DashboardMe
   const processingSessions = sessions.filter((session) =>
     inProgressStatuses.includes(session.status)
   ).length;
+  const liveSessions = sessions.filter((session) => session.status === "in_progress").length;
+  const reviewQueue = sessions.filter((session) =>
+    ["uploaded", "analysis_ready", "failed"].includes(session.status)
+  ).length;
+  const analyzedSessions = sessions.filter((session) =>
+    ["analysis_ready", "reviewed"].includes(session.status)
+  ).length;
+  const completedSessions = sessions.filter((session) => session.status === "reviewed").length;
 
   const scored = sessions.filter((session) => typeof session.overallScore === "number");
   const averageScore = scored.length
@@ -40,6 +52,10 @@ export function computeDashboardMetrics(sessions: SessionSummary[]): DashboardMe
     todaySessions,
     upcomingSessions,
     processingSessions,
+    liveSessions,
+    reviewQueue,
+    analyzedSessions,
+    completedSessions,
     averageScore
   };
 }

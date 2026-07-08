@@ -12,6 +12,7 @@ import { getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
 import { AnalysisVersionSelector } from "./AnalysisVersionSelector";
 import { DeleteSessionButton } from "./DeleteSessionButton";
 import { EditSessionForm } from "./EditSessionForm";
+import { EditSessionParticipants } from "./EditSessionParticipants";
 import { SessionDetailExperience } from "./SessionDetailExperience";
 import { SessionScoreSummary } from "./SessionScoreSummary";
 import styles from "./session-detail.module.css";
@@ -92,6 +93,11 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
           </p>
         </div>
         <div className={styles.headerRight}>
+          <EditSessionParticipants
+            sessionId={id}
+            agentName={session.agentName}
+            prospectName={session.prospectName}
+          />
           {hasAnalysis && analysisRuns.length > 0 && (
             <AnalysisVersionSelector
               sessionId={id}

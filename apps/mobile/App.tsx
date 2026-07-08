@@ -73,8 +73,6 @@ import { getApiBaseUrl } from "./src/config";
 import { computeDashboardMetrics } from "./src/dashboard";
 import { type MobileAuthSession, authenticatedFetch, clearSession, restoreSession, switchCommunity } from "./src/auth";
 import { LoginScreen } from "./src/LoginScreen";
-import { SessionAiChat } from "./src/components/SessionAiChat";
-import { SessionFollowUpPanel } from "./src/components/SessionFollowUpPanel";
 import { TourLogo, TourMark } from "./src/components/TourLogo";
 import { LiveActivityBanner, RecordingExperience, RecordingProvider, useRecording } from "./src/recording";
 
@@ -172,6 +170,22 @@ function fmtSec(sec: number) {
   const m = Math.floor(sec / 60);
   const ss = Math.floor(sec % 60);
   return `${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+function parseMomentTime(value: string): number | null {
+  const parts = value.split(":").map((part) => Number(part.trim()));
+  if (parts.some((part) => !Number.isFinite(part))) return null;
+  if (parts.length === 2) return parts[0]! * 60 + parts[1]!;
+  if (parts.length === 3) return parts[0]! * 3600 + parts[1]! * 60 + parts[2]!;
+  return null;
+}
+
+function selectionHaptic() {
+  void Haptics.selectionAsync().catch(() => undefined);
+}
+
+function impactHaptic(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
+  void Haptics.impactAsync(style).catch(() => undefined);
 }
 
 // ═══════════════════════════════════════
@@ -415,7 +429,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
 
       <View style={st.tabBar}>
         {TAB_ITEMS.map((t) => (
-          <Pressable key={t.id} onPress={() => onTab(t.id)} style={st.tabBarItem}>
+          <Pressable key={t.id} onPress={() => { selectionHaptic(); onTab(t.id); }} style={st.tabBarItem}>
             <Ionicons name={tab === t.id ? t.iconActive : t.icon} size={22} color={tab === t.id ? C.brand : C.textMuted} />
             <Text style={[st.tabBarLabel, tab === t.id && st.tabBarLabelActive]}>{t.label}</Text>
           </Pressable>
@@ -476,7 +490,12 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
 }) {
   const metrics = useMemo(() => computeDashboardMetrics(sessions), [sessions]);
   const recent = useMemo(() => sessions.slice(0, 3), [sessions]);
+  const focusSessions = useMemo(
+    () => sessions.filter((session) => ["in_progress", "uploaded", "analysis_ready", "failed"].includes(session.status)).slice(0, 3),
+    [sessions]
+  );
   const initials = agentName.split(" ").map((name) => name[0]).join("").slice(0, 2).toUpperCase();
+  const averageScore = metrics.averageScore !== null ? `${metrics.averageScore}%` : "--";
 
   return (
     <View style={[st.page, { gap: 20 }]}>
@@ -507,11 +526,55 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
         </View>
       </Pressable>
 
+      <View style={homeSt.metricsGrid}>
+        <MetricCard icon="analytics-outline" label="Avg score" value={averageScore} color={metrics.averageScore !== null ? scoreColor(metrics.averageScore) : C.brand} />
+        <MetricCard icon="radio-button-on-outline" label="Live" value={String(metrics.liveSessions)} color={C.red} />
+        <MetricCard icon="alert-circle-outline" label="Review queue" value={String(metrics.reviewQueue)} color={C.amber} />
+        <MetricCard icon="checkmark-done-outline" label="Analyzed" value={String(metrics.analyzedSessions)} color={C.green} />
+      </View>
+
+      <View style={homeSt.commandGrid}>
+        <Pressable onPress={() => { impactHaptic(); onCreate(); }} style={({ pressed }) => [homeSt.commandButton, pressed && st.pressed]}>
+          <View style={[homeSt.commandIcon, { backgroundColor: C.brand + "12" }]}><Ionicons name="mic-outline" size={19} color={C.brand} /></View>
+          <Text style={homeSt.commandTitle}>Record</Text>
+          <Text style={homeSt.commandSub}>Start tour</Text>
+        </Pressable>
+        <Pressable onPress={() => { impactHaptic(); onGuestRegistration(); }} style={({ pressed }) => [homeSt.commandButton, pressed && st.pressed]}>
+          <View style={[homeSt.commandIcon, { backgroundColor: C.purpleBg }]}><BrandedQrIcon size={19} /></View>
+          <Text style={homeSt.commandTitle}>Check in</Text>
+          <Text style={homeSt.commandSub}>Guest card</Text>
+        </Pressable>
+        <Pressable onPress={onProfile} style={({ pressed }) => [homeSt.commandButton, pressed && st.pressed]}>
+          <View style={[homeSt.commandIcon, { backgroundColor: C.greenBg }]}><Ionicons name="person-outline" size={19} color={C.green} /></View>
+          <Text style={homeSt.commandTitle}>Profile</Text>
+          <Text style={homeSt.commandSub}>Share link</Text>
+        </Pressable>
+      </View>
+
+      {focusSessions.length > 0 && (
+        <HomeSection title="Needs Attention">
+          <View style={homeSt.focusStack}>
+            {focusSessions.map((session) => (
+              <Pressable key={session.id} onPress={() => { selectionHaptic(); onSession(session.id); }} style={({ pressed }) => [homeSt.focusCard, pressed && st.pressed]}>
+                <View style={[homeSt.focusIcon, { backgroundColor: (STATUS_COLORS[session.status]?.bg ?? C.amberBg) }]}>
+                  <Ionicons name={session.status === "in_progress" ? "radio-button-on-outline" : session.status === "failed" ? "warning-outline" : "sparkles"} size={18} color={STATUS_COLORS[session.status]?.text ?? C.amber} />
+                </View>
+                <View style={st.flex1}>
+                  <Text style={homeSt.focusTitle} numberOfLines={1}>{session.title}</Text>
+                  <Text style={homeSt.focusMeta} numberOfLines={1}>{STATUS_LABELS[session.status] ?? session.status}{session.prospectName ? ` · ${session.prospectName}` : ""}</Text>
+                </View>
+                {session.overallScore !== null ? <Text style={[homeSt.focusScore, { color: scoreColor(session.overallScore) }]}>{session.overallScore}</Text> : <Ionicons name="chevron-forward" size={17} color={C.textMuted} />}
+              </Pressable>
+            ))}
+          </View>
+        </HomeSection>
+      )}
+
       <HomeSection title="Upcoming Tours" action="See All">
         {loading ? <LoadingBox /> : upcomingSessions.length === 0 ? (
           <EmptyState icon="calendar-outline" title="No upcoming tours" subtitle="Scheduled and active tours will appear here" />
         ) : upcomingSessions.slice(0, 3).map((session) => (
-          <Pressable key={session.id} onPress={() => onSession(session.id)} style={({ pressed }) => [homeSt.tourCard, pressed && st.pressed]}>
+          <Pressable key={session.id} onPress={() => { selectionHaptic(); onSession(session.id); }} style={({ pressed }) => [homeSt.tourCard, pressed && st.pressed]}>
             <View style={st.flex1}>
               <Text style={homeSt.tourTitle} numberOfLines={1}>{session.title}</Text>
               <View style={homeSt.tourMetaRow}>
@@ -534,7 +597,7 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
         ))}
       </HomeSection>
 
-      <Pressable onPress={onGuestRegistration} style={({ pressed }) => [homeSt.actionCard, pressed && st.pressed]}>
+      <Pressable onPress={() => { impactHaptic(); onGuestRegistration(); }} style={({ pressed }) => [homeSt.actionCard, pressed && st.pressed]}>
         <View style={homeSt.actionIcon}>
           <BrandedQrIcon size={36} />
         </View>
@@ -555,7 +618,7 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
           ))}
           {materials.length === 0 && <Text style={homeSt.emptyInline}>Reusable tour assets will appear here.</Text>}
         </View>
-        <Pressable onPress={onCreate} style={({ pressed }) => [homeSt.createButton, pressed && st.pressed]}>
+        <Pressable onPress={() => { impactHaptic(); onCreate(); }} style={({ pressed }) => [homeSt.createButton, pressed && st.pressed]}>
           <Text style={homeSt.createButtonText}>+ Create New Session</Text>
         </Pressable>
       </HomeSection>
@@ -784,7 +847,7 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
     const session = item.session;
     const needsReview = ["uploaded", "failed", "analysis_ready"].includes(session.status);
     return (
-      <Pressable onPress={() => onSession(session.id)} style={({ pressed }) => [slst.sessionCard, pressed && st.pressed]}>
+      <Pressable onPress={() => { selectionHaptic(); onSession(session.id); }} style={({ pressed }) => [slst.sessionCard, pressed && st.pressed]}>
         <View style={st.flex1}>
           <View style={slst.sessionNameRow}>
             {session.status === "in_progress" && <View style={slst.liveDot} />}
@@ -833,6 +896,21 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
         </Pressable>
       </ScrollView>
 
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={slst.filterRow}>
+        {FILTER_CHIPS.map((chip) => {
+          const active = statusFilter === chip.value;
+          return (
+            <Pressable
+              key={chip.value}
+              onPress={() => { selectionHaptic(); setStatusFilter(chip.value); }}
+              style={[slst.filterChip, active && slst.filterChipActive]}
+            >
+              <Text style={[slst.filterChipText, active && slst.filterChipTextActive]}>{chip.label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
       <Pressable onPress={() => setAttentionOnly((value) => !value)} style={[slst.attentionChip, attentionOnly && { backgroundColor: "#fef3c7" }]}>
         <Ionicons name="alert-circle-outline" size={15} color="#f59e0b" />
         <Text style={slst.attentionText}>Needs attention</Text>
@@ -843,7 +921,7 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
           {SORT_OPTS.map((o) => (
             <Pressable
               key={o.value}
-              onPress={() => { setSort(o.value); setShowSort(false); }}
+              onPress={() => { selectionHaptic(); setSort(o.value); setShowSort(false); }}
               style={[slst.sortOpt, sort === o.value && slst.sortOptActive]}
             >
               <Ionicons name={o.icon} size={16} color={sort === o.value ? C.brand : C.textMuted} />
@@ -853,7 +931,7 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
         </View>
       )}
     </View>
-  ), [attentionOnly, search, sort, showSort, showSearch]);
+  ), [attentionOnly, search, sort, showSort, showSearch, statusFilter]);
 
   const ListFooter = useMemo(() => {
     if (loadingMore) return <ActivityIndicator style={{ paddingVertical: 20 }} color={C.brand} />;
@@ -905,6 +983,7 @@ const slst = StyleSheet.create({
   list: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 120 },
   header: { gap: 12, marginBottom: 8 },
   chipsRow: { gap: 6, paddingVertical: 2 },
+  filterRow: { gap: 7, paddingVertical: 2 },
   chip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
     backgroundColor: "#f1f5f9", borderWidth: 1, borderColor: "transparent",
@@ -935,6 +1014,10 @@ const slst = StyleSheet.create({
   personChip: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#fff", borderColor: "#e5e7eb" },
   teamChip: { backgroundColor: "#eef2ff" },
   teamChipText: { color: "#4338ca", fontSize: 12, fontWeight: "800" },
+  filterChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#fff" },
+  filterChipActive: { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" },
+  filterChipText: { color: C.textSec, fontSize: 12, fontWeight: "800" },
+  filterChipTextActive: { color: C.brand },
   attentionChip: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: "#f59e0b", borderRadius: 18 },
   attentionText: { color: "#f59e0b", fontSize: 12, fontWeight: "800" },
   groupHeader: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 8, paddingBottom: 7 },
@@ -1636,7 +1719,7 @@ function SessionReviewExperience({
   const [commentBody, setCommentBody] = useState("");
   const [posting, setPosting] = useState(false);
   const [momentIndex, setMomentIndex] = useState(0);
-  const [reviewMode, setReviewMode] = useState<"transcript" | "coaching" | "ai" | "followup" | "actions">("transcript");
+  const [reviewMode, setReviewMode] = useState<"transcript" | "coaching" | "summary" | "moments">("transcript");
   const scrollRef = useRef<ScrollView | null>(null);
   const segmentY = useRef<Record<string, number>>({});
   const userDragging = useRef(false);
@@ -1710,11 +1793,6 @@ function SessionReviewExperience({
     scrollToSegment(segment);
   }, [duration, scrollToSegment, sound, transcript]);
 
-  const handleAiSeek = useCallback((seconds: number) => {
-    setReviewMode("transcript");
-    void seekToSeconds(seconds, true);
-  }, [seekToSeconds]);
-
   async function togglePlayback() {
     if (!sound) return;
     if (playing) await sound.pauseAsync();
@@ -1761,6 +1839,36 @@ function SessionReviewExperience({
 
   const pct = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
   const phaseTracks = useMemo(() => buildPhaseTracks(phases, duration), [phases, duration]);
+  const openActionCount = actions.filter((action) => action.status === "open").length;
+  const scoreTone = scoreColor(analysis.overallScore);
+  const coachingMoments = useMemo(() => {
+    return analysis.exactMoments
+      .map((moment, index) => ({
+        ...moment,
+        id: `${moment.timestamp}-${index}`,
+        seconds: parseMomentTime(moment.timestamp),
+      }))
+      .filter((moment) => moment.seconds !== null)
+      .sort((left, right) => (left.seconds ?? 0) - (right.seconds ?? 0));
+  }, [analysis.exactMoments]);
+  const transcriptGroups = useMemo(() => {
+    if (!transcript.length) return [] as Array<{ id: string; label: string; startTime: number; color: string; segments: any[] }>;
+    if (!phases?.spans.length) {
+      return [{ id: "all", label: "Transcript", startTime: transcript[0]?.startTime ?? 0, color: C.brand, segments: transcript }];
+    }
+    return phases.spans
+      .map((span, index) => {
+        const segments = transcript.filter((segment) => segment.startTime >= span.startTime && segment.startTime < span.endTime);
+        return {
+          id: span.id,
+          label: shortPhaseLabel(span.label),
+          startTime: span.startTime,
+          color: tourSegmentColor(index),
+          segments,
+        };
+      })
+      .filter((group) => group.segments.length > 0);
+  }, [phases, transcript]);
 
   return (
     <View style={reviewSt.root}>
@@ -1776,19 +1884,38 @@ function SessionReviewExperience({
       <View style={reviewSt.titleRow}>
         <View style={st.flex1}>
           <Text style={reviewSt.title} numberOfLines={1}>{session.title}</Text>
-          <Text style={reviewSt.subtitle}>{session.prospectName || "Recorded tour"} · {analysis.overallScore}% score</Text>
+          <Text style={reviewSt.subtitle}>{session.prospectName || "Recorded tour"} · {duration ? `${fmtSec(duration)} call` : "review ready"}</Text>
         </View>
-        <View style={reviewSt.actionCount}><Text style={reviewSt.actionCountText}>{actions.filter((action) => action.status === "open").length} actions</Text></View>
       </View>
+
+      <View style={reviewSt.reviewSummary}>
+        <View style={[reviewSt.scoreCompact, { borderColor: `${scoreTone}33`, backgroundColor: `${scoreTone}10` }]}>
+          <Text style={[reviewSt.scoreCompactValue, { color: scoreTone }]}>{analysis.overallScore}%</Text>
+          <Text style={reviewSt.scoreCompactLabel}>Tour Score</Text>
+        </View>
+        <Pressable onPress={() => { selectionHaptic(); setReviewMode("coaching"); }} style={({ pressed }) => [reviewSt.actionsCta, pressed && st.pressed]}>
+          <View style={reviewSt.actionsCtaIcon}><Ionicons name="checkmark-done-outline" size={18} color={C.brand} /></View>
+          <View style={st.flex1}>
+            <Text style={reviewSt.actionsCtaTitle}>{openActionCount} coaching actions</Text>
+            <Text style={reviewSt.actionsCtaSub}>View next steps</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={17} color={C.textMuted} />
+        </Pressable>
+      </View>
+
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={reviewSt.modeRow}>
         {([
           ["transcript", "Transcript", "chatbubble-outline"],
-          ["ai", "Tour AI", "sparkles"],
           ["coaching", "Coaching", "school-outline"],
-          ["followup", "Follow-up", "paper-plane-outline"],
-          ["actions", "Actions", "checkmark-done-outline"],
+          ["summary", "Summary", "document-text-outline"],
+          ["moments", "Moments", "flash-outline"],
         ] as const).map(([mode, label, icon]) => (
-          <Pressable key={mode} onPress={() => setReviewMode(mode)} style={[reviewSt.modeButton, reviewMode === mode && reviewSt.modeButtonActive]}>
+          <Pressable
+            key={mode}
+            accessibilityLabel={label}
+            onPress={() => { selectionHaptic(); setReviewMode(mode); }}
+            style={[reviewSt.modeButton, reviewMode === mode && reviewSt.modeButtonActive]}
+          >
             <Ionicons name={icon} size={15} color={reviewMode === mode ? C.brand : C.textSec} />
             <Text style={[reviewSt.modeText, reviewMode === mode && reviewSt.modeTextActive]}>{label}</Text>
           </Pressable>
@@ -1812,7 +1939,7 @@ function SessionReviewExperience({
         }}
         onScrollEndDrag={() => { setTimeout(() => { userDragging.current = false; }, 120); }}
       >
-        {reviewMode === "coaching" && (
+        {reviewMode === "summary" && (
           <View style={{ gap: 12 }}>
             <ScoreHero analysis={analysis} />
             <InfoCard title="Executive Summary" icon="document-text-outline">{analysis.summary}</InfoCard>
@@ -1824,102 +1951,111 @@ function SessionReviewExperience({
               <Text style={[st.cardTitle, { color: C.amber }]}>Coaching opportunities</Text>
               {analysis.opportunities.map((opportunity, index) => <BulletItem key={index} text={opportunity} color={C.amber} />)}
             </View>
+          </View>
+        )}
+        {reviewMode === "coaching" && (
+          <View style={{ gap: 12 }}>
+            <ActionsTab actions={actions} sessionId={sessionId} onUpdate={onReload} />
+            <View style={[st.card, { padding: 14, gap: 8, borderLeftWidth: 3, borderLeftColor: C.amber }]}>
+              <Text style={[st.cardTitle, { color: C.amber }]}>Where points were lost</Text>
+              {analysis.opportunities.map((opportunity, index) => <BulletItem key={index} text={opportunity} color={C.amber} />)}
+            </View>
             <RubricTab analysis={analysis} />
           </View>
         )}
-        {reviewMode === "ai" && (
-          <SessionAiChat sessionId={sessionId} analysis={analysis} onSeek={handleAiSeek} />
+        {reviewMode === "moments" && (
+          <View style={{ gap: 10 }}>
+            {coachingMoments.length === 0 ? (
+              <EmptyState icon="flash-outline" title="No exact moments" subtitle="Coaching moments will appear after analysis." />
+            ) : coachingMoments.map((moment) => (
+              <CoachingMomentCard
+                key={moment.id}
+                moment={moment}
+                onSeek={() => void seekToSeconds(moment.seconds ?? 0, true)}
+              />
+            ))}
+          </View>
         )}
-        {reviewMode === "followup" && (
-          <SessionFollowUpPanel
-            session={session}
-            actions={actions}
-            sessionId={sessionId}
-            onActionsUpdated={onReload}
-            onToast={(message, type) => showToast(message, type ?? "info")}
-          />
-        )}
-        {reviewMode === "actions" && <ActionsTab actions={actions} sessionId={sessionId} onUpdate={onReload} />}
         {reviewMode === "transcript" && transcript.length === 0 && <EmptyState icon="chatbubble-outline" title="No transcript yet" subtitle="The transcript will appear after processing." />}
-        {reviewMode === "transcript" && transcript.map((segment, index) => {
-          const active = segment.id === activeSegmentId;
-          const isAgent = segment.speaker?.toLowerCase().includes("agent");
-          const segmentComments = commentsForSegment(segment);
-          const phase = findPhaseForTimestamp(segment.startTime, phases);
-          return (
-            <View
-              key={segment.id || index}
-              onLayout={(event) => { segmentY.current[segment.id] = event.nativeEvent.layout.y; }}
-              style={[reviewSt.transcriptCard, active && reviewSt.transcriptCardActive]}
-            >
-              <Pressable onPress={() => void seekToSeconds(segment.startTime, true)} style={reviewSt.transcriptMain}>
-                <View style={[reviewSt.speakerAvatar, { backgroundColor: isAgent ? "#8766c9" : "#548ce3" }]}>
-                  <Text style={reviewSt.speakerAvatarText}>{isAgent ? "A" : "C"}</Text>
-                </View>
-                <View style={st.flex1}>
-                  <View style={reviewSt.metaRow}>
-                    <Text style={reviewSt.speaker}>{segment.speaker || (isAgent ? "Agent" : "Prospect")}</Text>
-                    {phase && (
-                      <View style={[reviewSt.phasePill, { backgroundColor: `${tourSegmentColor(phases?.spans.findIndex((span) => span.id === phase.id) ?? 0)}22` }]}>
-                        <Text style={[reviewSt.phasePillText, { color: tourSegmentColor(phases?.spans.findIndex((span) => span.id === phase.id) ?? 0) }]}>
-                          {shortPhaseLabel(phase.label)}
-                        </Text>
-                      </View>
-                    )}
-                    <Text style={reviewSt.segmentTime}>{fmtSec(segment.startTime)}</Text>
-                  </View>
-                  <Text style={reviewSt.transcriptText}>{segment.text}</Text>
-                </View>
-                <View style={reviewSt.segmentActions}>
-                  <Pressable accessibilityLabel="Add comment" onPress={() => setCommentingOn(segment)}><Ionicons name="chatbubble-outline" size={17} color={C.textSec} /></Pressable>
-                  <Pressable accessibilityLabel="Bookmark moment" onPress={() => void Haptics.selectionAsync()}><Ionicons name="bookmark-outline" size={17} color={C.textSec} /></Pressable>
-                </View>
-              </Pressable>
-              {segmentComments.map((comment) => (
-                <Pressable key={comment.id} onPress={() => void seekToSeconds(comment.timestampSec ?? segment.startTime, true)} style={reviewSt.inlineComment}>
-                  <Ionicons name="flash" size={13} color="#f59e0b" />
-                  <View style={st.flex1}>
-                    <Text style={reviewSt.inlineCommentAuthor}>{comment.authorName} · {fmtSec(comment.timestampSec ?? 0)}</Text>
-                    <Text style={reviewSt.inlineCommentBody}>{comment.body}</Text>
-                  </View>
-                </Pressable>
-              ))}
-              {commentingOn?.id === segment.id && (
-                <View style={reviewSt.inlineComposer}>
-                  <TextInput autoFocus value={commentBody} onChangeText={setCommentBody} placeholder={`Comment at ${fmtSec(segment.startTime)}`} placeholderTextColor={C.textMuted} style={reviewSt.inlineInput} />
-                  <Pressable disabled={posting || !commentBody.trim()} onPress={postInlineComment} style={reviewSt.inlineSend}>
-                    {posting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={16} color="#fff" />}
-                  </Pressable>
-                </View>
-              )}
+        {reviewMode === "transcript" && transcriptGroups.map((group) => (
+          <View key={group.id} style={reviewSt.phaseSection}>
+            <View style={reviewSt.phaseDivider}>
+              <View style={[reviewSt.phaseDividerLine, { backgroundColor: group.color }]} />
+              <Text style={[reviewSt.phaseDividerTitle, { color: group.color }]}>{group.label}</Text>
+              <Text style={reviewSt.phaseDividerTime}>{fmtSec(group.startTime)}</Text>
             </View>
-          );
-        })}
+            {group.segments.map((segment, index) => {
+              const active = segment.id === activeSegmentId;
+              const isAgent = segment.speaker?.toLowerCase().includes("agent");
+              const prev = group.segments[index - 1];
+              const showInitial = !prev || prev.speaker !== segment.speaker;
+              const segmentComments = commentsForSegment(segment);
+              const moments = coachingMoments.filter((moment) =>
+                moment.seconds !== null &&
+                moment.seconds >= segment.startTime &&
+                moment.seconds < segment.endTime
+              );
+              return (
+                <View
+                  key={segment.id || index}
+                  onLayout={(event) => { segmentY.current[segment.id] = event.nativeEvent.layout.y; }}
+                  style={[reviewSt.turnRow, active && reviewSt.turnRowActive]}
+                >
+                  <Pressable onPress={() => void seekToSeconds(segment.startTime, true)} style={reviewSt.turnMain}>
+                    <View style={reviewSt.turnInitialSlot}>
+                      {showInitial && (
+                        <Text style={[reviewSt.turnInitial, { color: isAgent ? C.purple : C.brand }]}>
+                          {isAgent ? "A" : "P"}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={st.flex1}>
+                      <View style={reviewSt.turnMeta}>
+                        <Text style={[reviewSt.turnSpeaker, { color: isAgent ? C.purple : C.brand }]}>
+                          {segment.speaker || (isAgent ? "Agent" : "Prospect")}
+                        </Text>
+                        <Text style={reviewSt.segmentTime}>{fmtSec(segment.startTime)}</Text>
+                      </View>
+                      <Text style={reviewSt.turnText}>{segment.text}</Text>
+                    </View>
+                    <View style={reviewSt.turnActions}>
+                      <Pressable accessibilityLabel="Add comment" onPress={() => setCommentingOn(segment)}><Ionicons name="chatbubble-outline" size={16} color={C.textSec} /></Pressable>
+                      <Pressable accessibilityLabel="Bookmark moment" onPress={() => selectionHaptic()}><Ionicons name="bookmark-outline" size={16} color={C.textSec} /></Pressable>
+                    </View>
+                  </Pressable>
+                  {moments.map((moment) => (
+                    <CoachingMomentCard
+                      key={moment.id}
+                      moment={moment}
+                      compact
+                      onSeek={() => void seekToSeconds(moment.seconds ?? segment.startTime, true)}
+                    />
+                  ))}
+                  {segmentComments.map((comment) => (
+                    <Pressable key={comment.id} onPress={() => void seekToSeconds(comment.timestampSec ?? segment.startTime, true)} style={reviewSt.inlineComment}>
+                      <Ionicons name="chatbubble-ellipses-outline" size={13} color={C.brand} />
+                      <View style={st.flex1}>
+                        <Text style={reviewSt.inlineCommentAuthor}>{comment.authorName} · {fmtSec(comment.timestampSec ?? 0)}</Text>
+                        <Text style={reviewSt.inlineCommentBody}>{comment.body}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                  {commentingOn?.id === segment.id && (
+                    <View style={reviewSt.inlineComposer}>
+                      <TextInput autoFocus value={commentBody} onChangeText={setCommentBody} placeholder={`Comment at ${fmtSec(segment.startTime)}`} placeholderTextColor={C.textMuted} style={reviewSt.inlineInput} />
+                      <Pressable disabled={posting || !commentBody.trim()} onPress={postInlineComment} style={reviewSt.inlineSend}>
+                        {posting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={16} color="#fff" />}
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        ))}
       </ScrollView>
 
       <View style={reviewSt.playerDock}>
-        <View style={reviewSt.quickControls}>
-          <Pressable accessibilityLabel="Open Tour AI" onPress={() => setReviewMode("ai")} style={reviewSt.quickButton}><Ionicons name="sparkles" size={20} color={C.text} /></Pressable>
-          <Pressable accessibilityLabel="Open follow-up" onPress={() => setReviewMode("followup")} style={reviewSt.quickButton}><Ionicons name="paper-plane-outline" size={20} color={C.text} /></Pressable>
-          <Pressable accessibilityLabel="Open coaching" onPress={() => setReviewMode("coaching")} style={reviewSt.quickButton}><Ionicons name="school-outline" size={20} color={C.text} /></Pressable>
-          <Pressable accessibilityLabel="Follow active transcript" onPress={() => {
-            setReviewMode("transcript");
-            scrollToSegment(transcript.find((segment) => segment.id === activeSegmentId));
-          }} style={reviewSt.quickButton}><Ionicons name="mic-outline" size={20} color={C.text} /></Pressable>
-          <Pressable accessibilityLabel="Comment on active moment" onPress={() => {
-            const segment = transcript.find((item) => item.id === activeSegmentId);
-            if (segment) {
-              setReviewMode("transcript");
-              setCommentingOn(segment);
-              scrollToSegment(segment);
-            }
-          }} style={reviewSt.quickButton}><Ionicons name="chatbubble-outline" size={20} color={C.text} /></Pressable>
-        </View>
-        <View style={reviewSt.momentRow}>
-          <Pressable onPress={() => jumpMoment(-1)} style={reviewSt.prevButton}><Text style={reviewSt.prevText}>PREV</Text></Pressable>
-          <Text style={reviewSt.momentLabel}>⚡ Coachable Moments</Text>
-          <Pressable onPress={() => jumpMoment(1)} style={reviewSt.nextButton}><Text style={reviewSt.nextText}>NEXT ↓</Text></Pressable>
-        </View>
         {phaseTracks.length > 0 && (
           <View style={reviewSt.phaseTrack}>
             {phaseTracks.map((track) => (
@@ -1946,15 +2082,14 @@ function SessionReviewExperience({
             <View key={`${height}-${index}`} style={[reviewSt.waveformBar, { height, opacity: (index / 23) * 100 <= pct ? 1 : 0.35 }]} />
           ))}
         </Pressable>
-        <View style={reviewSt.timeRow}><Text style={reviewSt.time}>{fmtSec(position)}</Text><Text style={reviewSt.time}>{fmtSec(duration)}</Text></View>
         <View style={reviewSt.playbackRow}>
           <Pressable onPress={changeSpeed}><Text style={reviewSt.speed}>{speed}x</Text></Pressable>
-          <Pressable onPress={() => void seekToSeconds(position - 10)}><Ionicons name="play-skip-back-outline" size={25} color={C.text} /></Pressable>
-          <Pressable disabled={!sound} onPress={togglePlayback} style={reviewSt.playButton}>
-            {!sound ? <ActivityIndicator color="#fff" /> : <Ionicons name={playing ? "pause" : "play"} size={25} color="#fff" />}
+          <Text style={reviewSt.time}>{fmtSec(position)} / {fmtSec(duration)}</Text>
+          <Pressable onPress={() => jumpMoment(-1)}><Ionicons name="play-skip-back-outline" size={23} color={C.text} /></Pressable>
+          <Pressable disabled={!sound} onPress={() => { impactHaptic(Haptics.ImpactFeedbackStyle.Medium); void togglePlayback(); }} style={reviewSt.playButton}>
+            {!sound ? <ActivityIndicator color="#fff" /> : <Ionicons name={playing ? "pause" : "play"} size={22} color="#fff" />}
           </Pressable>
-          <Pressable onPress={() => void seekToSeconds(position + 10)}><Ionicons name="play-skip-forward-outline" size={25} color={C.text} /></Pressable>
-          <Pressable onPress={() => scrollToSegment(transcript.find((segment) => segment.id === activeSegmentId))}><Ionicons name="scan-outline" size={25} color={C.text} /></Pressable>
+          <Pressable onPress={() => jumpMoment(1)}><Ionicons name="play-skip-forward-outline" size={23} color={C.text} /></Pressable>
         </View>
       </View>
     </View>
@@ -1967,6 +2102,47 @@ function DetailMeta({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text
       <Ionicons name={icon} size={14} color={C.textSec} />
       <Text style={{ fontSize: 13, fontWeight: "700", color: C.textSec }}>{text}</Text>
     </View>
+  );
+}
+
+function CoachingMomentCard({
+  moment,
+  onSeek,
+  compact = false,
+}: {
+  moment: {
+    timestamp: string;
+    transcriptQuote: string;
+    explanation: string;
+    suggestedImprovement: string;
+    seconds: number | null;
+  };
+  onSeek: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <Pressable onPress={onSeek} style={({ pressed }) => [reviewSt.coachingMoment, compact && reviewSt.coachingMomentCompact, pressed && st.pressed]}>
+      <View style={reviewSt.coachingMomentHeader}>
+        <View style={reviewSt.coachingMomentIcon}><Ionicons name="flash" size={13} color={C.purple} /></View>
+        <Text style={reviewSt.coachingMomentKicker}>Coachable Moment</Text>
+        <Text style={reviewSt.coachingMomentTime}>{moment.timestamp}</Text>
+      </View>
+      <Text style={reviewSt.coachingMomentBody}>{moment.explanation}</Text>
+      {moment.suggestedImprovement ? (
+        <View style={reviewSt.coachingSuggestion}>
+          <Text style={reviewSt.coachingSuggestionLabel}>Try</Text>
+          <Text style={reviewSt.coachingSuggestionText}>{moment.suggestedImprovement}</Text>
+        </View>
+      ) : null}
+      {!compact && moment.transcriptQuote ? (
+        <Text style={reviewSt.coachingQuote} numberOfLines={2}>"{moment.transcriptQuote}"</Text>
+      ) : null}
+      <View style={reviewSt.coachingMomentActions}>
+        <Text style={reviewSt.coachingMomentAction}>Save</Text>
+        <Text style={reviewSt.coachingMomentAction}>Practice</Text>
+        <Text style={reviewSt.coachingMomentAction}>Copy suggestion</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -3517,6 +3693,18 @@ const homeSt = StyleSheet.create({
   contactText: { flex: 1, color: C.textSec, fontSize: 11 },
   smsButton: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: "#1674ff" },
   smsButtonText: { color: "#fff", fontSize: 10, fontWeight: "800" },
+  metricsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
+  commandGrid: { flexDirection: "row", gap: 9 },
+  commandButton: { flex: 1, minHeight: 92, justifyContent: "space-between", padding: 12, borderWidth: 1, borderColor: C.border, borderRadius: 16, backgroundColor: "#fff" },
+  commandIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 10 },
+  commandTitle: { color: C.text, fontSize: 13, fontWeight: "900" },
+  commandSub: { color: C.textSec, fontSize: 10, fontWeight: "700", marginTop: 2 },
+  focusStack: { gap: 9 },
+  focusCard: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 10, padding: 11, borderWidth: 1, borderColor: C.border, borderRadius: 14, backgroundColor: "#fff" },
+  focusIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 12 },
+  focusTitle: { color: C.text, fontSize: 13, fontWeight: "900" },
+  focusMeta: { color: C.textSec, fontSize: 11, fontWeight: "700", marginTop: 3 },
+  focusScore: { fontSize: 18, fontWeight: "900", fontVariant: ["tabular-nums"] },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 7 },
   sectionTitle: { flex: 1, color: C.text, fontSize: 17, fontWeight: "900" },
   sectionAction: { color: C.brand, fontSize: 13, fontWeight: "800" },
@@ -3544,59 +3732,74 @@ const homeSt = StyleSheet.create({
 });
 
 const reviewSt = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#f9fafb", paddingTop: Platform.OS === "ios" ? 50 : 18 },
-  header: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
-  headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 9, backgroundColor: "#fff" },
-  propertyPicker: { maxWidth: 200, minHeight: 37, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 16, borderRadius: 8, backgroundColor: "#f0f0f5" },
-  propertyText: { flexShrink: 1, color: "#666", fontSize: 16, fontWeight: "700" },
-  titleRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 20, paddingVertical: 12 },
-  title: { color: C.text, fontSize: 22, fontWeight: "900" },
-  subtitle: { color: C.textSec, fontSize: 11, marginTop: 3 },
+  root: { flex: 1, backgroundColor: "#f7f8fb", paddingTop: Platform.OS === "ios" ? 50 : 18 },
+  header: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
+  headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e6eaf0", borderRadius: 12, backgroundColor: "#fff" },
+  propertyPicker: { maxWidth: 210, minHeight: 36, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#eef2f7" },
+  propertyText: { flexShrink: 1, color: "#647084", fontSize: 14, fontWeight: "800" },
+  titleRow: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 10 },
+  title: { color: C.text, fontSize: 24, fontWeight: "900", letterSpacing: 0 },
+  subtitle: { color: "#7b8496", fontSize: 13, fontWeight: "700", marginTop: 4 },
+  reviewSummary: { flexDirection: "row", gap: 10, paddingHorizontal: 20, paddingBottom: 12 },
+  scoreCompact: { width: 108, minHeight: 70, justifyContent: "center", paddingHorizontal: 14, borderWidth: 1, borderRadius: 16 },
+  scoreCompactValue: { fontSize: 26, fontWeight: "900", lineHeight: 30, fontVariant: ["tabular-nums"] },
+  scoreCompactLabel: { color: "#667085", fontSize: 10, fontWeight: "900", textTransform: "uppercase", marginTop: 2 },
+  actionsCta: { flex: 1, minHeight: 70, flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderWidth: 1, borderColor: "#dbeafe", borderRadius: 16, backgroundColor: "#fff" },
+  actionsCtaIcon: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#eff6ff" },
+  actionsCtaTitle: { color: C.text, fontSize: 14, fontWeight: "900" },
+  actionsCtaSub: { color: C.brand, fontSize: 11, fontWeight: "800", marginTop: 2 },
   actionCount: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, backgroundColor: "#eef2ff" },
   actionCountText: { color: "#4338ca", fontSize: 10, fontWeight: "800" },
-  modeRow: { flexDirection: "row", gap: 8, paddingHorizontal: 20, paddingBottom: 10 },
-  modeButton: { flex: 1, minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, backgroundColor: "#fff" },
+  modeRow: { flexDirection: "row", gap: 8, paddingHorizontal: 20, paddingBottom: 12 },
+  modeButton: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 13, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 999, backgroundColor: "#fff" },
   modeButtonActive: { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" },
-  modeText: { color: C.textSec, fontSize: 11, fontWeight: "800" },
+  modeText: { color: "#667085", fontSize: 12, fontWeight: "900" },
   modeTextActive: { color: C.brand },
-  transcriptContent: { gap: 8, paddingHorizontal: 20, paddingTop: 4, paddingBottom: 330 },
-  transcriptCard: { overflow: "hidden", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 16, backgroundColor: "#fff", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.035, shadowRadius: 5 },
-  transcriptCardActive: { borderLeftWidth: 4, borderLeftColor: "#2563eb" },
-  transcriptMain: { flexDirection: "row", alignItems: "flex-start", gap: 11, padding: 12 },
-  speakerAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  speakerAvatarText: { color: "#fff", fontSize: 14, fontWeight: "700" },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" },
-  speaker: { color: "#47546b", fontSize: 13, fontWeight: "700" },
-  phasePill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 },
-  phasePillText: { fontSize: 9, fontWeight: "800" },
-  segmentTime: { color: "#a3adbd", fontSize: 11, marginLeft: "auto" },
-  transcriptText: { color: "#4d5970", fontSize: 14, lineHeight: 21 },
-  segmentActions: { width: 24, alignItems: "center", gap: 14, paddingTop: 2 },
-  inlineComment: { flexDirection: "row", alignItems: "flex-start", gap: 7, marginHorizontal: 12, marginBottom: 10, padding: 9, borderRadius: 10, backgroundColor: "#fffbeb" },
-  inlineCommentAuthor: { color: "#b45309", fontSize: 10, fontWeight: "900" },
+  transcriptContent: { gap: 13, paddingHorizontal: 20, paddingTop: 2, paddingBottom: 150 },
+  phaseSection: { gap: 4 },
+  phaseDivider: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 10, paddingBottom: 7 },
+  phaseDividerLine: { width: 4, height: 18, borderRadius: 2 },
+  phaseDividerTitle: { flex: 1, fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
+  phaseDividerTime: { color: "#98a2b3", fontSize: 11, fontWeight: "800" },
+  turnRow: { borderRadius: 12, backgroundColor: "transparent" },
+  turnRowActive: { backgroundColor: "#eef6ff" },
+  turnMain: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 8, paddingHorizontal: 8 },
+  turnInitialSlot: { width: 20, alignItems: "center", paddingTop: 1 },
+  turnInitial: { fontSize: 12, fontWeight: "900" },
+  turnMeta: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 3 },
+  turnSpeaker: { fontSize: 12, fontWeight: "900" },
+  segmentTime: { color: "#98a2b3", fontSize: 11, fontWeight: "800", marginLeft: "auto" },
+  turnText: { color: "#344054", fontSize: 14, lineHeight: 20, fontWeight: "600" },
+  turnActions: { width: 22, alignItems: "center", gap: 13, paddingTop: 2 },
+  inlineComment: { flexDirection: "row", alignItems: "flex-start", gap: 7, marginLeft: 36, marginRight: 8, marginBottom: 7, padding: 9, borderRadius: 10, backgroundColor: "#eef6ff" },
+  inlineCommentAuthor: { color: C.brand, fontSize: 10, fontWeight: "900" },
   inlineCommentBody: { color: C.text, fontSize: 12, lineHeight: 17, marginTop: 2 },
-  inlineComposer: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: "#eef2f7" },
+  inlineComposer: { flexDirection: "row", alignItems: "center", gap: 8, marginLeft: 36, marginRight: 8, marginBottom: 8 },
   inlineInput: { flex: 1, minHeight: 38, paddingHorizontal: 11, borderWidth: 1, borderColor: "#d7dee8", borderRadius: 9, color: C.text, fontSize: 13 },
   inlineSend: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, backgroundColor: C.brand },
-  playerDock: { position: "absolute", left: 0, right: 0, bottom: 0, gap: 13, paddingHorizontal: 20, paddingTop: 18, paddingBottom: Platform.OS === "ios" ? 28 : 16, borderTopWidth: 1, borderTopColor: "#e5e7eb", backgroundColor: "rgba(255,255,255,0.98)" },
-  quickControls: { flexDirection: "row", gap: 12 },
-  quickButton: { flex: 1, height: 44, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 22 },
-  momentRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  prevButton: { paddingHorizontal: 15, paddingVertical: 9, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 },
-  prevText: { color: C.text, fontSize: 12, fontWeight: "900" },
-  momentLabel: { color: "#2563eb", fontSize: 12, fontWeight: "900" },
-  nextButton: { paddingHorizontal: 15, paddingVertical: 10, borderRadius: 8, backgroundColor: "#2563eb", shadowColor: "#2563eb", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.25, shadowRadius: 9 },
-  nextText: { color: "#fff", fontSize: 12, fontWeight: "900" },
-  phaseTrack: { height: 8, borderRadius: 4, backgroundColor: "#f3f4f6", position: "relative", overflow: "hidden" },
+  coachingMoment: { gap: 9, marginVertical: 6, padding: 12, borderWidth: 1, borderColor: "#e9d5ff", borderRadius: 14, backgroundColor: "#fbf7ff" },
+  coachingMomentCompact: { marginLeft: 36, marginRight: 8, marginTop: 2 },
+  coachingMomentHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
+  coachingMomentIcon: { width: 22, height: 22, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: C.purpleBg },
+  coachingMomentKicker: { flex: 1, color: C.purple, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  coachingMomentTime: { color: "#8b5cf6", fontSize: 11, fontWeight: "900" },
+  coachingMomentBody: { color: C.text, fontSize: 13, fontWeight: "700", lineHeight: 19 },
+  coachingSuggestion: { gap: 3, padding: 10, borderRadius: 10, backgroundColor: "#fff" },
+  coachingSuggestionLabel: { color: C.purple, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  coachingSuggestionText: { color: "#344054", fontSize: 13, fontWeight: "700", lineHeight: 18 },
+  coachingQuote: { color: "#7b8496", fontSize: 12, lineHeight: 17, fontStyle: "italic" },
+  coachingMomentActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  coachingMomentAction: { color: C.purple, fontSize: 11, fontWeight: "900" },
+  playerDock: { position: "absolute", left: 0, right: 0, bottom: 0, gap: 8, paddingHorizontal: 18, paddingTop: 10, paddingBottom: Platform.OS === "ios" ? 22 : 12, borderTopWidth: 1, borderTopColor: "#e5e7eb", backgroundColor: "rgba(255,255,255,0.98)" },
+  phaseTrack: { height: 5, borderRadius: 4, backgroundColor: "#f3f4f6", position: "relative", overflow: "hidden" },
   phaseSegment: { position: "absolute", top: 0, bottom: 0, borderRadius: 2, opacity: 0.92 },
   phasePlayhead: { position: "absolute", top: -2, bottom: -2, width: 2, backgroundColor: "#111827" },
-  waveformTrack: { height: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 },
-  waveformBar: { width: 3, borderRadius: 2, backgroundColor: "#3b82f6" },
-  timeRow: { flexDirection: "row", justifyContent: "space-between", marginTop: -12 },
-  time: { color: "#6b7280", fontSize: 10 },
+  waveformTrack: { height: 24, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 },
+  waveformBar: { width: 3, borderRadius: 2, backgroundColor: C.brand },
+  time: { flex: 1, color: "#667085", fontSize: 12, fontWeight: "800", textAlign: "center" },
   playbackRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   speed: { minWidth: 28, color: C.text, fontSize: 13, fontWeight: "900" },
-  playButton: { width: 56, height: 56, alignItems: "center", justifyContent: "center", borderRadius: 28, backgroundColor: "#2563eb", shadowColor: "#2563eb", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.24, shadowRadius: 9 },
+  playButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: C.brand, shadowColor: C.brand, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.2, shadowRadius: 8 },
 });
 
 const st = StyleSheet.create({

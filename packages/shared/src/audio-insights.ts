@@ -67,6 +67,8 @@ export type GeminiAudioFileRef = {
   uri: string;
   mimeType: string;
   name?: string;
+  createdAt?: string;
+  expiresAt?: string;
 };
 
 /** Gemini multimodal audio analysis stored on a session. */
@@ -144,6 +146,8 @@ function normalizeAudioFileRef(value: unknown): GeminiAudioFileRef | undefined {
     uri: raw.uri,
     mimeType: raw.mimeType,
     name: typeof raw.name === "string" ? raw.name : undefined,
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : undefined,
+    expiresAt: typeof raw.expiresAt === "string" ? raw.expiresAt : undefined,
   };
 }
 

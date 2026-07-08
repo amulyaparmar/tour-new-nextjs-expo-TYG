@@ -37,10 +37,12 @@ const STARTER_PROMPTS = [
 export function SessionAudioFileChat({
   sessionId,
   defaultModel = DEFAULT_GEMINI_AUDIO_MODEL,
+  initialAudioFileExpiresAt,
   onSeek,
 }: {
   sessionId: string;
   defaultModel?: string;
+  initialAudioFileExpiresAt?: string;
   onSeek?: (seconds: number) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -49,6 +51,10 @@ export function SessionAudioFileChat({
   );
   const [input, setInput] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("Analyzing audio...");
+  const [audioFileExpiresAt, setAudioFileExpiresAt] = useState<string | undefined>(
+    initialAudioFileExpiresAt
+  );
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -56,6 +62,10 @@ export function SessionAudioFileChat({
   useEffect(() => {
     setModel(normalizeGeminiAudioModelId(defaultModel));
   }, [defaultModel]);
+
+  useEffect(() => {
+    setAudioFileExpiresAt(initialAudioFileExpiresAt);
+  }, [initialAudioFileExpiresAt]);
 
   const scrollToBottom = useCallback(() => {
     const el = listRef.current;
@@ -78,6 +88,9 @@ export function SessionAudioFileChat({
     async (nextMessages: ChatMessage[]) => {
       setIsBusy(true);
       setError(null);
+      setBusyLabel(isAudioFileExpired(audioFileExpiresAt)
+        ? "Re-indexing audio. This can take a moment..."
+        : "Analyzing audio...");
 
       try {
         const response = await fetch(`/api/sessions/${sessionId}/audio-insights/chat`, {
@@ -89,12 +102,20 @@ export function SessionAudioFileChat({
           }),
         });
 
-        const body = (await response.json()) as { reply?: string; error?: string };
+        const body = (await response.json()) as {
+          reply?: string;
+          error?: string;
+          audioFileExpiresAt?: string | null;
+          audioFileRefreshed?: boolean;
+        };
         if (!response.ok) {
           throw new Error(body.error ?? "Failed to get a response.");
         }
         if (!body.reply?.trim()) {
           throw new Error("Gemini returned an empty response.");
+        }
+        if (body.audioFileExpiresAt) {
+          setAudioFileExpiresAt(body.audioFileExpiresAt);
         }
 
         setMessages([
@@ -113,7 +134,7 @@ export function SessionAudioFileChat({
         inputRef.current?.focus();
       }
     },
-    [model, sessionId]
+    [audioFileExpiresAt, model, sessionId]
   );
 
   const submitText = useCallback(
@@ -232,7 +253,7 @@ export function SessionAudioFileChat({
             <div className={styles.aiChatBubble}>
               <span className={styles.aiChatTyping}>
                 <Loader2 size={14} className={styles.aiChatSpinner} aria-hidden />
-                Analyzing audio…
+                {busyLabel}
               </span>
             </div>
           </div>
@@ -265,4 +286,11 @@ export function SessionAudioFileChat({
       </form>
     </div>
   );
+}
+
+function isAudioFileExpired(expiresAt: string | undefined): boolean {
+  if (!expiresAt) return true;
+  const parsed = Date.parse(expiresAt);
+  if (Number.isNaN(parsed)) return true;
+  return parsed - 10 * 60 * 1000 <= Date.now();
 }

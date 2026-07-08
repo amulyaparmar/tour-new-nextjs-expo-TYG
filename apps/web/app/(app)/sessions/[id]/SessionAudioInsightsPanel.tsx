@@ -269,6 +269,7 @@ export function SessionAudioInsightsPanel({
               <SessionAudioFileChat
                 sessionId={sessionId}
                 defaultModel={insights.model}
+                initialAudioFileExpiresAt={insights.audioFile.expiresAt}
                 onSeek={onSeek}
               />
             </AudioAccordion>

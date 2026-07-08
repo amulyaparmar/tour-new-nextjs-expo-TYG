@@ -4,6 +4,7 @@ import {
   normalizeAudioInsights,
   normalizeParticipantName,
   type AudioInsights,
+  type GeminiAudioFileRef,
 } from "@tour/shared";
 
 import {
@@ -15,6 +16,9 @@ import {
   type GeminiChatMessage,
 } from "./gemini-client";
 import type { TranscriptSegment } from "./transcribe";
+
+const GEMINI_FILE_TTL_MS = 48 * 60 * 60 * 1000;
+const GEMINI_FILE_EXPIRY_SAFETY_MS = 10 * 60 * 1000;
 
 const AUDIO_INSIGHTS_SCHEMA = {
   type: "object",
@@ -274,11 +278,7 @@ export async function generateAudioInsights(params: {
     model,
     summary: payload.summary,
     overallSentiment: payload.overallSentiment,
-    audioFile: {
-      uri: uploadedFile.uri,
-      mimeType: uploadedFile.mimeType,
-      name: uploadedFile.name,
-    },
+    audioFile: buildGeminiAudioFileRef(uploadedFile),
     speakerDynamics: (payload.speakerDynamics ?? []).map((item) => ({
       speaker: item.speaker,
       talkTimeSeconds: item.talkTimeSeconds,
@@ -336,6 +336,45 @@ export async function generateAudioInsights(params: {
   const normalized = normalizeAudioInsights(insights);
   if (!normalized) throw new Error("Gemini audio insights failed normalization");
   return normalized;
+}
+
+function buildGeminiAudioFileRef(file: {
+  uri: string;
+  mimeType: string;
+  name?: string;
+}): GeminiAudioFileRef {
+  const createdAt = new Date();
+  return {
+    uri: file.uri,
+    mimeType: file.mimeType,
+    name: file.name,
+    createdAt: createdAt.toISOString(),
+    expiresAt: new Date(createdAt.getTime() + GEMINI_FILE_TTL_MS).toISOString(),
+  };
+}
+
+export function isGeminiAudioFileExpired(
+  audioFile: GeminiAudioFileRef | null | undefined,
+  now = Date.now()
+): boolean {
+  if (!audioFile?.uri || !audioFile.mimeType) return true;
+  if (!audioFile.expiresAt) return true;
+  const expiresAt = Date.parse(audioFile.expiresAt);
+  if (Number.isNaN(expiresAt)) return true;
+  return expiresAt - GEMINI_FILE_EXPIRY_SAFETY_MS <= now;
+}
+
+export async function createGeminiAudioFileRef(params: {
+  audioBuffer: Buffer;
+  mimeType: string;
+  fileName?: string;
+}): Promise<GeminiAudioFileRef> {
+  const uploadedFile = await uploadGeminiAudioFile(
+    params.audioBuffer,
+    params.mimeType,
+    params.fileName ?? "recording"
+  );
+  return buildGeminiAudioFileRef(uploadedFile);
 }
 
 export async function chatWithAudioRecording(params: {

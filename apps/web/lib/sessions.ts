@@ -579,69 +579,27 @@ export async function saveAnalysisRun(
   try {
     const supabase = getSupabaseServiceClient();
 
-    const { data: existingRows, error: existingError } = await supabase
-      .from("analyses")
-      .select("version")
-      .eq("session_id", sessionId)
-      .order("version", { ascending: false })
-      .limit(1);
-
-    if (existingError) {
-      throw new Error(existingError.message);
-    }
-
-    const nextVersion = ((existingRows as Array<{ version: number | null }> | null)?.[0]?.version ?? 0) + 1;
-    const trigger = meta?.trigger ?? (nextVersion > 1 ? "reanalyze" : "initial");
-
-    const { data, error } = await supabase.from("analyses").insert(
-      {
-        session_id: sessionId,
-        version: nextVersion,
-        is_current: false,
-        status: "ready",
-        result_json: analysis,
-        rubric_id: meta?.rubricId ?? null,
-        rubric_name: meta?.rubricName ?? null,
-        trigger,
-      } as never
-    ).select("id,version").single<{ id: string; version: number }>();
+    const { data, error } = await supabase.rpc("save_analysis_run", {
+      p_session_id: sessionId,
+      p_result_json: analysis,
+      p_rubric_id: meta?.rubricId ?? null,
+      p_rubric_name: meta?.rubricName ?? null,
+      p_trigger: meta?.trigger ?? null,
+    } as never);
 
     if (error) {
       throw new Error(`Failed to save analysis: ${error.message}`);
     }
 
-    const { error: clearCurrentError } = await supabase
-      .from("analyses")
-      .update({ is_current: false } as never)
-      .eq("session_id", sessionId)
-      .eq("is_current", true);
-
-    if (clearCurrentError) {
-      throw new Error(clearCurrentError.message);
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      run_id?: string;
+      version?: number;
+    } | null;
+    if (!row?.run_id || typeof row.version !== "number") {
+      throw new Error("Analysis save did not return a run id and version.");
     }
 
-    const { error: markCurrentError } = await supabase
-      .from("analyses")
-      .update({ is_current: true } as never)
-      .eq("id", data.id);
-
-    if (markCurrentError) {
-      throw new Error(markCurrentError.message);
-    }
-
-    const { error: sessionUpdateError } = await supabase
-      .from("sessions")
-      .update({
-        status: "analysis_ready",
-        overall_score: analysis.overallScore,
-      } as never)
-      .eq("id", sessionId);
-
-    if (sessionUpdateError) {
-      throw new Error(`Failed to update session status: ${sessionUpdateError.message}`);
-    }
-
-    return { runId: data.id, version: data.version };
+    return { runId: row.run_id, version: row.version };
   } catch {
     return saveLocalAnalysisRun(sessionId, analysis, meta);
   }

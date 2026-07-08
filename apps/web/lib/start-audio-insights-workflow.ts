@@ -21,8 +21,13 @@ export async function startAudioInsightsWorkflow(sessionId: string) {
   }
 
   await setAudioInsightsStatus(sessionId, "processing");
-  const run = await start(processAudioInsightsWorkflow, [sessionId]);
-  return { skipped: false as const, runId: run.runId };
+  try {
+    const run = await start(processAudioInsightsWorkflow, [sessionId]);
+    return { skipped: false as const, runId: run.runId };
+  } catch (error) {
+    await setAudioInsightsStatus(sessionId, "failed").catch(() => {});
+    throw error;
+  }
 }
 
 export function isAudioInsightsProcessing(status: string) {

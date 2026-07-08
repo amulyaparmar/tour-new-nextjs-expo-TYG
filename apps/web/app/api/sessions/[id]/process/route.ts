@@ -37,8 +37,9 @@ export async function POST(_request: Request, context: Context) {
     await prepareAudioInsightsProcessing(id);
 
     const run = await start(processSessionWorkflow, [id]);
-    void startAudioInsightsWorkflow(id).catch((error) => {
+    const audioInsightsRun = await startAudioInsightsWorkflow(id).catch((error) => {
       console.error(`[audio-insights] Failed to start workflow for session ${id}:`, error);
+      return null;
     });
 
     return NextResponse.json(
@@ -46,6 +47,7 @@ export async function POST(_request: Request, context: Context) {
         ok: true,
         async: true,
         runId: run.runId,
+        audioInsightsRunId: audioInsightsRun?.skipped ? null : audioInsightsRun?.runId ?? null,
         message: "Processing started."
       },
       { status: 202 }

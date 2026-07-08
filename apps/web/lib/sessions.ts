@@ -80,36 +80,28 @@ type AnalysisRow = {
   status: "processing" | "ready" | "failed";
   result_json: AnalysisResult;
   created_at: string;
+  version?: number | null;
+  is_current?: boolean | null;
+  rubric_id?: string | null;
+  rubric_name?: string | null;
+  trigger?: string | null;
 };
 
-type AnalysisRunRow = {
-  id: string;
-  session_id: string;
-  version: number;
-  is_current: boolean;
-  status: "processing" | "ready" | "failed";
-  result_json: AnalysisResult;
-  rubric_id: string | null;
-  rubric_name: string | null;
-  trigger: string | null;
-  created_at: string;
-};
-
-function mapAnalysisRunSummary(row: AnalysisRunRow): AnalysisRunSummary {
+function mapAnalysisRunSummary(row: AnalysisRow): AnalysisRunSummary {
   return {
     id: row.id,
     sessionId: row.session_id,
-    version: row.version,
-    isCurrent: row.is_current,
+    version: row.version ?? 1,
+    isCurrent: row.is_current ?? true,
     overallScore: row.result_json.overallScore,
-    rubricId: row.rubric_id,
-    rubricName: row.rubric_name,
+    rubricId: row.rubric_id ?? null,
+    rubricName: row.rubric_name ?? null,
     trigger: row.trigger === "initial" || row.trigger === "reanalyze" ? row.trigger : null,
     createdAt: row.created_at,
   };
 }
 
-function mapAnalysisRun(row: AnalysisRunRow): AnalysisRun {
+function mapAnalysisRun(row: AnalysisRow): AnalysisRun {
   return {
     ...mapAnalysisRunSummary(row),
     result: row.result_json,
@@ -486,8 +478,8 @@ export async function listAnalysisRuns(sessionId: string): Promise<AnalysisRunSu
   try {
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
-      .from("analysis_runs")
-      .select("id,session_id,version,is_current,status,result_json,rubric_id,rubric_name,trigger,created_at")
+      .from("analyses")
+      .select("id,session_id,status,result_json,created_at,version,is_current,rubric_id,rubric_name,trigger")
       .eq("session_id", sessionId)
       .order("version", { ascending: false });
 
@@ -495,36 +487,7 @@ export async function listAnalysisRuns(sessionId: string): Promise<AnalysisRunSu
       throw new Error(error.message);
     }
 
-    const rows = (data as AnalysisRunRow[] | null) ?? [];
-    if (rows.length > 0) {
-      return rows.map(mapAnalysisRunSummary);
-    }
-
-    const { data: legacy, error: legacyError } = await supabase
-      .from("analyses")
-      .select("id,session_id,status,result_json,created_at")
-      .eq("session_id", sessionId)
-      .maybeSingle<AnalysisRow>();
-
-    if (legacyError) {
-      throw new Error(legacyError.message);
-    }
-
-    if (legacy) {
-      return [{
-        id: legacy.id,
-        sessionId,
-        version: 1,
-        isCurrent: true,
-        overallScore: legacy.result_json.overallScore,
-        rubricId: null,
-        rubricName: null,
-        trigger: "initial",
-        createdAt: legacy.created_at,
-      }];
-    }
-
-    return [];
+    return ((data as AnalysisRow[] | null) ?? []).map(mapAnalysisRunSummary);
   } catch {
     return listLocalAnalysisRuns(sessionId);
   }
@@ -541,90 +504,64 @@ export async function getAnalysisRun(
 
     if (filter?.kind === "id") {
       const { data, error } = await supabase
-        .from("analysis_runs")
-        .select("id,session_id,version,is_current,status,result_json,rubric_id,rubric_name,trigger,created_at")
+        .from("analyses")
+        .select("id,session_id,status,result_json,created_at,version,is_current,rubric_id,rubric_name,trigger")
         .eq("session_id", sessionId)
         .eq("id", filter.value)
-        .maybeSingle<AnalysisRunRow>();
+        .maybeSingle<AnalysisRow>();
       if (error) throw new Error(error.message);
       if (data) return mapAnalysisRun(data);
     } else if (filter?.kind === "version") {
       const { data, error } = await supabase
-        .from("analysis_runs")
-        .select("id,session_id,version,is_current,status,result_json,rubric_id,rubric_name,trigger,created_at")
+        .from("analyses")
+        .select("id,session_id,status,result_json,created_at,version,is_current,rubric_id,rubric_name,trigger")
         .eq("session_id", sessionId)
         .eq("version", filter.value)
-        .maybeSingle<AnalysisRunRow>();
+        .maybeSingle<AnalysisRow>();
       if (error) throw new Error(error.message);
       if (data) return mapAnalysisRun(data);
     } else {
       const { data, error } = await supabase
-        .from("analysis_runs")
-        .select("id,session_id,version,is_current,status,result_json,rubric_id,rubric_name,trigger,created_at")
+        .from("analyses")
+        .select("id,session_id,status,result_json,created_at,version,is_current,rubric_id,rubric_name,trigger")
         .eq("session_id", sessionId)
         .eq("is_current", true)
         .order("version", { ascending: false })
         .limit(1);
       if (error) throw new Error(error.message);
-      const row = (data as AnalysisRunRow[] | null)?.[0];
+      const row = (data as AnalysisRow[] | null)?.[0];
       if (row) return mapAnalysisRun(row);
     }
   } catch {
     return getLocalAnalysisRun(sessionId, version);
   }
 
-  if (version) return null;
-
-  try {
-    const supabase = getSupabaseServiceClient();
-    const { data, error } = await supabase
-      .from("analyses")
-      .select("id,session_id,status,result_json,created_at")
-      .eq("session_id", sessionId)
-      .maybeSingle<AnalysisRow>();
-
-    if (error) throw new Error(error.message);
-    if (!data) return null;
-
-    return {
-      id: data.id,
-      sessionId,
-      version: 1,
-      isCurrent: true,
-      overallScore: data.result_json.overallScore,
-      rubricId: null,
-      rubricName: null,
-      trigger: "initial",
-      createdAt: data.created_at,
-      result: data.result_json,
-    };
-  } catch {
-    return getLocalAnalysisRun(sessionId, version);
-  }
+  return null;
 }
 
 export async function getAnalysisBySessionId(
   sessionId: string,
   version?: string | null
 ): Promise<AnalysisResult | null> {
-  const run = await getAnalysisRun(sessionId, version);
-  if (run) return run.result;
-
-  if (version) return null;
+  if (version) {
+    return (await getAnalysisRun(sessionId, version))?.result ?? null;
+  }
 
   try {
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
       .from("analyses")
-      .select("id,session_id,status,result_json,created_at")
+      .select("id,session_id,status,result_json,created_at,version,is_current,rubric_id,rubric_name,trigger")
       .eq("session_id", sessionId)
-      .maybeSingle<AnalysisRow>();
+      .eq("is_current", true)
+      .order("version", { ascending: false })
+      .limit(1);
 
     if (error) {
       throw new Error(`Failed to fetch analysis: ${error.message}`);
     }
 
-    return data?.result_json ?? null;
+    return ((data as AnalysisRow[] | null)?.[0]?.result_json) ?? null;
   } catch {
     return getLocalAnalysis(sessionId);
   }
@@ -643,7 +580,7 @@ export async function saveAnalysisRun(
     const supabase = getSupabaseServiceClient();
 
     const { data: existingRows, error: existingError } = await supabase
-      .from("analysis_runs")
+      .from("analyses")
       .select("version")
       .eq("session_id", sessionId)
       .order("version", { ascending: false })
@@ -653,11 +590,28 @@ export async function saveAnalysisRun(
       throw new Error(existingError.message);
     }
 
-    const nextVersion = ((existingRows as Array<{ version: number }> | null)?.[0]?.version ?? 0) + 1;
+    const nextVersion = ((existingRows as Array<{ version: number | null }> | null)?.[0]?.version ?? 0) + 1;
     const trigger = meta?.trigger ?? (nextVersion > 1 ? "reanalyze" : "initial");
 
+    const { data, error } = await supabase.from("analyses").insert(
+      {
+        session_id: sessionId,
+        version: nextVersion,
+        is_current: false,
+        status: "ready",
+        result_json: analysis,
+        rubric_id: meta?.rubricId ?? null,
+        rubric_name: meta?.rubricName ?? null,
+        trigger,
+      } as never
+    ).select("id,version").single<{ id: string; version: number }>();
+
+    if (error) {
+      throw new Error(`Failed to save analysis: ${error.message}`);
+    }
+
     const { error: clearCurrentError } = await supabase
-      .from("analysis_runs")
+      .from("analyses")
       .update({ is_current: false } as never)
       .eq("session_id", sessionId)
       .eq("is_current", true);
@@ -666,23 +620,13 @@ export async function saveAnalysisRun(
       throw new Error(clearCurrentError.message);
     }
 
-    const { data: inserted, error: insertError } = await supabase
-      .from("analysis_runs")
-      .insert({
-        session_id: sessionId,
-        version: nextVersion,
-        is_current: true,
-        status: "ready",
-        result_json: analysis,
-        rubric_id: meta?.rubricId ?? null,
-        rubric_name: meta?.rubricName ?? null,
-        trigger,
-      } as never)
-      .select("id,version")
-      .single<{ id: string; version: number }>();
+    const { error: markCurrentError } = await supabase
+      .from("analyses")
+      .update({ is_current: true } as never)
+      .eq("id", data.id);
 
-    if (insertError) {
-      throw new Error(insertError.message);
+    if (markCurrentError) {
+      throw new Error(markCurrentError.message);
     }
 
     const { error: sessionUpdateError } = await supabase
@@ -697,20 +641,7 @@ export async function saveAnalysisRun(
       throw new Error(`Failed to update session status: ${sessionUpdateError.message}`);
     }
 
-    const { error: legacyError } = await supabase.from("analyses").upsert(
-      {
-        session_id: sessionId,
-        status: "ready",
-        result_json: analysis,
-      } as never,
-      { onConflict: "session_id" }
-    );
-
-    if (legacyError) {
-      throw new Error(`Failed to save analysis: ${legacyError.message}`);
-    }
-
-    return { runId: inserted.id, version: inserted.version };
+    return { runId: data.id, version: data.version };
   } catch {
     return saveLocalAnalysisRun(sessionId, analysis, meta);
   }

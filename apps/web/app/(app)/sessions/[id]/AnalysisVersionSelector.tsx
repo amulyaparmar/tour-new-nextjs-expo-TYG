@@ -7,18 +7,6 @@ import type { AnalysisRunSummary } from "@tour/shared";
 
 import styles from "./session-detail.module.css";
 
-function formatRunLabel(run: AnalysisRunSummary) {
-  const date = new Date(run.createdAt).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  const rubric = run.rubricName ? ` · ${run.rubricName}` : "";
-  const current = run.isCurrent ? " · Current" : "";
-  return `v${run.version} · ${run.overallScore}% · ${date}${rubric}${current}`;
-}
-
 export function AnalysisVersionSelector({
   sessionId,
   runs,
@@ -51,7 +39,7 @@ export function AnalysisVersionSelector({
       >
         {runs.map((run) => (
           <option key={run.id} value={run.version}>
-            {formatRunLabel(run)}
+            v{run.version}
           </option>
         ))}
       </select>

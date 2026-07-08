@@ -24,7 +24,7 @@ export const TRANSCRIBE_PROVIDERS: readonly TranscribeProvider[] = [
   {
     id: "elevenlabs",
     label: "ElevenLabs Scribe",
-    description: "Scribe v2 STT with speaker roles. Requires ELEVENLABS_API_KEY.",
+    description: "Scribe v2 STT with agent/customer role detection (Agent/Prospect labels). Requires ELEVENLABS_API_KEY.",
     supportsAudioUnderstanding: false,
   },
   {

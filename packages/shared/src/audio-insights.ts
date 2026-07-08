@@ -1,3 +1,8 @@
+import {
+  normalizeParticipantName,
+  type SessionParticipants,
+} from "./speaker-labels";
+
 export type AudioEmotion = "happy" | "sad" | "angry" | "neutral" | "excited" | "concerned";
 
 export type AudioSentiment = "positive" | "neutral" | "negative" | "mixed";
@@ -35,6 +40,35 @@ export type AudioInsightHighlight = {
   explanation: string;
 };
 
+/** Gong-style conversation metrics extracted from audio. */
+export type AudioConversationStats = {
+  /** Rep/agent share of total talk time (0–100). */
+  talkRatioPercent: number;
+  /** Total seconds the rep/agent spoke. */
+  repTalkTimeSeconds: number;
+  /** Longest uninterrupted prospect/customer monologue in seconds. */
+  longestProspectTalkSeconds: number;
+  /** Longest uninterrupted monologue by either party in seconds. */
+  longestTalkSeconds: number;
+  /** Meaningful back-and-forth quality score, 0-5. */
+  interactivityScore: number;
+  /** Interactivity score denominator. Normalized to 5. */
+  interactivityTotal: number;
+  /** Average pause in seconds after the prospect stops before the rep responds. */
+  patienceSeconds: number;
+  /** Rep/agent speaking rate in words per minute. */
+  talkSpeedWordsPerMinute: number;
+  /** Optional brief note on interactivity / engagement quality. */
+  interactivityNotes?: string;
+};
+
+/** Gemini Files API reference for follow-up chat with the recording. */
+export type GeminiAudioFileRef = {
+  uri: string;
+  mimeType: string;
+  name?: string;
+};
+
 /** Gemini multimodal audio analysis stored on a session. */
 export type AudioInsights = {
   provider: "gemini";
@@ -45,6 +79,12 @@ export type AudioInsights = {
   segments: AudioInsightSegment[];
   ambienceCues: AudioAmbienceCue[];
   highlights: AudioInsightHighlight[];
+  /** Conversation intelligence stats (talk ratio, interactivity, etc.). */
+  conversationStats?: AudioConversationStats;
+  /** Participant names inferred from direct audio understanding. */
+  participants?: SessionParticipants;
+  /** Uploaded recording on Gemini Files API for chat. */
+  audioFile?: GeminiAudioFileRef;
 };
 
 export function normalizeAudioInsights(value: unknown): AudioInsights | null {
@@ -81,6 +121,29 @@ export function normalizeAudioInsights(value: unknown): AudioInsights | null {
           .map(normalizeHighlight)
           .filter((item): item is AudioInsightHighlight => item != null)
       : [],
+    conversationStats: normalizeConversationStats(raw.conversationStats),
+    participants: normalizeAudioParticipants(raw.participants),
+    audioFile: normalizeAudioFileRef(raw.audioFile),
+  };
+}
+
+function normalizeAudioParticipants(value: unknown): SessionParticipants | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Partial<SessionParticipants>;
+  const agentName = normalizeParticipantName(raw.agentName);
+  const prospectName = normalizeParticipantName(raw.prospectName);
+  if (!agentName && !prospectName) return undefined;
+  return { agentName, prospectName };
+}
+
+function normalizeAudioFileRef(value: unknown): GeminiAudioFileRef | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Partial<GeminiAudioFileRef>;
+  if (typeof raw.uri !== "string" || typeof raw.mimeType !== "string") return undefined;
+  return {
+    uri: raw.uri,
+    mimeType: raw.mimeType,
+    name: typeof raw.name === "string" ? raw.name : undefined,
   };
 }
 
@@ -157,4 +220,43 @@ function normalizeHighlight(value: unknown): AudioInsightHighlight | null {
     label: raw.label,
     explanation: raw.explanation,
   };
+}
+
+function normalizeConversationStats(value: unknown): AudioConversationStats | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Partial<AudioConversationStats>;
+  if (typeof raw.talkRatioPercent !== "number") return undefined;
+  if (typeof raw.repTalkTimeSeconds !== "number") return undefined;
+  if (typeof raw.longestProspectTalkSeconds !== "number") return undefined;
+  if (typeof raw.longestTalkSeconds !== "number") return undefined;
+  if (typeof raw.interactivityScore !== "number") return undefined;
+  if (typeof raw.interactivityTotal !== "number") return undefined;
+  if (typeof raw.patienceSeconds !== "number") return undefined;
+  if (typeof raw.talkSpeedWordsPerMinute !== "number") return undefined;
+
+  const rawInteractivityTotal = Math.max(0, Math.round(raw.interactivityTotal));
+  const rawInteractivityScore = Math.max(0, raw.interactivityScore);
+  const interactivityTotal = 5;
+  const interactivityScore = rawInteractivityTotal > 10
+    ? Math.round(clampNumber((rawInteractivityScore / rawInteractivityTotal) * interactivityTotal, 0, interactivityTotal))
+    : Math.round(clampNumber(rawInteractivityScore, 0, interactivityTotal));
+
+  return {
+    talkRatioPercent: clampNumber(raw.talkRatioPercent, 0, 100),
+    repTalkTimeSeconds: Math.max(0, raw.repTalkTimeSeconds),
+    longestProspectTalkSeconds: Math.max(0, raw.longestProspectTalkSeconds),
+    longestTalkSeconds: Math.max(0, raw.longestTalkSeconds),
+    interactivityScore,
+    interactivityTotal,
+    patienceSeconds: Math.max(0, raw.patienceSeconds),
+    talkSpeedWordsPerMinute: Math.max(0, raw.talkSpeedWordsPerMinute),
+    interactivityNotes:
+      typeof raw.interactivityNotes === "string" && raw.interactivityNotes.trim()
+        ? raw.interactivityNotes.trim()
+        : undefined,
+  };
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }

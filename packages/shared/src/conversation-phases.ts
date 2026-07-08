@@ -75,6 +75,16 @@ export type ConversationPhaseSegmentation = {
   structureNotes?: string;
 };
 
+export type SegmentationParticipants = {
+  agentName: string | null;
+  prospectName: string | null;
+};
+
+export type ConversationPhaseSegmentationResult = {
+  segmentation: ConversationPhaseSegmentation;
+  participants: SegmentationParticipants;
+};
+
 export const CONVERSATION_PHASE_LABELS: Record<ConversationPhaseId, string> = Object.fromEntries(
   LEASING_TOUR_PHASES.map((phase) => [phase.id, phase.label])
 ) as Record<ConversationPhaseId, string>;

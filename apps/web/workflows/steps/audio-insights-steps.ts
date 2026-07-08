@@ -6,6 +6,7 @@ import {
   getSessionById,
   saveAudioInsights,
   setAudioInsightsStatus,
+  updateSession,
 } from "@/lib/sessions";
 import { fetchRecordingFile } from "@/lib/storage";
 
@@ -32,6 +33,12 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
     transcript,
   });
   await saveAudioInsights(sessionId, insights);
+  const nameUpdates: { agentName?: string; prospectName?: string } = {};
+  if (insights.participants?.agentName) nameUpdates.agentName = insights.participants.agentName;
+  if (insights.participants?.prospectName) nameUpdates.prospectName = insights.participants.prospectName;
+  if (Object.keys(nameUpdates).length > 0) {
+    await updateSession(sessionId, nameUpdates);
+  }
   await setAudioInsightsStatus(sessionId, "ready");
 
   return {

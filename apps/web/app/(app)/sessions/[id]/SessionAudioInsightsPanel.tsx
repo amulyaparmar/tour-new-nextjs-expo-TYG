@@ -284,6 +284,7 @@ function AudioStatsGrid({
 }: {
   stats: NonNullable<AudioInsights["conversationStats"]>;
 }) {
+  const interactivityScore = formatInteractivityScore(stats);
   const items = [
     {
       label: "Talk ratio",
@@ -307,8 +308,8 @@ function AudioStatsGrid({
     },
     {
       label: "Interactivity",
-      value: `${stats.interactivityScore}/${stats.interactivityTotal}`,
-      hint: "Meaningful exchanges / total speaker turns",
+      value: `${interactivityScore}/5`,
+      hint: "Meaningful back-and-forth quality",
     },
     {
       label: "Patience",
@@ -337,6 +338,13 @@ function AudioStatsGrid({
       ) : null}
     </div>
   );
+}
+
+function formatInteractivityScore(stats: NonNullable<AudioInsights["conversationStats"]>): number {
+  if (stats.interactivityTotal > 5) {
+    return Math.round(Math.max(0, Math.min(5, (stats.interactivityScore / stats.interactivityTotal) * 5)));
+  }
+  return Math.round(Math.max(0, Math.min(5, stats.interactivityScore)));
 }
 
 function formatStatDuration(seconds: number): string {

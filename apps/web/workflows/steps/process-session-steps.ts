@@ -66,18 +66,11 @@ export async function segmentPhasesStep(sessionId: string) {
 
   const transcript = await getTranscript(sessionId);
   const rubric = await getRubricForSession(session.rubricId);
-  const { segmentation, participants } = await segmentConversationPhases(transcript, {
+  const { segmentation } = await segmentConversationPhases(transcript, {
     segmentationPrompt: rubric.segmentationPrompt,
     sessionType: rubric.sessionType,
   });
   await saveConversationPhases(sessionId, segmentation);
-
-  const nameUpdates: { agentName?: string; prospectName?: string } = {};
-  if (participants.agentName) nameUpdates.agentName = participants.agentName;
-  if (participants.prospectName) nameUpdates.prospectName = participants.prospectName;
-  if (Object.keys(nameUpdates).length > 0) {
-    await updateSession(sessionId, nameUpdates);
-  }
 
   return { spanCount: segmentation.spans.length };
 }

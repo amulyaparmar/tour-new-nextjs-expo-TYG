@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   normalizeAudioInsights,
+  normalizeParticipantName,
   type AudioInsights,
 } from "@tour/shared";
 
@@ -87,6 +88,20 @@ const AUDIO_INSIGHTS_SCHEMA = {
         required: ["timestamp", "label", "explanation"],
       },
     },
+    participants: {
+      type: "object",
+      properties: {
+        agentName: {
+          type: "string",
+          description: "Leasing agent/staff name heard in the audio; empty string if unknown",
+        },
+        prospectName: {
+          type: "string",
+          description: "Prospect/customer/visitor name heard in the audio; empty string if unknown",
+        },
+      },
+      required: ["agentName", "prospectName"],
+    },
     conversationStats: {
       type: "object",
       properties: {
@@ -108,11 +123,11 @@ const AUDIO_INSIGHTS_SCHEMA = {
         },
         interactivityScore: {
           type: "number",
-          description: "Count of meaningful back-and-forth exchanges; passive acks should not count",
+          description: "Meaningful back-and-forth quality score from 0-5; passive acks should not count",
         },
         interactivityTotal: {
           type: "number",
-          description: "Total speaker turns in the conversation (denominator for interactivity)",
+          description: "Interactivity denominator; always return 5",
         },
         patienceSeconds: {
           type: "number",
@@ -139,7 +154,7 @@ const AUDIO_INSIGHTS_SCHEMA = {
       ],
     },
   },
-  required: ["summary", "overallSentiment", "segments", "conversationStats"],
+  required: ["summary", "overallSentiment", "segments", "participants", "conversationStats"],
 } as const;
 
 type GeminiAudioInsightsPayload = {
@@ -167,6 +182,10 @@ type GeminiAudioInsightsPayload = {
     label: string;
     explanation: string;
   }>;
+  participants: {
+    agentName: string;
+    prospectName: string;
+  };
   conversationStats: {
     talkRatioPercent: number;
     repTalkTimeSeconds: number;
@@ -192,13 +211,17 @@ function buildAudioInsightsPrompt(transcript?: TranscriptSegment[]): string {
     "4. Note non-speech ambience cues (background noise, doors, music, HVAC, etc.).",
     "5. Flag 3-6 coaching highlights (rapport wins, hesitation, objections, missed closes).",
     "6. Summarize overall sentiment for the interaction.",
-    "7. Compute conversationStats from the audio:",
+    "7. Extract participant names from audio understanding:",
+    "   - agentName: leasing agent or staff member conducting the tour/call; use empty string if unknown",
+    "   - prospectName: prospect, customer, visitor, or shopper; use empty string if unknown",
+    "   - Prefer spoken introductions and how speakers address each other. Do not infer names from tool/schema text.",
+    "8. Compute conversationStats from the audio:",
     "   - talkRatioPercent: rep/agent talk time ÷ total talk time × 100",
     "   - repTalkTimeSeconds: total rep/agent speaking time",
     "   - longestProspectTalkSeconds: longest uninterrupted prospect/customer monologue",
     "   - longestTalkSeconds: longest uninterrupted monologue by either party",
-    "   - interactivityScore: count of meaningful back-and-forth exchanges where ideas or questions exchange; ignore passive acks ('yeah', 'uh-huh', 'right') and brief overlaps",
-    "   - interactivityTotal: total speaker turns in the conversation (including brief acks)",
+    "   - interactivityScore: score the quality of meaningful back-and-forth from 0-5; ignore passive acks ('yeah', 'uh-huh', 'right') and brief overlaps",
+    "   - interactivityTotal: always 5",
     "   - patienceSeconds: average pause after the prospect finishes before the rep starts (lower = more interruptive)",
     "   - talkSpeedWordsPerMinute: rep/agent words per minute",
     "   - interactivityNotes: 1-2 sentences on engagement quality",
@@ -293,6 +316,10 @@ export async function generateAudioInsights(params: {
       label: item.label,
       explanation: item.explanation,
     })),
+    participants: {
+      agentName: normalizeParticipantName(payload.participants?.agentName),
+      prospectName: normalizeParticipantName(payload.participants?.prospectName),
+    },
     conversationStats: {
       talkRatioPercent: payload.conversationStats.talkRatioPercent,
       repTalkTimeSeconds: payload.conversationStats.repTalkTimeSeconds,

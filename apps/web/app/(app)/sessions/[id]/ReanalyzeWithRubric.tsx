@@ -1,8 +1,9 @@
 "use client";
 
+import type { SessionStatus } from "@tour/shared";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 
 import { waitForSessionProcessing } from "@/lib/wait-for-session-processing";
 import { RubricSelector } from "../../RubricSelector";
@@ -20,6 +21,7 @@ export function ReanalyzeWithRubric({
   const [selectedRubricId, setSelectedRubricId] = useState(currentRubricId ?? "");
   const [resegment, setResegment] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isRefreshing, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   const rubricChanged = Boolean(selectedRubricId && selectedRubricId !== (currentRubricId ?? ""));
@@ -50,21 +52,34 @@ export function ReanalyzeWithRubric({
       }
 
       if (response.status === 202) {
-        await waitForSessionProcessing(sessionId);
+        await waitForSessionProcessing(sessionId, {
+          fetchSession: async () => {
+            const res = await fetch(`/api/sessions/${sessionId}/status`, { cache: "no-store" });
+            if (!res.ok) throw new Error("Failed to check session status.");
+            const body = (await res.json()) as {
+              session: { status: SessionStatus; overallScore?: number | null };
+            };
+            return body.session;
+          },
+        });
       }
 
       const runsRes = await fetch(`/api/sessions/${sessionId}/analysis/runs`, { cache: "no-store" });
-      if (runsRes.ok) {
-        const payload = await runsRes.json() as { runs?: Array<{ version: number; isCurrent?: boolean }> };
-        const latest = payload.runs?.find((run) => run.isCurrent) ?? payload.runs?.[0];
-        if (latest) {
-          router.push(`/sessions/${encodeURIComponent(sessionId)}?version=${latest.version}`);
-          router.refresh();
-          return;
-        }
-      }
+      const runsPayload = runsRes.ok
+        ? ((await runsRes.json()) as { runs?: Array<{ version: number; isCurrent?: boolean }> })
+        : null;
+      const latestVersion =
+        runsPayload?.runs?.find((run) => run.isCurrent)?.version
+        ?? runsPayload?.runs?.[0]?.version
+        ?? null;
 
-      router.refresh();
+      startTransition(() => {
+        const href = latestVersion
+          ? `/sessions/${encodeURIComponent(sessionId)}?version=${latestVersion}`
+          : `/sessions/${encodeURIComponent(sessionId)}`;
+        router.replace(href);
+        router.refresh();
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to re-analyze session.");
     } finally {
@@ -103,12 +118,12 @@ export function ReanalyzeWithRubric({
           type="button"
           className="btn btn-outline btn-sm"
           onClick={handleReanalyze}
-          disabled={loading || !(selectedRubricId || currentRubricId)}
+          disabled={loading || isRefreshing || !(selectedRubricId || currentRubricId)}
         >
-          {loading ? (
+          {loading || isRefreshing ? (
             <>
               <Loader2 size={13} className="spin" />
-              Re-analyzing…
+              {isRefreshing ? "Refreshing..." : "Re-analyzing..."}
             </>
           ) : (
             <>

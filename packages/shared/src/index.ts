@@ -1,4 +1,5 @@
 export * from "./ai-models";
+export * from "./gemini-models";
 export * from "./transcribe-providers";
 export * from "./shop-rubrics";
 export * from "./rubric";
@@ -7,5 +8,6 @@ export * from "./tour";
 export * from "./session";
 export * from "./conversation-phases";
 export * from "./audio-insights";
+export * from "./audio-insights-status";
 export * from "./speaker-labels";
 export * from "./presigned-upload";

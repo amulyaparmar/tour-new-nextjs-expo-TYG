@@ -1,11 +1,11 @@
+import type { AudioInsightsStatus } from "./audio-insights-status";
+
 export type SessionStatus =
   | "scheduled"
   | "in_progress"
   | "uploaded"
   | "transcribing"
-  | "analyzing_audio"
   | "segmenting"
-  | "extracting_screenshots"
   | "analyzing"
   | "analysis_ready"
   | "reviewed"
@@ -36,6 +36,7 @@ export type SessionSummary = {
   id: string;
   title: string;
   prospectName: string | null;
+  agentName: string | null;
   scheduledAt: string | null;
   location: string | null;
   status: SessionStatus;
@@ -48,6 +49,7 @@ export type SessionSummary = {
   overallScore: number | null;
   duration: number | null;
   createdAt: string;
+  audioInsightsStatus: AudioInsightsStatus;
 };
 
 export type SessionDetail = SessionSummary & {
@@ -61,6 +63,7 @@ export type CreateSessionInput = {
   scheduledAt?: string | null;
   location?: string | null;
   prospectName?: string | null;
+  agentName?: string | null;
   notes?: string | null;
   source?: SessionSource;
   leads?: SessionLead[];
@@ -103,6 +106,24 @@ export type AnalysisResult = {
   }>;
 };
 
+export type AnalysisRunTrigger = "initial" | "reanalyze";
+
+export type AnalysisRunSummary = {
+  id: string;
+  sessionId: string;
+  version: number;
+  isCurrent: boolean;
+  overallScore: number;
+  rubricId: string | null;
+  rubricName: string | null;
+  trigger: AnalysisRunTrigger | null;
+  createdAt: string;
+};
+
+export type AnalysisRun = AnalysisRunSummary & {
+  result: AnalysisResult;
+};
+
 export type FollowUpAction = {
   id: string;
   sessionId: string;
@@ -114,14 +135,18 @@ export type FollowUpAction = {
   createdAt: string;
 };
 
+/** Map legacy DB statuses to the current pipeline. */
+export function normalizeSessionStatus(status: string): SessionStatus {
+  if (status === "extracting_screenshots") return "analyzing";
+  return status as SessionStatus;
+}
+
 export const SESSION_STATUS_LABELS: Record<SessionStatus, string> = {
   scheduled: "Scheduled",
   in_progress: "In progress",
   uploaded: "Uploaded",
   transcribing: "Transcribing",
-  analyzing_audio: "Analyzing audio",
   segmenting: "Segmenting conversation",
-  extracting_screenshots: "Extracting screenshots",
   analyzing: "Analyzing",
   analysis_ready: "Analysis ready",
   reviewed: "Reviewed",

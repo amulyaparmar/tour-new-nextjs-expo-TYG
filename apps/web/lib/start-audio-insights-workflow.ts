@@ -2,7 +2,6 @@ import { start } from "workflow/api";
 
 import { isGeminiConfigured } from "@/lib/gemini-client";
 import {
-  clearAudioInsights,
   setAudioInsightsStatus,
 } from "@/lib/sessions";
 import { processAudioInsightsWorkflow } from "@/workflows/process-audio-insights";
@@ -10,7 +9,6 @@ import { processAudioInsightsWorkflow } from "@/workflows/process-audio-insights
 const ACTIVE_AUDIO_INSIGHTS_STATUSES = new Set(["pending", "processing"]);
 
 export async function prepareAudioInsightsProcessing(sessionId: string) {
-  await clearAudioInsights(sessionId);
   await setAudioInsightsStatus(sessionId, "pending");
 }
 

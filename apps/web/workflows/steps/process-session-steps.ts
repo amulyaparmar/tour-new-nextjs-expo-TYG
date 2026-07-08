@@ -156,3 +156,16 @@ export async function markSessionFailedStep(sessionId: string) {
   "use step";
   await setSessionStatus(sessionId, "failed").catch(() => {});
 }
+
+export async function markReanalysisFailedStep(sessionId: string) {
+  "use step";
+
+  const analysis = await getAnalysisBySessionId(sessionId).catch(() => null);
+  if (analysis) {
+    await setSessionStatus(sessionId, "analysis_ready", analysis.overallScore).catch(() => {});
+    return { preservedExistingAnalysis: true };
+  }
+
+  await setSessionStatus(sessionId, "failed").catch(() => {});
+  return { preservedExistingAnalysis: false };
+}

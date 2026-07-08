@@ -45,6 +45,16 @@ import {
 } from "./local-store";
 import { getSupabaseServiceClient } from "./supabase";
 
+function rethrowInProduction(error: unknown): void {
+  if (process.env.NODE_ENV === "production") {
+    throw error;
+  }
+}
+
+function shouldUseLocalStoreFallback(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
 type SessionRow = {
   id: string;
   title: string;
@@ -237,7 +247,8 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
     const total = count ?? sessions.length;
 
     return { sessions, total, page, limit, hasMore: offset + sessions.length < total };
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     let all = await listLocalSessions();
 
     if (params?.excludeScheduled) {
@@ -327,7 +338,8 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     }
 
     return mapSessionRow(data);
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     return createLocalSession({
       title: normalizedTitle,
       scheduledAt: input.scheduledAt ?? null,
@@ -365,7 +377,8 @@ export async function findOpenQrSession(): Promise<SessionSummary | null> {
 
     if (error) throw new Error(error.message);
     return data ? mapSessionRow(data) : null;
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     return findOpenLocalQrSession(cutoff);
   }
 }
@@ -388,7 +401,8 @@ export async function addSessionLead(sessionId: string, lead: SessionLead): Prom
       .eq("id", sessionId);
 
     if (updateError) throw new Error(updateError.message);
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     await addLocalSessionLead(sessionId, lead);
   }
 }
@@ -430,7 +444,8 @@ export async function updateSession(
 
     const { error } = await supabase.from("sessions").update(row as never).eq("id", sessionId);
     if (error) throw error;
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     await updateLocalSession(sessionId, {
       ...fields,
       prospectName: fields.prospectName === undefined ? undefined : normalizeParticipantName(fields.prospectName),
@@ -446,7 +461,8 @@ export async function deleteSession(sessionId: string): Promise<void> {
     if (error) {
       throw new Error(`Failed to delete session: ${error.message}`);
     }
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     await deleteLocalSession(sessionId);
   }
 }
@@ -469,7 +485,8 @@ export async function getSessionById(sessionId: string): Promise<SessionDetail |
     }
 
     return mapSessionDetailRow(data);
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     return getLocalSessionById(sessionId);
   }
 }
@@ -488,7 +505,8 @@ export async function listAnalysisRuns(sessionId: string): Promise<AnalysisRunSu
     }
 
     return ((data as AnalysisRow[] | null) ?? []).map(mapAnalysisRunSummary);
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     return listLocalAnalysisRuns(sessionId);
   }
 }
@@ -532,7 +550,8 @@ export async function getAnalysisRun(
       const row = (data as AnalysisRow[] | null)?.[0];
       if (row) return mapAnalysisRun(row);
     }
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     return getLocalAnalysisRun(sessionId, version);
   }
 
@@ -562,7 +581,8 @@ export async function getAnalysisBySessionId(
     }
 
     return ((data as AnalysisRow[] | null)?.[0]?.result_json) ?? null;
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     return getLocalAnalysis(sessionId);
   }
 }
@@ -600,7 +620,8 @@ export async function saveAnalysisRun(
     }
 
     return { runId: row.run_id, version: row.version };
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     return saveLocalAnalysisRun(sessionId, analysis, meta);
   }
 }
@@ -632,7 +653,8 @@ export async function listFollowUpActions(sessionId: string): Promise<FollowUpAc
     }
 
     return ((data as FollowUpActionRow[] | null) ?? []).map(mapFollowUpActionRow);
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     return listLocalActions(sessionId);
   }
 }
@@ -673,7 +695,8 @@ export async function replaceFollowUpActions(
     if (insertError) {
       throw new Error(`Failed to insert actions: ${insertError.message}`);
     }
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     await replaceLocalActions(sessionId, actions);
   }
 }
@@ -692,7 +715,8 @@ export async function updateFollowUpActionStatus(
     if (error) {
       throw new Error(`Failed to update action status: ${error.message}`);
     }
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     await updateLocalActionStatus(actionId, status);
   }
 }
@@ -716,7 +740,8 @@ export async function setSessionStatus(
     if (error) {
       throw new Error(`Failed to set session status: ${error.message}`);
     }
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     await setLocalSessionStatus(sessionId, status, overallScore);
   }
 }
@@ -746,7 +771,8 @@ export async function saveTranscript(sessionId: string, segments: StoredTranscri
       .eq("id", sessionId);
 
     if (error) throw error;
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     await saveLocalTranscript(sessionId, segments);
   }
 }
@@ -774,8 +800,9 @@ export async function getTranscript(sessionId: string): Promise<StoredTranscript
       }));
     }
 
-    return getLocalTranscript(sessionId);
-  } catch {
+    return shouldUseLocalStoreFallback() ? getLocalTranscript(sessionId) : [];
+  } catch (error) {
+    rethrowInProduction(error);
     return getLocalTranscript(sessionId);
   }
 }
@@ -792,7 +819,8 @@ export async function saveConversationPhases(
       .eq("id", sessionId);
 
     if (error) throw error;
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     await saveLocalConversationPhases(sessionId, segmentation);
   }
 }
@@ -814,8 +842,11 @@ export async function getConversationPhases(
     const normalized = normalizeConversationPhaseSegmentation(raw);
     if (normalized) return normalized;
 
-    return normalizeConversationPhaseSegmentation(await getLocalConversationPhases(sessionId));
-  } catch {
+    return shouldUseLocalStoreFallback()
+      ? normalizeConversationPhaseSegmentation(await getLocalConversationPhases(sessionId))
+      : null;
+  } catch (error) {
+    rethrowInProduction(error);
     return normalizeConversationPhaseSegmentation(await getLocalConversationPhases(sessionId));
   }
 }
@@ -832,7 +863,8 @@ export async function saveAudioInsights(sessionId: string, insights: AudioInsigh
       .eq("id", sessionId);
 
     if (error) throw error;
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     await saveLocalAudioInsights(sessionId, insights);
     await setLocalAudioInsightsStatus(sessionId, "ready");
   }
@@ -847,7 +879,8 @@ export async function clearAudioInsights(sessionId: string) {
       .eq("id", sessionId);
 
     if (error) throw error;
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     await clearLocalAudioInsights(sessionId);
   }
 }
@@ -864,7 +897,8 @@ export async function setAudioInsightsStatus(
       .eq("id", sessionId);
 
     if (error) throw error;
-  } catch {
+  } catch (error) {
+    rethrowInProduction(error);
     await setLocalAudioInsightsStatus(sessionId, status);
   }
 }
@@ -883,8 +917,11 @@ export async function getAudioInsights(sessionId: string): Promise<AudioInsights
     const normalized = normalizeAudioInsights(data?.audio_insights_json);
     if (normalized) return normalized;
 
-    return normalizeAudioInsights(await getLocalAudioInsights(sessionId));
-  } catch {
+    return shouldUseLocalStoreFallback()
+      ? normalizeAudioInsights(await getLocalAudioInsights(sessionId))
+      : null;
+  } catch (error) {
+    rethrowInProduction(error);
     return normalizeAudioInsights(await getLocalAudioInsights(sessionId));
   }
 }

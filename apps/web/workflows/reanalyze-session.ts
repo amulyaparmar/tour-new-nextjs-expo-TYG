@@ -3,7 +3,7 @@ import {
   applySessionRubricStep,
   finalizeSessionStep,
   followUpActionsStep,
-  markSessionFailedStep,
+  markReanalysisFailedStep,
   segmentPhasesStep,
 } from "./steps/process-session-steps";
 
@@ -31,7 +31,7 @@ export async function reanalyzeSessionWorkflow(
       resegment,
     };
   } catch (error) {
-    await markSessionFailedStep(sessionId);
+    await markReanalysisFailedStep(sessionId);
     throw error;
   }
 }

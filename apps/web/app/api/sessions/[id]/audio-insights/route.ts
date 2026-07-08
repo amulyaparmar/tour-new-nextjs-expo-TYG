@@ -17,16 +17,7 @@ export async function GET(_request: Request, context: Context) {
       return NextResponse.json({ error: "Session not found." }, { status: 404 });
     }
 
-    let status = session.audioInsightsStatus;
-    if (status === "pending" && session.status === "analysis_ready") {
-      try {
-        const run = await startAudioInsightsWorkflow(id);
-        status = run.skipped ? "unavailable" : "processing";
-      } catch (error) {
-        console.error(`[audio-insights] Failed to start workflow for session ${id}:`, error);
-        status = "failed";
-      }
-    }
+    const status = session.audioInsightsStatus;
 
     const insights =
       status === "ready"

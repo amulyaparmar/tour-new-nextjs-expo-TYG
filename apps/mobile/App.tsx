@@ -25,6 +25,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
   type StyleProp,
   type ViewStyle,
@@ -853,7 +854,9 @@ const CHECK_IN_REP = { slug: "alex", name: "Alex Johnson", firstName: "Alex" };
 const CHECK_IN_PROPERTY = "27 North";
 const CHECK_IN_URL = "https://tour.you/p/alex?check-in=true";
 const CHECK_IN_QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=12&format=png&data=${encodeURIComponent(CHECK_IN_URL)}`;
-const CHECK_IN_SHEET_HEIGHT = Math.round(Dimensions.get("window").height * 0.86);
+const CHECK_IN_CONTACT_SHEET_RATIO = 0.72;
+const CHECK_IN_DETAIL_SHEET_RATIO = 0.76;
+const CHECK_IN_SHEET_MAX_HEIGHT = 650;
 const CHECK_IN_QUESTIONS: MobileCheckInQuestion[] = [
   {
     id: "hear_about",
@@ -895,6 +898,7 @@ function validCheckInEmail(value: string) {
 }
 
 function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClose: () => void; property: string }) {
+  const { height: windowHeight } = useWindowDimensions();
   const propertyLabel = property || CHECK_IN_PROPERTY;
   const [mode, setMode] = useState<"checkin" | "qr">("checkin");
   const [step, setStep] = useState<"contact" | "questions" | "done">("contact");
@@ -916,12 +920,18 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   const firstNameRef = useRef<TextInput>(null);
   const lastNameRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
+  const countryCodeRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
   const reasonRef = useRef<TextInput>(null);
   const jobTitleRef = useRef<TextInput>(null);
   const closeSheet = useCallback(() => {
     onClose();
   }, [onClose]);
+  const sheetHeight = useMemo(() => {
+    const compactContact = mode === "checkin" && step === "contact";
+    const ratio = compactContact ? CHECK_IN_CONTACT_SHEET_RATIO : CHECK_IN_DETAIL_SHEET_RATIO;
+    return Math.round(Math.min(windowHeight * ratio, CHECK_IN_SHEET_MAX_HEIGHT));
+  }, [mode, step, windowHeight]);
 
   useEffect(() => {
     if (!visible) return;
@@ -1040,7 +1050,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
     <BottomSheetModal
       visible={visible}
       onClose={closeSheet}
-      sheetHeight={CHECK_IN_SHEET_HEIGHT}
+      sheetHeight={sheetHeight}
       keyboardAvoiding
       contentStyle={homeSt.checkInSheetBody}
     >
@@ -1170,9 +1180,10 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
                 onLayoutY={(y) => { contactFieldOffsets.current.email = y; }}
               />
               <View style={homeSt.phoneRow}>
-                <View style={homeSt.phoneCc}>
+                <Pressable hitSlop={6} onPress={() => countryCodeRef.current?.focus()} style={homeSt.phoneCc}>
                   <Text style={homeSt.phoneFlag}>🇺🇸</Text>
                   <TextInput
+                    ref={countryCodeRef}
                     value={countryCode}
                     onChangeText={setCountryCode}
                     keyboardType="phone-pad"
@@ -1184,7 +1195,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
                     placeholderTextColor="#6b7280"
                     style={homeSt.phoneCcInput}
                   />
-                </View>
+                </Pressable>
                 <View style={st.flex1}>
                   <CheckInField
                     label="Phone number"
@@ -1269,7 +1280,7 @@ function CheckInField({
   keyboardType?: "default" | "email-address" | "phone-pad";
   autoComplete?: "given-name" | "family-name" | "email" | "tel" | "organization-title";
   autoFocus?: boolean;
-  inputRef?: React.Ref<TextInput>;
+  inputRef?: React.RefObject<TextInput | null>;
   returnKeyType?: "next" | "done";
   blurOnSubmit?: boolean;
   onSubmitEditing?: () => void;
@@ -1277,11 +1288,13 @@ function CheckInField({
   onLayoutY?: (y: number) => void;
 }) {
   return (
-    <View
+    <Pressable
+      hitSlop={6}
+      onPress={() => inputRef?.current?.focus()}
       onLayout={(event) => onLayoutY?.(event.nativeEvent.layout.y)}
       style={[homeSt.floatingField, highlighted && homeSt.floatingFieldHighlighted]}
     >
-      {value.length > 0 && <Text style={homeSt.floatingLabel}>{label}</Text>}
+      {value.length > 0 && <Text pointerEvents="none" style={homeSt.floatingLabel}>{label}</Text>}
       <TextInput
         ref={inputRef}
         autoFocus={autoFocus}
@@ -1296,7 +1309,7 @@ function CheckInField({
         onSubmitEditing={onSubmitEditing}
         style={homeSt.floatingInput}
       />
-    </View>
+    </Pressable>
   );
 }
 

@@ -1,22 +1,28 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Dimensions,
+  FlatList,
+  Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import type { MobileAuthSession } from "../auth";
 import { tourColors } from "@/theme/tour-brand";
 
-const SHEET_HEIGHT = Math.round(Dimensions.get("window").height * 0.72);
+const SHEET_HEIGHT_RATIO = 0.72;
+const SHEET_MAX_HEIGHT = 650;
+const ROW_HEIGHT = 59;
+const SKELETON_ROWS = 9;
+
+type Community = MobileAuthSession["workspace"]["communities"][number];
 
 type CommunityPickerModalProps = {
   visible: boolean;
@@ -37,6 +43,10 @@ export function CommunityPickerModal({
   onClose,
   onSelect,
 }: CommunityPickerModalProps) {
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const [listReady, setListReady] = useState(false);
+  const sheetHeight = Math.round(Math.min(windowHeight * SHEET_HEIGHT_RATIO, SHEET_MAX_HEIGHT));
   const filteredCommunities = useMemo(() => {
     const value = query.trim().toLowerCase();
     return value
@@ -45,15 +55,66 @@ export function CommunityPickerModal({
         )
       : session.workspace.communities;
   }, [query, session.workspace.communities]);
+  const activeCommunityId = session.workspace.community.id;
+  const switchLocked = Boolean(switchingId);
+
+  useEffect(() => {
+    if (!visible) {
+      setListReady(false);
+      return;
+    }
+    const frame = requestAnimationFrame(() => setListReady(true));
+    return () => cancelAnimationFrame(frame);
+  }, [visible]);
+
+  const renderCommunity = useCallback(
+    ({ item }: { item: Community }) => {
+      const active = item.id === activeCommunityId;
+      const loading = switchingId === item.id;
+      return (
+        <TouchableOpacity
+          activeOpacity={0.72}
+          disabled={switchLocked}
+          onPress={() => onSelect(item.id)}
+        >
+          <View style={styles.row}>
+            <View style={[styles.rowIcon, active && styles.rowIconActive]}>
+              <Ionicons
+                name="business-outline"
+                size={18}
+                color={active ? tourColors.green : tourColors.brand}
+              />
+            </View>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowName} numberOfLines={1}>
+                {item.name}
+              </Text>
+              {item.alias ? (
+                <Text style={styles.rowAlias} numberOfLines={1}>
+                  {item.alias}
+                </Text>
+              ) : null}
+            </View>
+            {loading ? (
+              <ActivityIndicator size="small" color={tourColors.brand} />
+            ) : active ? (
+              <Ionicons name="checkmark-circle" size={20} color={tourColors.green} />
+            ) : (
+              <Ionicons name="chevron-forward" size={17} color={tourColors.textMuted} />
+            )}
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [activeCommunityId, onSelect, switchLocked, switchingId]
+  );
 
   return (
-    <BottomSheetModal
-      visible={visible}
-      onClose={onClose}
-      sheetHeight={SHEET_HEIGHT}
-      dismissDisabled={Boolean(switchingId)}
-      header={
-        <>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} disabled={switchLocked} onPress={onClose} />
+        <View style={[styles.sheet, { height: sheetHeight, paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <View style={styles.handle} />
           <View style={styles.header}>
             <View style={styles.headerCopy}>
               <Text style={styles.title}>Switch community</Text>
@@ -63,7 +124,7 @@ export function CommunityPickerModal({
             </View>
             <Pressable
               accessibilityLabel="Close communities"
-              disabled={Boolean(switchingId)}
+              disabled={switchLocked}
               onPress={onClose}
               style={styles.closeBtn}
             >
@@ -83,68 +144,69 @@ export function CommunityPickerModal({
               autoCapitalize="none"
             />
           </View>
-        </>
-      }
-    >
-      <ScrollView
-        style={styles.list}
-        contentContainerStyle={styles.listContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator
-      >
-        {filteredCommunities.length === 0 ? (
-          <View style={styles.empty}>
-            <Ionicons name="business-outline" size={28} color={tourColors.textMuted} />
-            <Text style={styles.emptyTitle}>No communities found</Text>
-            <Text style={styles.emptySub}>Try a different search.</Text>
-          </View>
-        ) : (
-          filteredCommunities.map((item) => {
-            const active = item.id === session.workspace.community.id;
-            const loading = switchingId === item.id;
-            return (
-              <TouchableOpacity
-                key={item.id}
-                activeOpacity={0.72}
-                disabled={Boolean(switchingId)}
-                onPress={() => onSelect(item.id)}
-              >
-                <View style={styles.row}>
-                  <View style={[styles.rowIcon, active && styles.rowIconActive]}>
-                    <Ionicons
-                      name="business-outline"
-                      size={18}
-                      color={active ? tourColors.green : tourColors.brand}
-                    />
+
+          {!listReady ? (
+            <View style={styles.list}>
+              {Array.from({ length: SKELETON_ROWS }).map((_, index) => (
+                <View key={index} style={styles.skeletonRow}>
+                  <View style={styles.skeletonIcon} />
+                  <View style={styles.skeletonBody}>
+                    <View style={styles.skeletonLine} />
+                    <View style={styles.skeletonLineShort} />
                   </View>
-                  <View style={styles.rowBody}>
-                    <Text style={styles.rowName} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                    {item.alias ? (
-                      <Text style={styles.rowAlias} numberOfLines={1}>
-                        {item.alias}
-                      </Text>
-                    ) : null}
-                  </View>
-                  {loading ? (
-                    <ActivityIndicator size="small" color={tourColors.brand} />
-                  ) : active ? (
-                    <Ionicons name="checkmark-circle" size={20} color={tourColors.green} />
-                  ) : (
-                    <Ionicons name="chevron-forward" size={17} color={tourColors.textMuted} />
-                  )}
                 </View>
-              </TouchableOpacity>
-            );
-          })
-        )}
-      </ScrollView>
-    </BottomSheetModal>
+              ))}
+            </View>
+          ) : filteredCommunities.length === 0 ? (
+            <View style={styles.empty}>
+              <Ionicons name="business-outline" size={28} color={tourColors.textMuted} />
+              <Text style={styles.emptyTitle}>No communities found</Text>
+              <Text style={styles.emptySub}>Try a different search.</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredCommunities}
+              renderItem={renderCommunity}
+              keyExtractor={(item) => item.id}
+              style={styles.list}
+              contentContainerStyle={styles.listContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator
+              initialNumToRender={16}
+              maxToRenderPerBatch={14}
+              updateCellsBatchingPeriod={30}
+              windowSize={7}
+              removeClippedSubviews
+              getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
+            />
+          )}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(16,24,40,0.52)",
+  },
+  sheet: {
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    backgroundColor: "#fff",
+    paddingHorizontal: 18,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    alignSelf: "center",
+    borderRadius: 2,
+    backgroundColor: "#d0d5dd",
+    marginTop: 9,
+    marginBottom: 14,
+  },
   header: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -203,7 +265,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 58,
+    height: ROW_HEIGHT,
     paddingHorizontal: 4,
     paddingVertical: 10,
     borderBottomWidth: 1,
@@ -250,5 +312,35 @@ const styles = StyleSheet.create({
   emptySub: {
     color: tourColors.textSec,
     fontSize: 12,
+  },
+  skeletonRow: {
+    height: ROW_HEIGHT,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 4,
+    paddingVertical: 10,
+  },
+  skeletonIcon: {
+    width: 34,
+    height: 34,
+    marginRight: 11,
+    borderRadius: 8,
+    backgroundColor: "#eef2f7",
+  },
+  skeletonBody: {
+    flex: 1,
+    gap: 7,
+  },
+  skeletonLine: {
+    width: "58%",
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#eef2f7",
+  },
+  skeletonLineShort: {
+    width: "34%",
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#f3f5f8",
   },
 });

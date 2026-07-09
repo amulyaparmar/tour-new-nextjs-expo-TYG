@@ -589,7 +589,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
     <View style={st.flex1}>
       {showScrollView && (
         <ScreenTransition transitionKey={`tab:${tab}`} direction={tabTransitionDirection}>
-          <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
+          <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.mainScroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
             {error && <ErrorBanner message={error} onRetry={load} />}
             {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} onSession={onSession} onProfile={onProfile} onCheckIn={() => setCheckInOpen(true)} onAssets={() => handleTabPress("materials")} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} userEmail={authSession.workspace.user.email} property={property} />}
             {tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={load} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
@@ -4641,6 +4641,7 @@ const st = StyleSheet.create({
   center: { alignItems: "center", justifyContent: "center" },
   screenTransition: { flex: 1 },
   scroll: { gap: 14, paddingHorizontal: 18, paddingTop: 56, paddingBottom: 32 },
+  mainScroll: { gap: 14, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 120 },
   pressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
   page: { gap: 14 },
   pulseDot: { width: 10, height: 10, borderRadius: 5 },

@@ -83,6 +83,7 @@ import {
   fetchTranscript,
   postComment,
   processSession,
+  submitCheckInLead,
   syncCalendar,
   materialUrl,
   updateActionStatus,
@@ -791,34 +792,136 @@ function ProfileContact({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; 
   );
 }
 
-function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClose: () => void; property: string }) {
-  const [mode, setMode] = useState<"manual" | "qr">("manual");
-  const [guest, setGuest] = useState({ name: "Maya Chen", email: "maya.chen@example.com", phone: "(313) 555-0198", note: "Loves natural light, quiet study spaces, and a short walk to coffee." });
+type MobileCheckInQuestion = {
+  id: string;
+  label: string;
+  type: "select" | "text";
+  options?: string[];
+  placeholder?: string;
+  required?: boolean;
+};
 
-  function updateGuest(key: keyof typeof guest, value: string) {
-    setGuest((current) => ({ ...current, [key]: value }));
+const CHECK_IN_REP = { slug: "alex", name: "Alex Johnson", firstName: "Alex" };
+const CHECK_IN_PROPERTY = "27 North";
+const CHECK_IN_URL = "https://tour.you/p/alex?check-in=true";
+const CHECK_IN_QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=12&format=png&data=${encodeURIComponent(CHECK_IN_URL)}`;
+const CHECK_IN_QUESTIONS: MobileCheckInQuestion[] = [
+  {
+    id: "hear_about",
+    label: "Where did you hear about us?",
+    type: "select",
+    options: ["Google", "Apartments.com", "Drive by", "Referral", "Social media", "Other"],
+    placeholder: "Select one",
+  },
+  {
+    id: "move_in",
+    label: "When are you looking to move in?",
+    type: "select",
+    options: ["ASAP", "Within 1 month", "1-3 months", "3-6 months", "Just browsing"],
+    placeholder: "Select a timeframe",
+  },
+  {
+    id: "floor_plan",
+    label: "Which floor plan interests you most?",
+    type: "select",
+    options: ["Studio", "1 bedroom", "2 bedroom", "3 bedroom", "Not sure yet"],
+    placeholder: "Select a floor plan",
+  },
+];
+
+function formatCheckInPhone(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 10);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)} ${digits.slice(3)}`;
+  return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
+}
+
+function validCheckInEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClose: () => void; property: string }) {
+  const [mode, setMode] = useState<"checkin" | "qr">("checkin");
+  const [step, setStep] = useState<"contact" | "questions" | "done">("contact");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [reason, setReason] = useState(`Tour ${CHECK_IN_PROPERTY}`);
+  const [jobTitle, setJobTitle] = useState("");
+  const [showJobTitle, setShowJobTitle] = useState(false);
+  const [wantsSummary, setWantsSummary] = useState(false);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setMode("checkin");
+    setStep("contact");
+    setError(null);
+  }, [visible]);
+
+  function closeSheet() {
+    onClose();
+  }
+
+  async function submitLead() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await submitCheckInLead({
+        firstName: firstName.trim(),
+        lastName: lastName.trim() || null,
+        email: email.trim(),
+        phone: phone.replace(/\D/g, ""),
+        wantsSummary,
+        jobTitle: showJobTitle ? jobTitle.trim() || null : null,
+        reason: reason.trim() || `Tour ${CHECK_IN_PROPERTY}`,
+        questionAnswers: answers,
+        repSlug: CHECK_IN_REP.slug,
+        propertyName: CHECK_IN_PROPERTY,
+      });
+      setStep("done");
+      showToast("Guest checked in", "success");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function nextFromContact() {
+    setError(null);
+    if (!firstName.trim() || !email.trim()) {
+      setError("Name and email are required.");
+      return;
+    }
+    if (!validCheckInEmail(email)) {
+      setError("Enter a valid email.");
+      return;
+    }
+    if (CHECK_IN_QUESTIONS.length) {
+      setStep("questions");
+      return;
+    }
+    void submitLead();
+  }
+
+  async function shareCheckInLink() {
+    await Share.share({ title: "Tour check-in", message: CHECK_IN_URL, url: CHECK_IN_URL });
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={homeSt.sheetScrim} onPress={onClose} />
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={closeSheet}>
+      <Pressable style={homeSt.sheetScrim} onPress={closeSheet} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={homeSt.sheetKeyboard}>
-        <View style={homeSt.sheet}>
+        <Pressable onPress={(event) => event.stopPropagation()} style={homeSt.checkInSheet}>
           <View style={homeSt.sheetHandle} />
-          <View style={homeSt.sheetHeader}>
-            <View>
-              <Text style={homeSt.sheetTitle}>Check-In</Text>
-              <Text style={homeSt.sheetSub}>{property}</Text>
-            </View>
-            <Pressable accessibilityLabel="Close check-in" onPress={onClose} style={homeSt.sheetClose}>
-              <Ionicons name="close" size={20} color={C.text} />
-            </Pressable>
-          </View>
-
           <View style={homeSt.sheetTabs}>
-            <Pressable onPress={() => setMode("manual")} style={[homeSt.sheetTab, mode === "manual" && homeSt.sheetTabActive]}>
-              <Ionicons name="create-outline" size={16} color={mode === "manual" ? C.brand : C.textMuted} />
-              <Text style={[homeSt.sheetTabText, mode === "manual" && homeSt.sheetTabTextActive]}>Manual</Text>
+            <Pressable onPress={() => setMode("checkin")} style={[homeSt.sheetTab, mode === "checkin" && homeSt.sheetTabActive]}>
+              <Ionicons name="send-outline" size={16} color={mode === "checkin" ? C.brand : C.textMuted} />
+              <Text style={[homeSt.sheetTabText, mode === "checkin" && homeSt.sheetTabTextActive]}>Check in</Text>
             </Pressable>
             <Pressable onPress={() => setMode("qr")} style={[homeSt.sheetTab, mode === "qr" && homeSt.sheetTabActive]}>
               <BrandedQrIcon size={17} />
@@ -826,65 +929,146 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
             </Pressable>
           </View>
 
-          {mode === "manual" ? (
-            <View style={homeSt.manualForm}>
-              <SheetField icon="person-outline" value={guest.name} onChangeText={(value) => updateGuest("name", value)} placeholder="Guest name" />
-              <SheetField icon="mail-outline" value={guest.email} onChangeText={(value) => updateGuest("email", value)} placeholder="Email" keyboardType="email-address" />
-              <SheetField icon="call-outline" value={guest.phone} onChangeText={(value) => updateGuest("phone", value)} placeholder="Phone" keyboardType="phone-pad" />
-              <SheetField icon="heart-outline" value={guest.note} onChangeText={(value) => updateGuest("note", value)} placeholder="Favorite features or fun fact" multiline />
-              <Pressable onPress={onClose} style={({ pressed }) => [homeSt.sheetPrimary, pressed && st.pressed]}>
-                <Ionicons name="checkmark" size={18} color="#fff" />
-                <Text style={homeSt.sheetPrimaryText}>Check in guest</Text>
-              </Pressable>
-            </View>
-          ) : (
+          {mode === "qr" ? (
             <View style={homeSt.qrPanel}>
               <View style={homeSt.qrCard}>
-                <BrandedQrIcon size={118} />
+                <Image source={{ uri: CHECK_IN_QR_URL }} style={homeSt.qrImage} resizeMode="contain" />
               </View>
-              <Text style={homeSt.qrTitle}>My QR code</Text>
-              <Text style={homeSt.qrSub}>Guests can scan this to open the Tour check-in card for {property}.</Text>
-              <Pressable onPress={onClose} style={({ pressed }) => [homeSt.sheetPrimary, pressed && st.pressed]}>
+              <Text style={homeSt.qrTitle}>Scan to check in</Text>
+              <Text style={homeSt.qrSub}>{CHECK_IN_URL}</Text>
+              <Pressable onPress={() => void shareCheckInLink()} style={({ pressed }) => [homeSt.sheetPrimary, pressed && st.pressed]}>
                 <Ionicons name="share-social-outline" size={18} color="#fff" />
                 <Text style={homeSt.sheetPrimaryText}>Share check-in link</Text>
               </Pressable>
             </View>
+          ) : step === "done" ? (
+            <View style={homeSt.donePanel}>
+              <View style={homeSt.doneIcon}><Ionicons name="checkmark" size={34} color="#fff" /></View>
+              <Text style={homeSt.qrTitle}>You're checked in</Text>
+              <Text style={homeSt.qrSub}>Thanks for visiting {CHECK_IN_PROPERTY}. {CHECK_IN_REP.firstName} has the guest details and can start the tour.</Text>
+              <Pressable onPress={closeSheet} style={({ pressed }) => [homeSt.sheetPrimary, pressed && st.pressed]}>
+                <Text style={homeSt.sheetPrimaryText}>Done</Text>
+              </Pressable>
+            </View>
+          ) : step === "questions" ? (
+            <View style={homeSt.checkInForm}>
+              <Pressable onPress={closeSheet} style={homeSt.skipButton}><Text style={homeSt.skipText}>Skip</Text></Pressable>
+              <Text style={homeSt.questionTitle}>{firstName ? `${firstName}, ` : ""}one last thing before your tour</Text>
+              {CHECK_IN_QUESTIONS.map((question) => (
+                <CheckInQuestionField
+                  key={question.id}
+                  question={question}
+                  value={answers[question.id] ?? ""}
+                  onChange={(value) => setAnswers((current) => ({ ...current, [question.id]: value }))}
+                />
+              ))}
+              <Pressable onPress={() => setWantsSummary((value) => !value)} style={homeSt.toggleRow}>
+                <Text style={homeSt.toggleText}>Send me follow-up notes after the tour</Text>
+                <Ionicons name={wantsSummary ? "checkbox" : "square-outline"} size={21} color={wantsSummary ? C.brand : C.textMuted} />
+              </Pressable>
+              {error && <Text style={homeSt.fieldError}>{error}</Text>}
+              <View style={homeSt.buttonRow}>
+                <Pressable onPress={() => setStep("contact")} style={({ pressed }) => [homeSt.backBtn, pressed && st.pressed]}>
+                  <Text style={homeSt.backBtnText}>Back</Text>
+                </Pressable>
+                <Pressable onPress={() => void submitLead()} disabled={submitting} style={({ pressed }) => [homeSt.nextButton, submitting && { opacity: 0.64 }, pressed && st.pressed]}>
+                  {submitting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send-outline" size={19} color="#fff" />}
+                  <Text style={homeSt.nextButtonText}>{submitting ? "Checking in..." : "Check in"}</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <View style={homeSt.checkInForm}>
+              <Pressable onPress={closeSheet} style={homeSt.skipButton}><Text style={homeSt.skipText}>Skip</Text></Pressable>
+              <View style={homeSt.checkInHead}>
+                <View style={homeSt.formHeadAvatar}><Ionicons name="person-outline" size={23} color="#fff" /></View>
+                <Text style={homeSt.formHeadText}>Check in for your tour{"\n"}with {CHECK_IN_REP.firstName}</Text>
+              </View>
+              <View style={homeSt.formRow2}>
+                <CheckInField label="First name" value={firstName} onChangeText={setFirstName} autoComplete="given-name" autoFocus />
+                <CheckInField label="Last name" value={lastName} onChangeText={setLastName} autoComplete="family-name" />
+              </View>
+              <CheckInField label="Email" value={email} onChangeText={(value) => { setEmail(value); if (error) setError(null); }} keyboardType="email-address" autoComplete="email" />
+              <View style={homeSt.phoneRow}>
+                <View style={homeSt.phoneCc}><Text style={homeSt.phoneFlag}>🇺🇸</Text><Text style={homeSt.phoneCcText}>+1</Text></View>
+                <View style={st.flex1}>
+                  <CheckInField label="Phone number" value={phone} onChangeText={(value) => setPhone(formatCheckInPhone(value))} keyboardType="phone-pad" autoComplete="tel" />
+                </View>
+              </View>
+              <CheckInField label="Reason for visit" value={reason} onChangeText={setReason} />
+              {showJobTitle ? (
+                <CheckInField label="Job title" value={jobTitle} onChangeText={setJobTitle} autoComplete="organization-title" />
+              ) : (
+                <Pressable onPress={() => setShowJobTitle(true)} style={({ pressed }) => [homeSt.addJobButton, pressed && st.pressed]}>
+                  <Ionicons name="briefcase-outline" size={15} color="#111827" />
+                  <Text style={homeSt.addJobText}>Job title</Text>
+                </Pressable>
+              )}
+              {error && <Text style={homeSt.fieldError}>{error}</Text>}
+              <Pressable onPress={nextFromContact} disabled={submitting} style={({ pressed }) => [homeSt.nextButton, pressed && st.pressed]}>
+                <Ionicons name="send-outline" size={21} color="#fff" />
+                <Text style={homeSt.nextButtonText}>Next</Text>
+              </Pressable>
+              <Text style={homeSt.checkInDestination}>QR opens {CHECK_IN_URL}</Text>
+            </View>
           )}
-        </View>
+        </Pressable>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
 
-function SheetField({
-  icon,
+function CheckInField({
+  label,
   value,
   onChangeText,
-  placeholder,
   keyboardType,
-  multiline,
+  autoComplete,
+  autoFocus,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
   value: string;
   onChangeText: (value: string) => void;
-  placeholder: string;
   keyboardType?: "default" | "email-address" | "phone-pad";
-  multiline?: boolean;
+  autoComplete?: "given-name" | "family-name" | "email" | "tel" | "organization-title";
+  autoFocus?: boolean;
 }) {
   return (
-    <View style={[homeSt.sheetField, multiline && homeSt.sheetFieldMultiline]}>
-      <Ionicons name={icon} size={17} color={C.textMuted} />
+    <View style={homeSt.floatingField}>
+      {value.length > 0 && <Text style={homeSt.floatingLabel}>{label}</Text>}
       <TextInput
+        autoFocus={autoFocus}
         value={value}
         onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={C.textMuted}
+        placeholder={label}
+        placeholderTextColor="#6b7280"
         keyboardType={keyboardType}
-        multiline={multiline}
-        style={[homeSt.sheetInput, multiline && homeSt.sheetInputMultiline]}
+        autoComplete={autoComplete}
+        style={homeSt.floatingInput}
       />
     </View>
   );
+}
+
+function CheckInQuestionField({ question, value, onChange }: { question: MobileCheckInQuestion; value: string; onChange: (value: string) => void }) {
+  if (question.type === "select") {
+    return (
+      <View style={homeSt.questionField}>
+        <Text style={homeSt.questionLabel}>{question.label}</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={homeSt.questionOptions}>
+          {(question.options ?? []).map((option) => {
+            const active = value === option;
+            return (
+              <Pressable key={option} onPress={() => onChange(option)} style={[homeSt.questionOption, active && homeSt.questionOptionActive]}>
+                <Text style={[homeSt.questionOptionText, active && homeSt.questionOptionTextActive]}>{option}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  }
+  return <CheckInField label={question.label} value={value} onChangeText={onChange} />;
 }
 
 function HomeSection({ title, action, showLogo = false, children }: { title: string; action?: string; showLogo?: boolean; children: React.ReactNode }) {
@@ -4029,8 +4213,9 @@ const homeSt = StyleSheet.create({
   insightCard: { minHeight: 105, flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderWidth: 1, borderLeftWidth: 4, borderColor: C.brand, borderRadius: 16, backgroundColor: "#fff" },
   insightText: { color: C.text, fontSize: 14, lineHeight: 20, fontWeight: "600" },
   insightLink: { color: C.brand, fontSize: 12, fontWeight: "800", marginTop: 10 },
-  sheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15,23,42,0.28)" },
+  sheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.42)" },
   sheetKeyboard: { flex: 1, justifyContent: "flex-end" },
+  checkInSheet: { maxHeight: "92%", gap: 14, paddingHorizontal: 22, paddingTop: 10, paddingBottom: Platform.OS === "ios" ? 34 : 20, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: "#fff" },
   sheet: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: Platform.OS === "ios" ? 34 : 20, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: "#fff" },
   sheetHandle: { alignSelf: "center", width: 44, height: 5, borderRadius: 3, backgroundColor: "#d1d5db", marginBottom: 16 },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
@@ -4042,15 +4227,51 @@ const homeSt = StyleSheet.create({
   sheetTabActive: { backgroundColor: "#fff", shadowColor: "#101828", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 1 },
   sheetTabText: { color: C.textMuted, fontSize: 13, fontWeight: "900" },
   sheetTabTextActive: { color: C.brand },
+  checkInForm: { gap: 14 },
+  skipButton: { alignSelf: "flex-end", paddingHorizontal: 8, paddingVertical: 2 },
+  skipText: { color: "#0b0b0c", fontSize: 21, fontWeight: "900" },
+  checkInHead: { flexDirection: "row", alignItems: "center", gap: 14 },
+  formHeadAvatar: { width: 52, height: 52, alignItems: "center", justifyContent: "center", borderRadius: 26, backgroundColor: "#111827" },
+  formHeadText: { flex: 1, color: "#111318", fontSize: 20, lineHeight: 26, fontWeight: "900" },
+  formRow2: { flexDirection: "row", gap: 12 },
+  floatingField: { flex: 1, minHeight: 74, justifyContent: "center", paddingHorizontal: 18, borderWidth: 1, borderColor: "#d7dae3", borderRadius: 16, backgroundColor: "#fff" },
+  floatingLabel: { position: "absolute", left: 16, top: -11, paddingHorizontal: 6, color: "#4b5563", fontSize: 14, fontWeight: "900", backgroundColor: "#fff" },
+  floatingInput: { color: "#111318", fontSize: 20, fontWeight: "500", paddingVertical: 0 },
+  phoneRow: { flexDirection: "row", gap: 12 },
+  phoneCc: { width: 86, minHeight: 74, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderColor: "#d7dae3", borderRadius: 16, backgroundColor: "#fff" },
+  phoneFlag: { fontSize: 18 },
+  phoneCcText: { color: "#111318", fontSize: 19, fontWeight: "800" },
+  addJobButton: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderWidth: 1, borderColor: "#d7d7d7", borderRadius: 999, backgroundColor: "#fff" },
+  addJobText: { color: "#111318", fontSize: 15, fontWeight: "900" },
+  nextButton: { minHeight: 64, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, borderRadius: 13, backgroundColor: "#111" },
+  nextButtonText: { color: "#fff", fontSize: 22, fontWeight: "900" },
+  checkInDestination: { color: C.textMuted, fontSize: 10, fontWeight: "700", textAlign: "center" },
+  questionTitle: { color: C.text, fontSize: 22, lineHeight: 28, fontWeight: "900" },
+  questionField: { gap: 8 },
+  questionLabel: { color: C.text, fontSize: 14, fontWeight: "900" },
+  questionOptions: { gap: 8, paddingRight: 8 },
+  questionOption: { minHeight: 40, justifyContent: "center", paddingHorizontal: 13, borderWidth: 1, borderColor: "#d7dae3", borderRadius: 999, backgroundColor: "#fff" },
+  questionOptionActive: { borderColor: C.brand, backgroundColor: "#eff6ff" },
+  questionOptionText: { color: C.textSec, fontSize: 13, fontWeight: "800" },
+  questionOptionTextActive: { color: C.brand },
+  toggleRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingHorizontal: 2 },
+  toggleText: { flex: 1, color: C.text, fontSize: 13, fontWeight: "800" },
+  fieldError: { color: C.red, fontSize: 12, fontWeight: "800" },
+  buttonRow: { flexDirection: "row", gap: 10 },
+  backBtn: { minWidth: 96, minHeight: 56, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#d7dae3", borderRadius: 13, backgroundColor: "#fff" },
+  backBtnText: { color: C.text, fontSize: 15, fontWeight: "900" },
+  donePanel: { alignItems: "center", gap: 13, paddingVertical: 10 },
+  doneIcon: { width: 68, height: 68, alignItems: "center", justifyContent: "center", borderRadius: 34, backgroundColor: C.green },
   manualForm: { gap: 10 },
   sheetField: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 14, backgroundColor: "#fff" },
   sheetFieldMultiline: { minHeight: 82, alignItems: "flex-start", paddingTop: 14 },
   sheetInput: { flex: 1, color: C.text, fontSize: 14, fontWeight: "700", paddingVertical: 0 },
   sheetInputMultiline: { minHeight: 52, textAlignVertical: "top" },
-  sheetPrimary: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 4, borderRadius: 18, backgroundColor: C.brand },
+  sheetPrimary: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 4, borderRadius: 16, backgroundColor: "#111" },
   sheetPrimaryText: { color: "#fff", fontSize: 15, fontWeight: "900" },
   qrPanel: { alignItems: "center", gap: 12, paddingTop: 6 },
-  qrCard: { width: 172, height: 172, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: "#f8fafc" },
+  qrCard: { width: 210, height: 210, alignItems: "center", justifyContent: "center", padding: 12, borderRadius: 24, backgroundColor: "#f8fafc" },
+  qrImage: { width: "100%", height: "100%" },
   qrTitle: { color: C.text, fontSize: 18, fontWeight: "900" },
   qrSub: { maxWidth: 300, color: C.textSec, fontSize: 13, lineHeight: 19, fontWeight: "600", textAlign: "center" },
 });

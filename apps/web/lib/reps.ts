@@ -175,8 +175,9 @@ export function offlineContactQrUrl(rep: RepProfile): string {
 
 /** A QR code SVG that points at the rep's public tour card / check-in form. */
 export function tourRequestQrUrl(rep: RepProfile): string {
-  const url = rep.website ?? `https://tour.you/p/${rep.slug}`;
+  const url = new URL(rep.website ?? `https://tour.you/p/${rep.slug}`);
+  url.searchParams.set("check-in", "true");
   return `https://api.qrserver.com/v1/create-qr-code/?size=196x196&margin=12&format=svg&data=${encodeURIComponent(
-    url
+    url.toString()
   )}`;
 }

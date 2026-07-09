@@ -152,6 +152,14 @@ export function CheckInCard({ card, vCardUrl, offlineQrUrl }: CheckInCardProps) 
   useEffect(() => clearNotificationTimers, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkIn = params.get("check-in");
+    if (checkIn === "true" || checkIn === "1" || checkIn === "yes") {
+      setSheet("contact");
+    }
+  }, []);
+
+  useEffect(() => {
     function updateSaveDockState() {
       const slot = saveSlotRef.current;
       const button = saveButtonRef.current;

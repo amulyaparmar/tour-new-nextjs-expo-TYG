@@ -55,6 +55,32 @@ export async function createSession(payload: {
   return (await res.json()) as { session: SessionSummary };
 }
 
+export type CheckInLeadPayload = {
+  firstName: string;
+  lastName?: string | null;
+  email: string;
+  phone?: string | null;
+  wantsSummary?: boolean;
+  propertyName?: string | null;
+  jobTitle?: string | null;
+  reason?: string | null;
+  questionAnswers?: Record<string, string>;
+  repSlug?: string | null;
+};
+
+export async function submitCheckInLead(payload: CheckInLeadPayload) {
+  const res = await authenticatedFetch("/api/leads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => null) as { sessionId?: string; grouped?: boolean; error?: string } | null;
+  if (!res.ok) {
+    throw new Error(body?.error ?? "Check-in failed.");
+  }
+  return body ?? { sessionId: undefined, grouped: false };
+}
+
 export async function fetchSession(sessionId: string) {
   const res = await authenticatedFetch(`/api/sessions/${sessionId}`);
   if (!res.ok) {

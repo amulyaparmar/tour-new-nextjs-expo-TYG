@@ -593,7 +593,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
             {error && <ErrorBanner message={error} onRetry={load} />}
             {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} onSession={onSession} onProfile={onProfile} onCheckIn={() => setCheckInOpen(true)} onAssets={() => handleTabPress("materials")} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} userEmail={authSession.workspace.user.email} property={property} />}
             {tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={load} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
-            {tab === "materials" && <MaterialsScreen materials={materials} loading={loading} onCreate={onCreate} onReload={load} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
+            {tab === "materials" && <MaterialsScreen materials={materials} loading={loading} onCreate={onCreate} onReload={load} onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
             {tab === "settings" && <SettingsScreen session={authSession} onSessionChange={onAuthSession} onRubrics={onRubrics} onSignOut={onSignOut} />}
           </ScrollView>
         </ScreenTransition>
@@ -1847,6 +1847,8 @@ function formatEntrataClock(value: string | null) {
 
 const assetSt = StyleSheet.create({
   header: { gap: 14 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  titleText: { flex: 1, minWidth: 0 },
   recordButton: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderWidth: 1, borderColor: "#d7dee8", borderRadius: 999, backgroundColor: "#fff" },
   recordButtonText: { color: C.text, fontSize: 14, fontWeight: "900" },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
@@ -1874,7 +1876,7 @@ const assetSt = StyleSheet.create({
   modalSecondaryText: { color: C.text, fontSize: 13, fontWeight: "900" },
 });
 
-function MaterialsScreen({ materials, loading, onCreate, onReload, onCommunityPress, property }: { materials: Material[]; loading: boolean; onCreate: () => void; onReload: () => Promise<void>; onCommunityPress: () => void; property: string }) {
+function MaterialsScreen({ materials, loading, onCreate, onReload, onBack, onCommunityPress, property }: { materials: Material[]; loading: boolean; onCreate: () => void; onReload: () => Promise<void>; onBack: () => void; onCommunityPress: () => void; property: string }) {
   const [uploading, setUploading] = useState(false);
   const [selected, setSelected] = useState<Material | null>(null);
 
@@ -1901,7 +1903,9 @@ function MaterialsScreen({ materials, loading, onCreate, onReload, onCommunityPr
     <View style={st.page}>
       <View style={assetSt.header}>
         <View style={homeSt.topBar}>
-          <TourLogo width={62} />
+          <Pressable accessibilityLabel="Back to home" onPress={onBack} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
+            <Ionicons name="arrow-back" size={22} color={C.text} />
+          </Pressable>
           <Pressable accessibilityLabel="Switch community" onPress={onCommunityPress} style={({ pressed }) => [homeSt.propertyPicker, pressed && st.pressed]}>
             <Text style={homeSt.propertyPickerText} numberOfLines={1}>{property}</Text>
             <Ionicons name="chevron-down" size={15} color="#7b8496" />
@@ -1910,9 +1914,12 @@ function MaterialsScreen({ materials, loading, onCreate, onReload, onCommunityPr
             {uploading ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="add" size={21} color={C.text} />}
           </Pressable>
         </View>
-        <View>
-          <Text style={st.pageTitle}>Assets</Text>
-          <Text style={st.pageHeadingSub}>{materials.length} community resources</Text>
+        <View style={assetSt.titleRow}>
+          <TourLogo width={58} />
+          <View style={assetSt.titleText}>
+            <Text style={st.pageTitle}>Assets</Text>
+            <Text style={st.pageHeadingSub}>{materials.length} community resources</Text>
+          </View>
         </View>
         <Pressable onPress={onCreate} style={({ pressed }) => [assetSt.recordButton, pressed && st.pressed]}>
           <Ionicons name="radio-button-on-outline" size={16} color={C.purple} />

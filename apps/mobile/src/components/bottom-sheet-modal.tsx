@@ -3,7 +3,6 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -11,29 +10,28 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Reanimated, {
+  cancelAnimation,
   Easing,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const DEFAULT_SHEET_HEIGHT = Math.round(Dimensions.get("window").height * 0.72);
 const DISMISS_DISTANCE = 88;
-const DISMISS_VELOCITY = 0.85;
-const UPWARD_RESISTANCE = 0.18;
-const MAX_UPWARD_OVERDRAG = 34;
+const DISMISS_VELOCITY = 900;
 const SHEET_EASING = Easing.out(Easing.cubic);
-const SHEET_SPRING = { damping: 22, stiffness: 260, mass: 0.8 };
 const AnimatedView = Reanimated.View;
 
 type BottomSheetModalProps = {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  dragHeader?: React.ReactNode;
   header?: React.ReactNode;
   sheetHeight?: number;
   dismissDisabled?: boolean;
@@ -45,6 +43,7 @@ export function BottomSheetModal({
   visible,
   onClose,
   children,
+  dragHeader,
   header,
   sheetHeight = DEFAULT_SHEET_HEIGHT,
   dismissDisabled = false,
@@ -54,12 +53,27 @@ export function BottomSheetModal({
   const insets = useSafeAreaInsets();
   const [rendered, setRendered] = useState(visible);
   const isClosing = useRef(false);
+  const hasPresented = useRef(false);
+  const dismissDisabledRef = useRef(dismissDisabled);
+  dismissDisabledRef.current = dismissDisabled;
+  const dismissDisabledValue = useSharedValue(dismissDisabled ? 1 : 0);
+
+  useEffect(() => {
+    dismissDisabledValue.value = dismissDisabled ? 1 : 0;
+  }, [dismissDisabled, dismissDisabledValue]);
+
   const translateY = useSharedValue(sheetHeight);
   const backdropOpacity = useSharedValue(0);
+  const sheetHeightValue = useSharedValue(sheetHeight);
+
+  useEffect(() => {
+    sheetHeightValue.value = sheetHeight;
+  }, [sheetHeight, sheetHeightValue]);
 
   const finishDismiss = useCallback(
     (notifyParent: boolean) => {
       isClosing.current = false;
+      hasPresented.current = false;
       setRendered(false);
       if (notifyParent) onClose();
     },
@@ -68,18 +82,25 @@ export function BottomSheetModal({
 
   const animateDismiss = useCallback(
     (notifyParent: boolean) => {
-      if (dismissDisabled || isClosing.current) return;
+      if (dismissDisabledRef.current || isClosing.current) return;
       isClosing.current = true;
+      cancelAnimation(translateY);
+      cancelAnimation(backdropOpacity);
       translateY.value = withTiming(sheetHeight, { duration: 220, easing: SHEET_EASING }, (finished) => {
         if (finished) runOnJS(finishDismiss)(notifyParent);
       });
       backdropOpacity.value = withTiming(0, { duration: 180 });
     },
-    [backdropOpacity, dismissDisabled, finishDismiss, sheetHeight, translateY]
+    [backdropOpacity, finishDismiss, sheetHeight, translateY]
   );
+
+  const animateDismissRef = useRef(animateDismiss);
+  animateDismissRef.current = animateDismiss;
 
   const animatePresent = useCallback(() => {
     isClosing.current = false;
+    cancelAnimation(translateY);
+    cancelAnimation(backdropOpacity);
     translateY.value = sheetHeight;
     translateY.value = withTiming(0, { duration: 260, easing: SHEET_EASING });
     backdropOpacity.value = withTiming(1, { duration: 220, easing: SHEET_EASING });
@@ -95,40 +116,36 @@ export function BottomSheetModal({
   }, [animateDismiss, rendered, visible]);
 
   useEffect(() => {
-    if (!visible || !rendered) return;
+    if (!visible || !rendered || hasPresented.current) return;
+    hasPresented.current = true;
     animatePresent();
   }, [animatePresent, rendered, visible]);
 
-  const panResponder = useMemo(
+  const panGesture = useMemo(
     () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gesture) =>
-          !dismissDisabled && Math.abs(gesture.dy) > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
-        onPanResponderMove: (_event, gesture) => {
-          if (dismissDisabled) return;
-          if (gesture.dy < 0) {
-            translateY.value = Math.max(-MAX_UPWARD_OVERDRAG, gesture.dy * UPWARD_RESISTANCE);
-            backdropOpacity.value = 1;
+      Gesture.Pan()
+        .enabled(!dismissDisabled)
+        .activeOffsetY(6)
+        .failOffsetX([-28, 28])
+        .onBegin(() => {
+          cancelAnimation(translateY);
+          cancelAnimation(backdropOpacity);
+        })
+        .onUpdate((event) => {
+          if (dismissDisabledValue.value || event.translationY <= 0) return;
+          translateY.value = event.translationY;
+          backdropOpacity.value = Math.max(0, 1 - event.translationY / sheetHeightValue.value);
+        })
+        .onEnd((event) => {
+          if (dismissDisabledValue.value) return;
+          if (event.translationY > DISMISS_DISTANCE || event.velocityY > DISMISS_VELOCITY) {
+            runOnJS(animateDismissRef.current)(true);
             return;
           }
-          translateY.value = gesture.dy;
-          backdropOpacity.value = Math.max(0, 1 - gesture.dy / sheetHeight);
-        },
-        onPanResponderRelease: (_event, gesture) => {
-          if (dismissDisabled) return;
-          if (gesture.dy > DISMISS_DISTANCE || gesture.vy > DISMISS_VELOCITY) {
-            animateDismiss(true);
-            return;
-          }
-          translateY.value = withSpring(0, SHEET_SPRING);
+          translateY.value = withTiming(0, { duration: 200, easing: SHEET_EASING });
           backdropOpacity.value = withTiming(1, { duration: 160, easing: SHEET_EASING });
-        },
-        onPanResponderTerminate: () => {
-          translateY.value = withSpring(0, SHEET_SPRING);
-          backdropOpacity.value = withTiming(1, { duration: 160, easing: SHEET_EASING });
-        },
-      }),
-    [animateDismiss, backdropOpacity, dismissDisabled, sheetHeight, translateY]
+        }),
+    [backdropOpacity, dismissDisabled, dismissDisabledValue, sheetHeightValue, translateY]
   );
 
   const backdropStyle = useAnimatedStyle(() => ({
@@ -140,40 +157,48 @@ export function BottomSheetModal({
   }));
 
   return (
-    <Modal visible={rendered} transparent animationType="none" onRequestClose={() => animateDismiss(true)}>
-      <View style={styles.root}>
-        <AnimatedView style={[styles.backdrop, backdropStyle]}>
-          <Pressable
-            accessibilityLabel="Close sheet"
-            disabled={dismissDisabled}
-            onPress={() => animateDismiss(true)}
-            style={StyleSheet.absoluteFill}
-          />
-        </AnimatedView>
+    <Modal
+      visible={rendered}
+      transparent
+      animationType="none"
+      presentationStyle="overFullScreen"
+      onRequestClose={() => animateDismiss(true)}
+    >
+      <GestureHandlerRootView style={styles.root}>
+        <AnimatedView pointerEvents="none" style={[styles.backdrop, backdropStyle]} />
+        <Pressable
+          accessibilityLabel="Close sheet"
+          disabled={dismissDisabled}
+          onPress={() => animateDismiss(true)}
+          style={styles.scrim}
+        />
 
         <KeyboardAvoidingView
           behavior={keyboardAvoiding && Platform.OS === "ios" ? "padding" : undefined}
           pointerEvents="box-none"
           style={styles.keyboardAvoiding}
         >
-          <AnimatedView
-            style={[
-              styles.sheet,
-              sheetStyle,
-              {
-                height: sheetHeight,
-                paddingBottom: Math.max(insets.bottom, 16),
-              },
-            ]}
-          >
-            <View style={styles.dragRegion} {...panResponder.panHandlers}>
-              <View style={styles.handle} />
+          <GestureDetector gesture={panGesture}>
+            <AnimatedView
+              style={[
+                styles.sheet,
+                sheetStyle,
+                {
+                  height: sheetHeight,
+                  paddingBottom: Math.max(insets.bottom, 16),
+                },
+              ]}
+            >
+              <View style={styles.dragZone}>
+                <View style={styles.handle} />
+                {dragHeader}
+              </View>
               {header}
-            </View>
-            <View style={[styles.body, contentStyle]}>{children}</View>
-          </AnimatedView>
+              <View style={[styles.body, contentStyle]}>{children}</View>
+            </AnimatedView>
+          </GestureDetector>
         </KeyboardAvoidingView>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -187,18 +212,25 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(16,24,40,0.52)",
   },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
+  },
   keyboardAvoiding: {
     flex: 1,
     justifyContent: "flex-end",
+    zIndex: 2,
   },
   sheet: {
+    elevation: 8,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     backgroundColor: "#fff",
     paddingHorizontal: 18,
   },
-  dragRegion: {
+  dragZone: {
     alignSelf: "stretch",
+    paddingBottom: 6,
   },
   handle: {
     width: 40,
@@ -207,7 +239,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: "#d0d5dd",
     marginTop: 9,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   body: {
     flex: 1,

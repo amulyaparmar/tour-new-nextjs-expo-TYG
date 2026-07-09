@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -12,8 +11,8 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import type { MobileAuthSession } from "../auth";
 import { tourColors } from "@/theme/tour-brand";
 
@@ -43,7 +42,6 @@ export function CommunityPickerModal({
   onClose,
   onSelect,
 }: CommunityPickerModalProps) {
-  const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const [listReady, setListReady] = useState(false);
   const sheetHeight = Math.round(Math.min(windowHeight * SHEET_HEIGHT_RATIO, SHEET_MAX_HEIGHT));
@@ -110,18 +108,24 @@ export function CommunityPickerModal({
   );
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} disabled={switchLocked} onPress={onClose} />
-        <View style={[styles.sheet, { height: sheetHeight, paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <View style={styles.handle} />
-          <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <Text style={styles.title}>Switch community</Text>
-              <Text style={styles.subtitle}>
-                Your dashboard, sessions, assets, and integrations will update.
-              </Text>
-            </View>
+    <BottomSheetModal
+      visible={visible}
+      onClose={onClose}
+      sheetHeight={sheetHeight}
+      dismissDisabled={switchLocked}
+      keyboardAvoiding
+      dragHeader={
+        <View style={styles.headerCopy}>
+          <Text style={styles.title}>Switch community</Text>
+          <Text style={styles.subtitle}>
+            Your dashboard, sessions, assets, and integrations will update.
+          </Text>
+        </View>
+      }
+      header={
+        <>
+          <View style={styles.headerActions}>
+            <View style={styles.headerSpacer} />
             <Pressable
               accessibilityLabel="Close communities"
               disabled={switchLocked}
@@ -131,7 +135,6 @@ export function CommunityPickerModal({
               <Ionicons name="close" size={20} color={tourColors.text} />
             </Pressable>
           </View>
-
           <View style={styles.searchBar}>
             <Ionicons name="search" size={18} color={tourColors.textMuted} />
             <TextInput
@@ -144,77 +147,59 @@ export function CommunityPickerModal({
               autoCapitalize="none"
             />
           </View>
-
-          {!listReady ? (
-            <View style={styles.list}>
-              {Array.from({ length: SKELETON_ROWS }).map((_, index) => (
-                <View key={index} style={styles.skeletonRow}>
-                  <View style={styles.skeletonIcon} />
-                  <View style={styles.skeletonBody}>
-                    <View style={styles.skeletonLine} />
-                    <View style={styles.skeletonLineShort} />
-                  </View>
-                </View>
-              ))}
+        </>
+      }
+      contentStyle={styles.listContent}
+    >
+      {!listReady ? (
+        <View style={styles.list}>
+          {Array.from({ length: SKELETON_ROWS }).map((_, index) => (
+            <View key={index} style={styles.skeletonRow}>
+              <View style={styles.skeletonIcon} />
+              <View style={styles.skeletonBody}>
+                <View style={styles.skeletonLine} />
+                <View style={styles.skeletonLineShort} />
+              </View>
             </View>
-          ) : filteredCommunities.length === 0 ? (
-            <View style={styles.empty}>
-              <Ionicons name="business-outline" size={28} color={tourColors.textMuted} />
-              <Text style={styles.emptyTitle}>No communities found</Text>
-              <Text style={styles.emptySub}>Try a different search.</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={filteredCommunities}
-              renderItem={renderCommunity}
-              keyExtractor={(item) => item.id}
-              style={styles.list}
-              contentContainerStyle={styles.listContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator
-              initialNumToRender={16}
-              maxToRenderPerBatch={14}
-              updateCellsBatchingPeriod={30}
-              windowSize={7}
-              removeClippedSubviews
-              getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
-            />
-          )}
+          ))}
         </View>
-      </View>
-    </Modal>
+      ) : filteredCommunities.length === 0 ? (
+        <View style={styles.empty}>
+          <Ionicons name="business-outline" size={28} color={tourColors.textMuted} />
+          <Text style={styles.emptyTitle}>No communities found</Text>
+          <Text style={styles.emptySub}>Try a different search.</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredCommunities}
+          renderItem={renderCommunity}
+          keyExtractor={(item) => item.id}
+          style={styles.list}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator
+          initialNumToRender={16}
+          maxToRenderPerBatch={14}
+          updateCellsBatchingPeriod={30}
+          windowSize={7}
+          removeClippedSubviews
+          getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
+        />
+      )}
+    </BottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(16,24,40,0.52)",
-  },
-  sheet: {
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    backgroundColor: "#fff",
-    paddingHorizontal: 18,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    alignSelf: "center",
-    borderRadius: 2,
-    backgroundColor: "#d0d5dd",
-    marginTop: 9,
-    marginBottom: 14,
-  },
-  header: {
+  headerActions: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 14,
+    alignItems: "center",
+    marginTop: -4,
+    marginBottom: 8,
+  },
+  headerSpacer: {
+    flex: 1,
   },
   headerCopy: {
-    flex: 1,
     gap: 4,
   },
   title: {

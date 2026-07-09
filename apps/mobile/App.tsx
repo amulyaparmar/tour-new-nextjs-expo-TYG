@@ -974,7 +974,26 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   }
 
   async function shareCheckInLink() {
-    await Share.share({ title: "Tour check-in", message: CHECK_IN_URL, url: CHECK_IN_URL });
+    await Share.share({ title: "Tour check-in", message: checkInShareText(), url: CHECK_IN_URL });
+  }
+
+  function checkInShareText() {
+    return `Check in for your tour at ${propertyLabel}: ${CHECK_IN_URL}`;
+  }
+
+  async function sendCheckInSms() {
+    const body = encodeURIComponent(checkInShareText());
+    const separator = Platform.OS === "ios" ? "&" : "?";
+    await Linking.openURL(`sms:${separator}body=${body}`);
+  }
+
+  async function sendCheckInWhatsApp() {
+    const text = encodeURIComponent(checkInShareText());
+    try {
+      await Linking.openURL(`whatsapp://send?text=${text}`);
+    } catch {
+      await Linking.openURL(`https://wa.me/?text=${text}`);
+    }
   }
 
   return (
@@ -1003,10 +1022,20 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               </View>
               <Text style={homeSt.qrTitle}>Scan to check in</Text>
               <Text style={homeSt.qrSub}>{CHECK_IN_URL}</Text>
-              <Pressable onPress={() => void shareCheckInLink()} style={({ pressed }) => [homeSt.sheetPrimary, pressed && st.pressed]}>
-                <Ionicons name="share-social-outline" size={18} color="#fff" />
-                <Text style={homeSt.sheetPrimaryText}>Share check-in link</Text>
-              </Pressable>
+              <View style={homeSt.qrShareGrid}>
+                <Pressable onPress={() => void sendCheckInSms()} style={({ pressed }) => [homeSt.qrShareButton, homeSt.qrShareButtonPrimary, pressed && st.pressed]}>
+                  <Ionicons name="chatbubble-outline" size={17} color="#fff" />
+                  <Text style={homeSt.qrShareButtonPrimaryText}>SMS</Text>
+                </Pressable>
+                <Pressable onPress={() => void sendCheckInWhatsApp()} style={({ pressed }) => [homeSt.qrShareButton, pressed && st.pressed]}>
+                  <Ionicons name="logo-whatsapp" size={17} color="#16a34a" />
+                  <Text style={homeSt.qrShareButtonText}>WhatsApp</Text>
+                </Pressable>
+                <Pressable onPress={() => void shareCheckInLink()} style={({ pressed }) => [homeSt.qrShareButton, pressed && st.pressed]}>
+                  <Ionicons name="share-social-outline" size={17} color={C.text} />
+                  <Text style={homeSt.qrShareButtonText}>Share</Text>
+                </Pressable>
+              </View>
             </View>
           ) : step === "done" ? (
             <View style={homeSt.donePanel}>
@@ -4472,6 +4501,11 @@ const homeSt = StyleSheet.create({
   qrImage: { width: "100%", height: "100%" },
   qrTitle: { color: C.text, fontSize: 18, fontWeight: "900" },
   qrSub: { maxWidth: 300, color: C.textSec, fontSize: 13, lineHeight: 19, fontWeight: "600", textAlign: "center" },
+  qrShareGrid: { alignSelf: "stretch", flexDirection: "row", gap: 8, paddingTop: 4 },
+  qrShareButton: { flex: 1, minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 14, backgroundColor: "#fff" },
+  qrShareButtonPrimary: { borderColor: C.brand, backgroundColor: C.brand },
+  qrShareButtonText: { color: C.text, fontSize: 12, fontWeight: "900" },
+  qrShareButtonPrimaryText: { color: "#fff", fontSize: 12, fontWeight: "900" },
 });
 
 const reviewSt = StyleSheet.create({

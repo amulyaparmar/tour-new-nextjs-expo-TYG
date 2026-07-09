@@ -907,14 +907,17 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   const [showJobTitle, setShowJobTitle] = useState(false);
   const [wantsSummary, setWantsSummary] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [questionIndex, setQuestionIndex] = useState(0);
   const [highlightedField, setHighlightedField] = useState<"firstName" | "email" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const checkInScrollRef = useRef<ScrollView>(null);
   const contactFieldOffsets = useRef<Record<string, number>>({});
-  const activeQuestion = CHECK_IN_QUESTIONS[questionIndex] ?? CHECK_IN_QUESTIONS[0];
-  const isLastQuestion = questionIndex >= CHECK_IN_QUESTIONS.length - 1;
+  const firstNameRef = useRef<TextInput>(null);
+  const lastNameRef = useRef<TextInput>(null);
+  const emailRef = useRef<TextInput>(null);
+  const phoneRef = useRef<TextInput>(null);
+  const reasonRef = useRef<TextInput>(null);
+  const jobTitleRef = useRef<TextInput>(null);
   const closeSheet = useCallback(() => {
     onClose();
   }, [onClose]);
@@ -932,7 +935,6 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
     if (!visible) return;
     setMode("checkin");
     setStep("contact");
-    setQuestionIndex(0);
     setHighlightedField(null);
     setReason(`Tour ${propertyLabel}`);
     setError(null);
@@ -984,7 +986,6 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
     setHighlightedField(null);
     if (CHECK_IN_QUESTIONS.length) {
       setStep("questions");
-      setQuestionIndex(0);
       return;
     }
     void submitLead();
@@ -1000,20 +1001,24 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
 
   function goBackFromQuestions() {
     setError(null);
-    if (questionIndex > 0) {
-      setQuestionIndex((current) => Math.max(0, current - 1));
-      return;
-    }
     setStep("contact");
   }
 
   function nextFromQuestion() {
     setError(null);
-    if (!isLastQuestion) {
-      setQuestionIndex((current) => Math.min(CHECK_IN_QUESTIONS.length - 1, current + 1));
+    void submitLead();
+  }
+
+  function focusNextInput(ref: React.RefObject<TextInput | null>) {
+    requestAnimationFrame(() => ref.current?.focus());
+  }
+
+  function submitReasonField() {
+    if (showJobTitle) {
+      focusNextInput(jobTitleRef);
       return;
     }
-    void submitLead();
+    nextFromContact();
   }
 
   async function shareCheckInLink() {
@@ -1098,25 +1103,22 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               showsVerticalScrollIndicator={false}
             >
               <View style={homeSt.stepHeader}>
-                <Text style={homeSt.stepKicker}>Step {Math.min(questionIndex + 2, CHECK_IN_QUESTIONS.length + 1)} of {CHECK_IN_QUESTIONS.length + 1}</Text>
-                <Text style={homeSt.questionTitle}>{firstName ? `${firstName}, ` : ""}one last thing</Text>
+                <Text style={homeSt.stepKicker}>Optional details</Text>
+                <Text style={homeSt.questionTitle}>{firstName ? `${firstName}, ` : ""}a few quick questions</Text>
               </View>
-              {activeQuestion ? (
+              {CHECK_IN_QUESTIONS.map((question) => (
                 <CheckInQuestionField
-                  key={activeQuestion.id}
-                  question={activeQuestion}
-                  value={answers[activeQuestion.id] ?? ""}
-                  onChange={(value) => setAnswers((current) => ({ ...current, [activeQuestion.id]: value }))}
+                  key={question.id}
+                  question={question}
+                  value={answers[question.id] ?? ""}
+                  onChange={(value) => setAnswers((current) => ({ ...current, [question.id]: value }))}
                 />
-              ) : null}
+              ))}
               <Pressable onPress={() => setWantsSummary((value) => !value)} style={homeSt.toggleRow}>
                 <Text style={homeSt.toggleText}>Send me follow-up notes after the tour</Text>
                 <Ionicons name={wantsSummary ? "checkbox" : "square-outline"} size={21} color={wantsSummary ? C.brand : C.textMuted} />
               </Pressable>
               {error && <Text style={homeSt.fieldError}>{error}</Text>}
-              <View style={homeSt.questionProgress}>
-                <Text style={homeSt.questionProgressText}>{questionIndex + 1}/{CHECK_IN_QUESTIONS.length}</Text>
-              </View>
             </ScrollView>
           ) : (
             <ScrollView
@@ -1140,10 +1142,23 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
                   }}
                   autoComplete="given-name"
                   autoFocus
+                  inputRef={firstNameRef}
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => focusNextInput(lastNameRef)}
                   highlighted={highlightedField === "firstName"}
                   onLayoutY={(y) => { contactFieldOffsets.current.firstName = y; }}
                 />
-                <CheckInField label="Last name" value={lastName} onChangeText={setLastName} autoComplete="family-name" />
+                <CheckInField
+                  label="Last name"
+                  value={lastName}
+                  onChangeText={setLastName}
+                  autoComplete="family-name"
+                  inputRef={lastNameRef}
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => focusNextInput(emailRef)}
+                />
               </View>
               <CheckInField
                 label="Email"
@@ -1155,6 +1170,10 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
                 }}
                 keyboardType="email-address"
                 autoComplete="email"
+                inputRef={emailRef}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => focusNextInput(phoneRef)}
                 highlighted={highlightedField === "email"}
                 onLayoutY={(y) => { contactFieldOffsets.current.email = y; }}
               />
@@ -1166,26 +1185,54 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
                     onChangeText={setCountryCode}
                     keyboardType="phone-pad"
                     autoComplete="tel-country-code"
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => focusNextInput(phoneRef)}
                     placeholder="+1"
                     placeholderTextColor="#6b7280"
                     style={homeSt.phoneCcInput}
                   />
                 </View>
                 <View style={st.flex1}>
-                  <CheckInField label="Phone number" value={phone} onChangeText={(value) => setPhone(formatCheckInPhone(value))} keyboardType="phone-pad" autoComplete="tel" />
+                  <CheckInField
+                    label="Phone number"
+                    value={phone}
+                    onChangeText={(value) => setPhone(formatCheckInPhone(value))}
+                    keyboardType="phone-pad"
+                    autoComplete="tel"
+                    inputRef={phoneRef}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => focusNextInput(reasonRef)}
+                  />
                 </View>
               </View>
-              <CheckInField label="Reason for visit (optional)" value={reason} onChangeText={setReason} />
+              <CheckInField
+                label="Reason for visit (optional)"
+                value={reason}
+                onChangeText={setReason}
+                inputRef={reasonRef}
+                returnKeyType={showJobTitle ? "next" : "done"}
+                blurOnSubmit={!showJobTitle}
+                onSubmitEditing={submitReasonField}
+              />
               {showJobTitle ? (
-                <CheckInField label="Job title" value={jobTitle} onChangeText={setJobTitle} autoComplete="organization-title" />
+                <CheckInField
+                  label="Job title"
+                  value={jobTitle}
+                  onChangeText={setJobTitle}
+                  autoComplete="organization-title"
+                  inputRef={jobTitleRef}
+                  returnKeyType="done"
+                  onSubmitEditing={nextFromContact}
+                />
               ) : (
-                <Pressable onPress={() => setShowJobTitle(true)} style={({ pressed }) => [homeSt.addJobButton, pressed && st.pressed]}>
+                <Pressable onPress={() => { setShowJobTitle(true); setTimeout(() => jobTitleRef.current?.focus(), 0); }} style={({ pressed }) => [homeSt.addJobButton, pressed && st.pressed]}>
                   <Ionicons name="briefcase-outline" size={15} color="#111827" />
                   <Text style={homeSt.addJobText}>Job title</Text>
                 </Pressable>
               )}
               {error && <Text style={homeSt.fieldError}>{error}</Text>}
-              <Text style={homeSt.checkInDestination}>QR opens {CHECK_IN_URL}</Text>
             </ScrollView>
           )}
 
@@ -1201,8 +1248,8 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
                 disabled={submitting}
                 style={({ pressed }) => [homeSt.floatingNextButton, submitting && { opacity: 0.64 }, pressed && st.pressed]}
               >
-                {submitting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name={step === "questions" && isLastQuestion ? "send-outline" : "arrow-forward"} size={18} color="#fff" />}
-                <Text style={homeSt.nextButtonText}>{submitting ? "Checking in..." : step === "questions" && isLastQuestion ? "Check in" : "Next"}</Text>
+                {submitting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name={step === "questions" ? "send-outline" : "arrow-forward"} size={18} color="#fff" />}
+                <Text style={homeSt.nextButtonText}>{submitting ? "Checking in..." : step === "questions" ? "Check in" : "Next"}</Text>
               </Pressable>
             </View>
           ) : null}
@@ -1219,6 +1266,10 @@ function CheckInField({
   keyboardType,
   autoComplete,
   autoFocus,
+  inputRef,
+  returnKeyType,
+  blurOnSubmit,
+  onSubmitEditing,
   highlighted,
   onLayoutY,
 }: {
@@ -1228,6 +1279,10 @@ function CheckInField({
   keyboardType?: "default" | "email-address" | "phone-pad";
   autoComplete?: "given-name" | "family-name" | "email" | "tel" | "organization-title";
   autoFocus?: boolean;
+  inputRef?: React.Ref<TextInput>;
+  returnKeyType?: "next" | "done";
+  blurOnSubmit?: boolean;
+  onSubmitEditing?: () => void;
   highlighted?: boolean;
   onLayoutY?: (y: number) => void;
 }) {
@@ -1238,6 +1293,7 @@ function CheckInField({
     >
       {value.length > 0 && <Text style={homeSt.floatingLabel}>{label}</Text>}
       <TextInput
+        ref={inputRef}
         autoFocus={autoFocus}
         value={value}
         onChangeText={onChangeText}
@@ -1245,6 +1301,9 @@ function CheckInField({
         placeholderTextColor="#6b7280"
         keyboardType={keyboardType}
         autoComplete={autoComplete}
+        returnKeyType={returnKeyType}
+        blurOnSubmit={blurOnSubmit}
+        onSubmitEditing={onSubmitEditing}
         style={homeSt.floatingInput}
       />
     </View>
@@ -1253,14 +1312,28 @@ function CheckInField({
 
 function CheckInQuestionField({ question, value, onChange }: { question: MobileCheckInQuestion; value: string; onChange: (value: string) => void }) {
   if (question.type === "select") {
+    const isMultiSelect = question.id === "floor_plan";
+    const selectedOptions = isMultiSelect ? value.split(", ").filter(Boolean) : [];
+    function selectOption(option: string) {
+      if (!isMultiSelect) {
+        onChange(option);
+        return;
+      }
+      const next = selectedOptions.includes(option)
+        ? selectedOptions.filter((item) => item !== option)
+        : [...selectedOptions, option];
+      onChange(next.join(", "));
+    }
+
     return (
       <View style={homeSt.questionField}>
         <Text style={homeSt.questionLabel}>{question.label}</Text>
+        {isMultiSelect && <Text style={homeSt.questionHint}>Select all that fit.</Text>}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={homeSt.questionOptions}>
           {(question.options ?? []).map((option) => {
-            const active = value === option;
+            const active = isMultiSelect ? selectedOptions.includes(option) : value === option;
             return (
-              <Pressable key={option} onPress={() => onChange(option)} style={[homeSt.questionOption, active && homeSt.questionOptionActive]}>
+              <Pressable key={option} onPress={() => selectOption(option)} style={[homeSt.questionOption, active && homeSt.questionOptionActive]}>
                 <Text style={[homeSt.questionOptionText, active && homeSt.questionOptionTextActive]}>{option}</Text>
               </Pressable>
             );
@@ -4467,6 +4540,7 @@ const homeSt = StyleSheet.create({
   questionTitle: { color: C.text, fontSize: 18, lineHeight: 23, fontWeight: "900" },
   questionField: { gap: 8 },
   questionLabel: { color: C.text, fontSize: 13, fontWeight: "900" },
+  questionHint: { color: C.textMuted, fontSize: 11, fontWeight: "700", marginTop: -4 },
   questionOptions: { gap: 8, paddingRight: 8 },
   questionOption: { minHeight: 36, justifyContent: "center", paddingHorizontal: 12, borderWidth: 1, borderColor: "#d7dae3", borderRadius: 999, backgroundColor: "#fff" },
   questionOptionActive: { borderColor: C.brand, backgroundColor: "#eff6ff" },

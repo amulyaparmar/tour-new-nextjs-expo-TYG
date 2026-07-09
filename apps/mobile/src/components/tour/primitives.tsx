@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { View, type KeyboardTypeOptions, type TextInputProps } from "react-native";
+import { StyleSheet, View, type KeyboardTypeOptions, type TextInputProps, type ViewStyle } from "react-native";
 import Reanimated, { FadeIn, FadeInDown } from "react-native-reanimated";
 
 import { Badge } from "@/components/ui/badge";
@@ -11,8 +11,33 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { cn } from "@/lib/utils";
+import { UIColors } from "@/lib/ui-colors";
 import { selectionHaptic } from "@/lib/haptics";
+
+const st = StyleSheet.create({
+  backBtn: { alignSelf: "flex-start", borderRadius: 999, paddingHorizontal: 12 },
+  primaryBtn: { minHeight: 52, borderRadius: 8 },
+  outlineBtn: { minHeight: 52, borderRadius: 8 },
+  inputRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  inputRowMultiline: { alignItems: "flex-start" },
+  input: { minHeight: 52, flex: 1, borderRadius: 8, backgroundColor: "rgba(241,245,249,0.9)", fontSize: 16, fontWeight: "600" },
+  inputMultiline: { minHeight: 96, paddingTop: 12 },
+  segWrap: { gap: 8 },
+  segLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 0.4, textTransform: "uppercase", color: UIColors.mutedForeground },
+  segGroup: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  segItem: { borderRadius: 999, paddingHorizontal: 14, borderColor: UIColors.border },
+  segItemSelected: { borderColor: UIColors.primary, backgroundColor: UIColors.secondary },
+  segText: { fontSize: 14, fontWeight: "800", color: UIColors.mutedForeground },
+  segTextSelected: { color: UIColors.secondaryForeground },
+  emptyCard: { alignItems: "center", gap: 8, borderColor: UIColors.border, paddingVertical: 32 },
+  emptyContent: { alignItems: "center", gap: 8, paddingHorizontal: 24 },
+  emptyTitle: { textAlign: "center", fontSize: 18, fontWeight: "900", color: UIColors.foreground },
+  emptySub: { textAlign: "center", fontSize: 14, color: UIColors.mutedForeground },
+  loadingWrap: { gap: 12, padding: 16 },
+  skeleton: { height: 64, width: "100%", borderRadius: 12 },
+  statusBadge: { borderRadius: 999, borderColor: "transparent", paddingHorizontal: 10, paddingVertical: 4 },
+  screen: { flex: 1, backgroundColor: UIColors.background },
+});
 
 export function TourBackButton({ label, onPress }: { label: string; onPress: () => void }) {
   return (
@@ -23,10 +48,10 @@ export function TourBackButton({ label, onPress }: { label: string; onPress: () 
         selectionHaptic();
         onPress();
       }}
-      className="self-start rounded-full border-border bg-card px-3"
+      style={st.backBtn}
     >
       <Ionicons name="chevron-back" size={16} color="#64748b" />
-      <Text className="text-sm font-extrabold text-muted-foreground">{label}</Text>
+      <Text style={{ fontSize: 14, fontWeight: "800", color: UIColors.mutedForeground }}>{label}</Text>
     </Button>
   );
 }
@@ -36,13 +61,13 @@ export function TourPrimaryButton({
   onPress,
   icon,
   disabled,
-  className,
+  style,
 }: {
   label: string;
   onPress: () => void;
   icon?: keyof typeof Ionicons.glyphMap;
   disabled?: boolean;
-  className?: string;
+  style?: ViewStyle;
 }) {
   return (
     <Button
@@ -52,10 +77,10 @@ export function TourPrimaryButton({
         selectionHaptic();
         onPress();
       }}
-      className={cn("min-h-[52px] rounded-lg", className)}
+      style={[st.primaryBtn, style]}
     >
       {icon ? <Ionicons name={icon} size={18} color="#fff" /> : null}
-      <Text className="text-base font-black text-primary-foreground">{label}</Text>
+      <Text style={{ fontSize: 16, fontWeight: "900", color: UIColors.primaryForeground }}>{label}</Text>
     </Button>
   );
 }
@@ -80,10 +105,10 @@ export function TourOutlineButton({
         selectionHaptic();
         onPress();
       }}
-      className="min-h-[52px] rounded-lg"
+      style={st.outlineBtn}
     >
       {icon ? <Ionicons name={icon} size={18} color="#64748b" /> : null}
-      <Text className="text-base font-extrabold text-muted-foreground">{label}</Text>
+      <Text style={{ fontSize: 16, fontWeight: "800", color: UIColors.mutedForeground }}>{label}</Text>
     </Button>
   );
 }
@@ -97,7 +122,7 @@ export function TourInput({
   secureTextEntry,
   keyboardType,
   autoCapitalize,
-  className,
+  style,
 }: {
   placeholder: string;
   value: string;
@@ -107,10 +132,10 @@ export function TourInput({
   secureTextEntry?: boolean;
   keyboardType?: KeyboardTypeOptions;
   autoCapitalize?: TextInputProps["autoCapitalize"];
-  className?: string;
+  style?: ViewStyle;
 }) {
   return (
-    <View className={cn("flex-row items-center gap-2.5", multiline && "items-start")}>
+    <View style={[st.inputRow, multiline && st.inputRowMultiline, style]}>
       {icon ? (
         <Ionicons
           name={icon}
@@ -128,11 +153,7 @@ export function TourInput({
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         textAlignVertical={multiline ? "top" : "center"}
-        className={cn(
-          "min-h-[52px] flex-1 rounded-lg border-input bg-muted/40 text-base font-semibold",
-          multiline && "min-h-[96px] py-3",
-          className
-        )}
+        style={[st.input, multiline && st.inputMultiline]}
       />
     </View>
   );
@@ -150,16 +171,14 @@ export function TourSegPicker({
   onChange: (v: string) => void;
 }) {
   return (
-    <View className="gap-2">
-      <Label className="text-[11px] font-extrabold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </Label>
+    <View style={st.segWrap}>
+      <Label style={st.segLabel}>{label}</Label>
       <ToggleGroup
         type="single"
         value={value}
         onValueChange={(next) => next && onChange(next)}
         variant="outline"
-        className="flex-wrap gap-2 bg-transparent"
+        style={st.segGroup}
       >
         {options.map((option, index) => (
           <ToggleGroupItem
@@ -167,16 +186,9 @@ export function TourSegPicker({
             value={option}
             isFirst={index === 0}
             isLast={index === options.length - 1}
-            className="rounded-full border-border px-3.5 data-[state=on]:border-primary data-[state=on]:bg-secondary"
+            style={[st.segItem, value === option && st.segItemSelected]}
           >
-            <Text
-              className={cn(
-                "text-sm font-extrabold text-muted-foreground",
-                value === option && "text-secondary-foreground"
-              )}
-            >
-              {option}
-            </Text>
+            <Text style={[st.segText, value === option && st.segTextSelected]}>{option}</Text>
           </ToggleGroupItem>
         ))}
       </ToggleGroup>
@@ -195,13 +207,11 @@ export function TourEmptyState({
 }) {
   return (
     <Reanimated.View entering={FadeInDown.duration(260).springify()}>
-      <Card className="items-center gap-2 border-border py-8">
-        <CardContent className="items-center gap-2 px-6">
+      <Card style={st.emptyCard}>
+        <CardContent style={st.emptyContent}>
           <Ionicons name={icon} size={36} color="#94a3b8" />
-          <Text className="text-center text-lg font-black text-foreground">{title}</Text>
-          {subtitle ? (
-            <Text className="text-center text-sm text-muted-foreground">{subtitle}</Text>
-          ) : null}
+          <Text style={st.emptyTitle}>{title}</Text>
+          {subtitle ? <Text style={st.emptySub}>{subtitle}</Text> : null}
         </CardContent>
       </Card>
     </Reanimated.View>
@@ -210,9 +220,9 @@ export function TourEmptyState({
 
 export function TourLoadingBox({ rows = 3 }: { rows?: number }) {
   return (
-    <Reanimated.View entering={FadeIn.duration(220)} className="gap-3 p-4">
+    <Reanimated.View entering={FadeIn.duration(220)} style={st.loadingWrap}>
       {Array.from({ length: rows }).map((_, index) => (
-        <Skeleton key={index} className="h-16 w-full rounded-xl" />
+        <Skeleton key={index} style={st.skeleton} />
       ))}
     </Reanimated.View>
   );
@@ -228,24 +238,18 @@ export function TourStatusBadge({
   color: string;
 }) {
   return (
-    <Badge
-      variant="outline"
-      className="rounded-full border-transparent px-2.5 py-1"
-      style={{ backgroundColor: bg }}
-    >
-      <Text className="text-[10px] font-black uppercase" style={{ color }}>
-        {label}
-      </Text>
+    <Badge variant="outline" style={[st.statusBadge, { backgroundColor: bg }]}>
+      <Text style={{ fontSize: 10, fontWeight: "900", textTransform: "uppercase", color }}>{label}</Text>
     </Badge>
   );
 }
 
 export function TourScreen({
   children,
-  className,
+  style,
 }: {
   children: React.ReactNode;
-  className?: string;
+  style?: ViewStyle;
 }) {
-  return <View className={cn("flex-1 bg-background", className)}>{children}</View>;
+  return <View style={[st.screen, style]}>{children}</View>;
 }

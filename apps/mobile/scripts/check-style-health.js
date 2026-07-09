@@ -76,11 +76,6 @@ function assertNoDuplicateStyleKeys(relativePath) {
   }
 }
 
-assertIncludes("index.js", read("index.js"), ["import \"./global.css\";"]);
-assertIncludes("babel.config.js", read("babel.config.js"), ["jsxImportSource: \"nativewind\"", "\"nativewind/babel\""]);
-assertIncludes("metro.config.js", read("metro.config.js"), ["withNativeWind", "input: \"./global.css\""]);
-assertIncludes("tailwind.config.js", read("tailwind.config.js"), ["require(\"nativewind/preset\")", "./App.tsx", "./src/**/*.{ts,tsx}"]);
-
 assertNoDuplicateStyleKeys("App.tsx");
 
 console.log("Style health check passed.");

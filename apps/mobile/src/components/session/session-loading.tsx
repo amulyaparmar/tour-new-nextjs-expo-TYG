@@ -7,6 +7,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 
+import { UIColors } from "@/lib/ui-colors";
+
 import { SESSION_PAGE_PADDING, SESSION_SECTION_GAP } from "./session-layout";
 
 export function SessionReviewSkeleton({ onBack }: { onBack?: () => void }) {
@@ -15,8 +17,8 @@ export function SessionReviewSkeleton({ onBack }: { onBack?: () => void }) {
       <View style={styles.chrome}>
         <View style={styles.navRow}>
           {onBack ? (
-            <Button variant="outline" size="icon" onPress={onBack} className="h-10 w-10 rounded-lg">
-              <Icon as={ArrowLeft} size={20} className="text-foreground" />
+            <Button variant="outline" size="icon" onPress={onBack} style={styles.backBtn}>
+              <Icon as={ArrowLeft} size={20} color={UIColors.foreground} />
             </Button>
           ) : (
             <Skeleton style={styles.iconSkeleton} />
@@ -75,11 +77,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  iconSkeleton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-  },
+  backBtn: { width: 40, height: 40, borderRadius: 12 },
+  iconSkeleton: { width: 40, height: 40, borderRadius: 12 },
   brandSkeleton: {
     width: 72,
     height: 18,

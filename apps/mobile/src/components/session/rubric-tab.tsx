@@ -1,13 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { AnalysisResult } from "@tour/shared";
 import React, { useMemo, useState } from "react";
-import { Pressable, View } from "react-native";
-import Reanimated, { FadeInDown, LinearTransition } from "react-native-reanimated";
+import { Pressable, StyleSheet, View } from "react-native";
+import Reanimated, { FadeInDown } from "react-native-reanimated";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
+import { UIColors } from "@/lib/ui-colors";
 import { selectionHaptic } from "@/lib/haptics";
 import { tourEnter } from "@/theme/animations";
 import { scoreColor, tourColors } from "@/theme/tour-brand";
@@ -30,10 +31,10 @@ export function RubricTab({ analysis }: { analysis: AnalysisResult }) {
   const expandedCount = Object.values(expanded).filter(Boolean).length;
 
   return (
-    <View className="gap-3">
-      <Reanimated.View entering={tourEnter.fadeDown} className="flex-row items-center gap-2">
+    <View style={st.root}>
+      <Reanimated.View entering={tourEnter.fadeDown} style={st.header}>
         <Ionicons name="clipboard-outline" size={18} color={tourColors.brand} />
-        <Text className="flex-1 text-[15px] font-black text-foreground">Question breakdown</Text>
+        <Text style={st.headerTitle}>Question breakdown</Text>
         <Button
           variant="ghost"
           size="sm"
@@ -46,9 +47,9 @@ export function RubricTab({ analysis }: { analysis: AnalysisResult }) {
             });
             setExpanded(update);
           }}
-          className="h-8 px-2"
+          style={st.expandBtn}
         >
-          <Text className="text-[11px] font-extrabold text-primary">
+          <Text style={st.expandBtnText}>
             {expandedCount < analysis.sectionScores.length ? "Expand all" : "Collapse all"}
           </Text>
         </Button>
@@ -62,74 +63,51 @@ export function RubricTab({ analysis }: { analysis: AnalysisResult }) {
         const isFocus = sec.section === focusSection;
 
         return (
-          <Reanimated.View
-            key={sec.section}
-            entering={tourEnter.stagger(sectionIndex, 60)}
-            layout={tourEnter.layout}
-          >
-            <Card
-              className="overflow-hidden border-border py-0"
-              style={{ borderLeftWidth: 4, borderLeftColor: c }}
-            >
+          <Reanimated.View key={sec.section} entering={tourEnter.stagger(sectionIndex, 60)}>
+            <Card style={[st.sectionCard, { borderLeftWidth: 4, borderLeftColor: c }]}>
               <Pressable
                 onPress={() => {
                   selectionHaptic();
                   setExpanded((p) => ({ ...p, [sec.section]: !p[sec.section] }));
                 }}
-                className="flex-row items-center gap-2.5 p-3.5 active:opacity-80"
+                style={({ pressed }) => [st.sectionHeader, pressed && st.pressed]}
               >
-                <View className="min-w-0 flex-1 gap-1">
-                  <View className="flex-row items-center gap-2">
-                    <Text selectable className="flex-1 text-sm font-extrabold text-foreground">
-                      {sec.section}
-                    </Text>
+                <View style={st.sectionCopy}>
+                  <View style={st.sectionTitleRow}>
+                    <Text selectable style={st.sectionTitle}>{sec.section}</Text>
                     {isFocus ? (
-                      <Badge variant="secondary" className="rounded-md px-1.5 py-0">
-                        <Text className="text-[9px] font-black uppercase text-secondary-foreground">Focus</Text>
+                      <Badge variant="secondary" style={st.focusBadge}>
+                        <Text style={st.focusBadgeText}>Focus</Text>
                       </Badge>
                     ) : null}
                   </View>
                   {hasQ ? (
-                    <Text className="text-[11px] font-bold text-muted-foreground">
-                      {passCount}/{sec.questions.length} passed
-                    </Text>
+                    <Text style={st.passMeta}>{passCount}/{sec.questions.length} passed</Text>
                   ) : null}
                 </View>
-                <View className="shrink-0 flex-row items-center gap-2">
+                <View style={st.sectionRight}>
                   {sec.pointsPossible > 0 ? (
-                    <Text selectable className="text-xs font-bold tabular-nums text-muted-foreground">
+                    <Text selectable style={st.sectionPtsMeta}>
                       {sec.pointsEarned}/{sec.pointsPossible}
                     </Text>
                   ) : null}
-                  <Badge
-                    variant="outline"
-                    className="rounded-md border-transparent px-2 py-0.5"
-                    style={{ backgroundColor: `${c}18` }}
-                  >
-                    <Text selectable className="text-xs font-extrabold tabular-nums" style={{ color: c }}>
-                      {sec.score}%
-                    </Text>
+                  <Badge variant="outline" style={[st.scoreBadge, { backgroundColor: `${c}18` }]}>
+                    <Text selectable style={[st.scoreBadgeText, { color: c }]}>{sec.score}%</Text>
                   </Badge>
-                  <Ionicons
-                    name={exp ? "chevron-up" : "chevron-down"}
-                    size={16}
-                    color={tourColors.textMuted}
-                  />
+                  <Ionicons name={exp ? "chevron-up" : "chevron-down"} size={16} color={tourColors.textMuted} />
                 </View>
               </Pressable>
 
               {exp && hasQ ? (
-                <Reanimated.View entering={FadeInDown.duration(220)} layout={LinearTransition.springify()}>
+                <Reanimated.View entering={FadeInDown.duration(220)}>
                   {sec.questions.map((q, qi) => (
-                    <Reanimated.View
-                      key={q.id}
-                      entering={tourEnter.stagger(qi, 35)}
-                      className="gap-2 border-t border-border px-3.5 py-3"
-                    >
-                      <View className="flex-row items-start gap-2.5">
+                    <Reanimated.View key={q.id} entering={tourEnter.stagger(qi, 35)} style={st.questionRow}>
+                      <View style={st.questionMain}>
                         <View
-                          className="mt-0.5 h-7 w-7 items-center justify-center rounded-full"
-                          style={{ backgroundColor: q.passed ? tourColors.greenBg : tourColors.redBg }}
+                          style={[
+                            st.questionIcon,
+                            { backgroundColor: q.passed ? tourColors.greenBg : tourColors.redBg },
+                          ]}
                         >
                           <Ionicons
                             name={q.passed ? "checkmark" : "close"}
@@ -137,31 +115,33 @@ export function RubricTab({ analysis }: { analysis: AnalysisResult }) {
                             color={q.passed ? tourColors.green : tourColors.red}
                           />
                         </View>
-                        <View className="min-w-0 flex-1 gap-1">
-                          <View className="flex-row items-start justify-between gap-2">
-                            <Text selectable className="flex-1 text-[13px] font-bold leading-[18px] text-foreground">
-                              <Text className="text-[11px] font-extrabold text-muted-foreground">{q.id} </Text>
+                        <View style={st.questionBody}>
+                          <View style={st.questionTop}>
+                            <Text selectable style={st.questionText}>
+                              <Text style={st.questionId}>{q.id} </Text>
                               {q.question}
                             </Text>
                             <Badge
                               variant="outline"
-                              className="shrink-0 rounded-md border-transparent px-1.5 py-0.5"
-                              style={{ backgroundColor: q.passed ? tourColors.greenBg : tourColors.redBg }}
+                              style={[
+                                st.questionPtsBadge,
+                                { backgroundColor: q.passed ? tourColors.greenBg : tourColors.redBg },
+                              ]}
                             >
                               <Text
                                 selectable
-                                className="text-[11px] font-extrabold tabular-nums"
-                                style={{ color: q.passed ? tourColors.green : tourColors.red }}
+                                style={[
+                                  st.questionPtsText,
+                                  { color: q.passed ? tourColors.green : tourColors.red },
+                                ]}
                               >
                                 {q.earnedPoints}/{q.maxPoints}
                               </Text>
                             </Badge>
                           </View>
                           {q.evidence ? (
-                            <View className="rounded-lg bg-muted/60 px-2.5 py-2">
-                              <Text selectable className="text-xs font-semibold italic leading-[17px] text-muted-foreground">
-                                "{q.evidence}"
-                              </Text>
+                            <View style={st.evidenceBox}>
+                              <Text selectable style={st.evidenceText}>"{q.evidence}"</Text>
                             </View>
                           ) : null}
                         </View>
@@ -172,8 +152,8 @@ export function RubricTab({ analysis }: { analysis: AnalysisResult }) {
               ) : null}
 
               {exp && !hasQ ? (
-                <CardContent className="border-t border-border px-3.5 py-3">
-                  <Text className="text-[13px] font-semibold text-muted-foreground">
+                <CardContent style={st.emptySection}>
+                  <Text style={st.emptySectionText}>
                     Section scored at {sec.score}%
                     {sec.pointsPossible > 0 ? ` (${sec.pointsEarned}/${sec.pointsPossible} pts)` : ""}.
                   </Text>
@@ -186,3 +166,56 @@ export function RubricTab({ analysis }: { analysis: AnalysisResult }) {
     </View>
   );
 }
+
+const st = StyleSheet.create({
+  root: { gap: 12 },
+  header: { flexDirection: "row", alignItems: "center", gap: 8 },
+  headerTitle: { flex: 1, fontSize: 15, fontWeight: "900", color: UIColors.foreground },
+  expandBtn: { minHeight: 32, paddingHorizontal: 8 },
+  expandBtnText: { fontSize: 11, fontWeight: "800", color: UIColors.primary },
+  sectionCard: { overflow: "hidden", borderColor: UIColors.border, paddingVertical: 0 },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  pressed: { opacity: 0.8 },
+  sectionCopy: { flex: 1, minWidth: 0, gap: 4 },
+  sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  sectionTitle: { flex: 1, fontSize: 14, fontWeight: "800", color: UIColors.foreground },
+  focusBadge: { borderRadius: 8, paddingHorizontal: 6, paddingVertical: 0 },
+  focusBadgeText: { fontSize: 9, fontWeight: "900", textTransform: "uppercase", color: UIColors.secondaryForeground },
+  passMeta: { fontSize: 11, fontWeight: "700", color: UIColors.mutedForeground },
+  sectionRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  sectionPtsMeta: { fontSize: 12, fontWeight: "700", fontVariant: ["tabular-nums"], color: UIColors.mutedForeground },
+  scoreBadge: { borderRadius: 8, borderColor: "transparent", paddingHorizontal: 8, paddingVertical: 2 },
+  scoreBadgeText: { fontSize: 12, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  questionRow: {
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: UIColors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  questionMain: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  questionIcon: {
+    marginTop: 2,
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+  },
+  questionBody: { flex: 1, minWidth: 0, gap: 4 },
+  questionTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+  questionText: { flex: 1, fontSize: 13, fontWeight: "700", lineHeight: 18, color: UIColors.foreground },
+  questionId: { fontSize: 11, fontWeight: "800", color: UIColors.mutedForeground },
+  questionPtsBadge: { borderRadius: 8, borderColor: "transparent", paddingHorizontal: 6, paddingVertical: 2 },
+  questionPtsText: { fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  evidenceBox: { borderRadius: 8, backgroundColor: "rgba(241,245,249,0.9)", paddingHorizontal: 10, paddingVertical: 8 },
+  evidenceText: { fontSize: 12, fontWeight: "600", fontStyle: "italic", lineHeight: 17, color: UIColors.mutedForeground },
+  emptySection: { borderTopWidth: 1, borderTopColor: UIColors.border, paddingHorizontal: 14, paddingVertical: 12 },
+  emptySectionText: { fontSize: 13, fontWeight: "600", color: UIColors.mutedForeground },
+});

@@ -35,7 +35,6 @@ import Reanimated, {
   FadeIn,
   FadeInDown,
   FadeInUp,
-  LinearTransition,
   SlideInLeft,
   SlideInRight,
   SlideOutLeft,
@@ -126,6 +125,7 @@ import {
   TourSegPicker as SegPicker,
   TourStatusBadge,
 } from "./src/components/tour";
+import { CommunityPickerModal } from "@/components/community-picker-modal";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text as UiText } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
@@ -506,6 +506,35 @@ export default function App() {
   );
 }
 
+function CommunityTopBar({
+  left,
+  right,
+  property,
+  onCommunityPress,
+}: {
+  left: React.ReactNode;
+  right: React.ReactNode;
+  property: string;
+  onCommunityPress: () => void;
+}) {
+  return (
+    <View style={homeSt.topBar}>
+      <View style={homeSt.topBarSide}>{left}</View>
+      <View style={homeSt.topBarCenter}>
+        <Pressable
+          accessibilityLabel="Switch community"
+          onPress={onCommunityPress}
+          style={({ pressed }) => [homeSt.propertyPicker, pressed && st.pressed]}
+        >
+          <Text style={homeSt.propertyPickerText} numberOfLines={1}>{property}</Text>
+          <Ionicons name="chevron-down" size={15} color={C.textSec} />
+        </Pressable>
+      </View>
+      <View style={[homeSt.topBarSide, homeSt.topBarSideEnd]}>{right}</View>
+    </View>
+  );
+}
+
 // ═══════════════════════════════════════
 // Bottom Tab Navigation
 // ═══════════════════════════════════════
@@ -638,14 +667,12 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
 
 function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <Card className="flex-row items-center gap-2.5 border-destructive/20 bg-destructive/5 py-3">
-      <CardContent className="flex-row items-center gap-2.5 px-4 py-0">
+    <Card style={errorBannerSt.card}>
+      <CardContent style={errorBannerSt.content}>
         <Ionicons name="cloud-offline-outline" size={18} color={C.red} />
-        <UiText className="flex-1 text-sm font-semibold text-destructive" numberOfLines={2}>
-          {message}
-        </UiText>
+        <UiText style={errorBannerSt.text} numberOfLines={2}>{message}</UiText>
         {onRetry ? (
-          <Button variant="ghost" size="icon" onPress={onRetry} className="h-9 w-9">
+          <Button variant="ghost" size="icon" onPress={onRetry} style={errorBannerSt.retry}>
             <Ionicons name="refresh" size={16} color={C.brand} />
           </Button>
         ) : null}
@@ -653,6 +680,20 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => vo
     </Card>
   );
 }
+
+const errorBannerSt = StyleSheet.create({
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderColor: "rgba(239,68,68,0.2)",
+    backgroundColor: "rgba(239,68,68,0.05)",
+    paddingVertical: 12,
+  },
+  content: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 0 },
+  text: { flex: 1, fontSize: 14, fontWeight: "600", color: "#ef4444" },
+  retry: { width: 36, height: 36 },
+});
 
 // ═══════════════════════════════════════
 // Dashboard
@@ -686,16 +727,16 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
 
   return (
     <View style={[st.page, { gap: 18 }]}>
-      <View style={homeSt.topBar}>
-        <Pressable accessibilityLabel="Open profile" onPress={onProfile}><TourLogo width={62} /></Pressable>
-        <Pressable accessibilityLabel="Switch community" onPress={onCommunityPress} style={({ pressed }) => [homeSt.propertyPicker, pressed && st.pressed]}>
-          <Text style={homeSt.propertyPickerText} numberOfLines={1}>{property}</Text>
-          <Ionicons name="chevron-down" size={15} color={C.textSec} />
-        </Pressable>
-        <Pressable accessibilityLabel="Notifications" style={homeSt.headerIcon}>
-          <Ionicons name="notifications-outline" size={20} color={C.text} />
-        </Pressable>
-      </View>
+      <CommunityTopBar
+        property={property}
+        onCommunityPress={onCommunityPress}
+        left={<Pressable accessibilityLabel="Open profile" onPress={onProfile}><TourLogo width={62} /></Pressable>}
+        right={
+          <Pressable accessibilityLabel="Notifications" style={homeSt.headerIcon}>
+            <Ionicons name="notifications-outline" size={20} color={C.text} />
+          </Pressable>
+        }
+      />
 
       <MotionBlock delay={40} style={homeSt.profileCard}>
         <View style={homeSt.profileHeader} />
@@ -724,7 +765,7 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
         <HomeSection title="Ready Today">
           <View style={homeSt.focusStack}>
             {todayTours.map((session) => (
-              <MotionPressable key={session.id} onPress={() => onSession(session.id)} haptic="selection" layout={LinearTransition.springify()} style={homeSt.tourCard}>
+              <MotionPressable key={session.id} onPress={() => onSession(session.id)} haptic="selection" style={homeSt.tourCard}>
                 <View style={st.flex1}>
                   <Text style={homeSt.tourTitle} numberOfLines={1}>{session.title}</Text>
                   <View style={homeSt.tourMetaRow}>
@@ -745,7 +786,8 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
             const previewUrl = materialPreviewUrl(material);
             const canOpen = Boolean(materialUrl(material));
             return (
-              <MotionPressable key={material.id} onPress={() => setSelectedMaterial(material)} haptic="selection" style={homeSt.mediaTile}>
+              <View key={material.id} style={homeSt.mediaTileWrap}>
+              <Pressable onPress={() => setSelectedMaterial(material)} style={({ pressed }) => [homeSt.mediaTile, pressed && st.pressed]}>
                 <View style={homeSt.mediaThumb}>
                   {previewUrl ? (
                     <Image source={{ uri: previewUrl }} style={homeSt.mediaPreviewImage} resizeMode="cover" />
@@ -761,7 +803,8 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
                   )}
                 </View>
                 <Text style={homeSt.mediaLabel} numberOfLines={2}>{material.name}</Text>
-              </MotionPressable>
+              </Pressable>
+              </View>
             );
           })}
           {materials.length === 0 && <Text style={homeSt.emptyInline}>Reusable tour assets will appear here.</Text>}
@@ -1260,36 +1303,58 @@ function BrandedQrIcon({ size = 32 }: { size?: number }) {
 
 function MetricCard({ icon, label, value, color, delay = 0, live = false }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; color: string; delay?: number; live?: boolean }) {
   return (
-    <Reanimated.View entering={FadeInUp.delay(delay).duration(360).springify()} layout={LinearTransition.springify()} className="w-[48%]">
-      <Card className="gap-1.5 border-border py-4">
-        <CardContent className="gap-1.5 px-4 py-0">
+    <Reanimated.View entering={FadeInUp.delay(delay).duration(360).springify()} style={homeSt.metricCard}>
+      <Card style={metricSt.card}>
+        <CardContent style={metricSt.content}>
           {live ? <PulseDot color={color} /> : <Ionicons name={icon} size={20} color={color} />}
-          <UiText className="text-2xl font-black tabular-nums text-foreground">{value}</UiText>
-          <UiText className="text-[11px] font-extrabold uppercase text-muted-foreground">{label}</UiText>
+          <UiText style={metricSt.value}>{value}</UiText>
+          <UiText style={metricSt.label}>{label}</UiText>
         </CardContent>
       </Card>
     </Reanimated.View>
   );
 }
 
+const metricSt = StyleSheet.create({
+  card: { gap: 6, borderColor: C.border, paddingVertical: 16 },
+  content: { gap: 6, paddingHorizontal: 16, paddingVertical: 0 },
+  value: { fontSize: 24, fontWeight: "900", fontVariant: ["tabular-nums"], color: C.text },
+  label: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", color: C.textMuted },
+});
+
 function CardRow({ icon, title, sub, onPress }: { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string; onPress: () => void }) {
   return (
-    <MotionPressable onPress={onPress} haptic="selection">
-      <Card className="flex-row items-center gap-3 border-border py-3">
-        <CardContent className="flex-row items-center gap-3 px-4 py-0">
-          <View className="h-11 w-11 items-center justify-center rounded-xl bg-secondary">
+    <Pressable onPress={onPress} style={({ pressed }) => pressed && st.pressed}>
+      <Card style={cardRowSt.card}>
+        <CardContent style={cardRowSt.content}>
+          <View style={cardRowSt.iconWrap}>
             <Ionicons name={icon} size={22} color={C.brand} />
           </View>
-          <View className="flex-1">
-            <UiText className="text-sm font-black text-foreground">{title}</UiText>
-            <UiText className="mt-0.5 text-xs text-muted-foreground">{sub}</UiText>
+          <View style={st.flex1}>
+            <UiText style={cardRowSt.title}>{title}</UiText>
+            <UiText style={cardRowSt.sub}>{sub}</UiText>
           </View>
           <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
         </CardContent>
       </Card>
-    </MotionPressable>
+    </Pressable>
   );
 }
+
+const cardRowSt = StyleSheet.create({
+  card: { flexDirection: "row", alignItems: "center", gap: 12, borderColor: C.border, paddingVertical: 12 },
+  content: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 0 },
+  iconWrap: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: "#e8f2ff",
+  },
+  title: { fontSize: 14, fontWeight: "900", color: C.text },
+  sub: { marginTop: 2, fontSize: 12, color: C.textSec },
+});
 
 function SessionRow({ session, onPress, isLast }: { session: SessionSummary; onPress: () => void; isLast: boolean }) {
   const colors = STATUS_COLORS[session.status] ?? { bg: "#eaf4ff", text: C.brand };
@@ -1413,7 +1478,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
   const renderItem = useCallback(({ item }: { item: SessionListItem }) => {
     if (item.kind === "header") {
       return (
-        <Reanimated.View entering={FadeIn.delay(80)} layout={LinearTransition.springify()} style={slst.groupHeader}>
+        <Reanimated.View entering={FadeIn.delay(80)} style={slst.groupHeader}>
           <Text style={slst.groupLabel}>{item.label}</Text>
           <View style={slst.groupCount}><Text style={slst.groupCountText}>{item.count}</Text></View>
         </Reanimated.View>
@@ -1422,7 +1487,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
     const session = item.session;
     const needsReview = ["uploaded", "failed", "analysis_ready"].includes(session.status);
     return (
-      <MotionPressable onPress={() => onSession(session.id)} haptic="selection" entering={FadeInDown.duration(260).springify()} layout={LinearTransition.springify()} style={slst.sessionCard}>
+      <MotionPressable onPress={() => onSession(session.id)} haptic="selection" entering={FadeInDown.duration(260).springify()} style={slst.sessionCard}>
         <View style={st.flex1}>
           <View style={slst.sessionNameRow}>
             {session.status === "in_progress" && <PulseDot color="#f04438" />}
@@ -1448,18 +1513,20 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
 
   const ListHeader = useMemo(() => (
     <View style={slst.header}>
-      <View style={homeSt.topBar}>
-        <Pressable accessibilityLabel="Back to home" onPress={onBack} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
-          <Ionicons name="arrow-back" size={22} color={C.text} />
-        </Pressable>
-        <Pressable accessibilityLabel="Switch community" onPress={onCommunityPress} style={({ pressed }) => [homeSt.propertyPicker, pressed && st.pressed]}>
-          <Text style={homeSt.propertyPickerText} numberOfLines={1}>{property}</Text>
-          <Ionicons name="chevron-down" size={15} color="#7b8496" />
-        </Pressable>
-        <Pressable onPress={() => setShowSearch((value) => !value)} style={homeSt.headerIcon}>
-          <Ionicons name={showSearch ? "close" : "search"} size={19} color={C.text} />
-        </Pressable>
-      </View>
+      <CommunityTopBar
+        property={property}
+        onCommunityPress={onCommunityPress}
+        left={
+          <Pressable accessibilityLabel="Back to home" onPress={onBack} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
+            <Ionicons name="arrow-back" size={22} color={C.text} />
+          </Pressable>
+        }
+        right={
+          <Pressable onPress={() => setShowSearch((value) => !value)} style={homeSt.headerIcon}>
+            <Ionicons name={showSearch ? "close" : "search"} size={19} color={C.text} />
+          </Pressable>
+        }
+      />
       <View style={slst.titleRow}>
         <Text style={st.pageTitle}>Sessions</Text>
         <View style={slst.avgPill}>
@@ -1706,16 +1773,16 @@ function CalendarScreen({
 
   return (
     <View style={st.page}>
-      <View style={homeSt.topBar}>
-        <TourLogo width={62} />
-        <Pressable accessibilityLabel="Switch community" onPress={onCommunityPress} style={({ pressed }) => [homeSt.propertyPicker, pressed && st.pressed]}>
-          <Text style={homeSt.propertyPickerText} numberOfLines={1}>{property}</Text>
-          <Ionicons name="chevron-down" size={15} color="#7b8496" />
-        </Pressable>
-        <Pressable onPress={() => void runSync()} disabled={syncing} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
-          {syncing ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="sync" size={18} color={C.text} />}
-        </Pressable>
-      </View>
+      <CommunityTopBar
+        property={property}
+        onCommunityPress={onCommunityPress}
+        left={<TourLogo width={62} />}
+        right={
+          <Pressable onPress={() => void runSync()} disabled={syncing} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
+            {syncing ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="sync" size={18} color={C.text} />}
+          </Pressable>
+        }
+      />
       <View style={st.pageHeadingRow}>
         <View style={st.flex1}>
           <Text style={st.pageTitle}>Calendar</Text>
@@ -1742,7 +1809,7 @@ function CalendarScreen({
         ) : (
           <View style={homeSt.focusStack}>
             {upcomingSessions.slice(0, 4).map((session) => (
-              <MotionPressable key={session.id} onPress={() => onSession(session.id)} haptic="selection" layout={LinearTransition.springify()} style={homeSt.tourCard}>
+              <MotionPressable key={session.id} onPress={() => onSession(session.id)} haptic="selection" style={homeSt.tourCard}>
                 <View style={st.flex1}>
                   <Text style={homeSt.tourTitle} numberOfLines={1}>{session.title}</Text>
                   <View style={homeSt.tourMetaRow}>
@@ -1852,7 +1919,8 @@ const assetSt = StyleSheet.create({
   recordButton: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderWidth: 1, borderColor: "#d7dee8", borderRadius: 999, backgroundColor: "#fff" },
   recordButtonText: { color: C.text, fontSize: 14, fontWeight: "900" },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
-  card: { width: "47.8%", gap: 8 },
+  cardWrap: { width: (Dimensions.get("window").width - 54) / 2 },
+  card: { gap: 8 },
   thumb: { aspectRatio: 1, alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: 18, backgroundColor: "#eef4ff" },
   thumbImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
   thumbOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15,23,42,0.08)" },
@@ -1902,24 +1970,23 @@ function MaterialsScreen({ materials, loading, onCreate, onReload, onBack, onCom
   return (
     <View style={st.page}>
       <View style={assetSt.header}>
-        <View style={homeSt.topBar}>
-          <Pressable accessibilityLabel="Back to home" onPress={onBack} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
-            <Ionicons name="arrow-back" size={22} color={C.text} />
-          </Pressable>
-          <Pressable accessibilityLabel="Switch community" onPress={onCommunityPress} style={({ pressed }) => [homeSt.propertyPicker, pressed && st.pressed]}>
-            <Text style={homeSt.propertyPickerText} numberOfLines={1}>{property}</Text>
-            <Ionicons name="chevron-down" size={15} color="#7b8496" />
-          </Pressable>
-          <Pressable onPress={() => void addAsset()} disabled={uploading} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
-            {uploading ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="add" size={21} color={C.text} />}
-          </Pressable>
-        </View>
-        <View style={assetSt.titleRow}>
-          <TourLogo width={58} />
-          <View style={assetSt.titleText}>
-            <Text style={st.pageTitle}>Assets</Text>
-            <Text style={st.pageHeadingSub}>{materials.length} community resources</Text>
-          </View>
+        <CommunityTopBar
+          property={property}
+          onCommunityPress={onCommunityPress}
+          left={
+            <Pressable accessibilityLabel="Back to home" onPress={onBack} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
+              <Ionicons name="arrow-back" size={22} color={C.text} />
+            </Pressable>
+          }
+          right={
+            <Pressable onPress={() => void addAsset()} disabled={uploading} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
+              {uploading ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="add" size={21} color={C.text} />}
+            </Pressable>
+          }
+        />
+        <View>
+          <Text style={st.pageTitle}>Assets</Text>
+          <Text style={st.pageHeadingSub}>{materials.length} community resources</Text>
         </View>
         <Pressable onPress={onCreate} style={({ pressed }) => [assetSt.recordButton, pressed && st.pressed]}>
           <Ionicons name="radio-button-on-outline" size={16} color={C.purple} />
@@ -1933,12 +2000,8 @@ function MaterialsScreen({ materials, loading, onCreate, onReload, onBack, onCom
             const previewUrl = materialPreviewUrl(material);
             const canPlay = Boolean(materialUrl(material));
             return (
-              <MotionPressable
-                key={material.id}
-                onPress={() => setSelected(material)}
-                haptic="selection"
-                style={assetSt.card}
-              >
+              <View key={material.id} style={assetSt.cardWrap}>
+              <Pressable onPress={() => setSelected(material)} style={({ pressed }) => [assetSt.card, pressed && st.pressed]}>
                 <View style={assetSt.thumb}>
                   {previewUrl ? (
                     <>
@@ -1958,7 +2021,8 @@ function MaterialsScreen({ materials, loading, onCreate, onReload, onBack, onCom
                 </View>
                 <Text style={assetSt.cardTitle} numberOfLines={1}>{material.name}</Text>
                 <Text style={assetSt.cardMeta} numberOfLines={1}>{material.type} · {fmtDate(material.createdAt)}</Text>
-              </MotionPressable>
+              </Pressable>
+              </View>
             );
           })}
         </View>
@@ -2860,7 +2924,6 @@ function SessionReviewExperience({
                 <Reanimated.View
                   key={segment.id || index}
                   entering={FadeInDown.delay(Math.min(index * 18, 180)).duration(240)}
-                  layout={LinearTransition.springify()}
                   onLayout={(event) => { segmentY.current[segment.id] = event.nativeEvent.layout.y; }}
                   style={[reviewSt.turnRow, active && reviewSt.turnRowActive]}
                 >
@@ -2959,7 +3022,7 @@ function CoachingMomentCard({
   compact?: boolean;
 }) {
   return (
-    <MotionPressable onPress={onSeek} haptic="selection" entering={FadeInDown.duration(260).springify()} layout={LinearTransition.springify()} style={[reviewSt.coachingMoment, compact && reviewSt.coachingMomentCompact]}>
+    <MotionPressable onPress={onSeek} haptic="selection" entering={FadeInDown.duration(260).springify()} style={[reviewSt.coachingMoment, compact && reviewSt.coachingMomentCompact]}>
       <View style={reviewSt.coachingMomentHeader}>
         <View style={reviewSt.coachingMomentIcon}><Ionicons name="flash" size={13} color={C.purple} /></View>
         <Text style={reviewSt.coachingMomentKicker}>Coachable Moment</Text>
@@ -4162,14 +4225,16 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
 
       <Text style={st.settingsSectionLabel}>ACTIVE COMMUNITY</Text>
       <Pressable onPress={() => setCommunityPickerOpen(true)} style={({ pressed }) => [st.settingsIdentity, pressed && st.pressed]}>
-        <View style={[st.communitySettingIcon, { backgroundColor: C.greenBg }]}>
-          <Ionicons name="business-outline" size={18} color={C.green} />
+        <View style={st.settingsCommunityRow}>
+          <View style={[st.communitySettingIcon, { backgroundColor: C.greenBg }]}>
+            <Ionicons name="business-outline" size={18} color={C.green} />
+          </View>
+          <View style={st.flex1}>
+            <Text style={st.communitySettingName}>{session.workspace.community.name}</Text>
+            <Text style={st.cardRowSub}>{session.workspace.communities.length} available communities</Text>
+          </View>
+          <Text style={st.settingsChangeText}>Change</Text>
         </View>
-        <View style={st.flex1}>
-          <Text style={st.communitySettingName}>{session.workspace.community.name}</Text>
-          <Text style={st.cardRowSub}>{session.workspace.communities.length} available communities</Text>
-        </View>
-        <Text style={st.settingsChangeText}>Change</Text>
       </Pressable>
       <Text style={st.settingsSectionLabel}>EVALUATION</Text>
       <CardRow icon="clipboard-outline" title="Rubrics" sub="Templates, criteria, and session applications" onPress={onRubrics} />
@@ -4191,90 +4256,6 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
         onSelect={(communityId) => void chooseCommunity(communityId)}
       />
     </View>
-  );
-}
-
-function CommunityPickerModal({
-  visible,
-  session,
-  query,
-  switchingId,
-  onQueryChange,
-  onClose,
-  onSelect,
-}: {
-  visible: boolean;
-  session: MobileAuthSession;
-  query: string;
-  switchingId: string | null;
-  onQueryChange: (query: string) => void;
-  onClose: () => void;
-  onSelect: (communityId: string) => void;
-}) {
-  const filteredCommunities = useMemo(() => {
-    const value = query.trim().toLowerCase();
-    return value
-      ? session.workspace.communities.filter((community) => community.name.toLowerCase().includes(value))
-      : session.workspace.communities;
-  }, [query, session.workspace.communities]);
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={st.sheetBackdrop}>
-        <Pressable style={StyleSheet.absoluteFill} disabled={Boolean(switchingId)} onPress={onClose} />
-        <View style={communitySt.sheet}>
-          <View style={communitySt.handle} />
-          <View style={communitySt.header}>
-            <View style={communitySt.headerText}>
-              <Text style={communitySt.title}>Switch community</Text>
-              <Text style={communitySt.subtitle}>Your dashboard, sessions, assets, and integrations will update.</Text>
-            </View>
-            <Pressable accessibilityLabel="Close communities" disabled={Boolean(switchingId)} onPress={onClose} style={communitySt.closeButton}>
-              <Ionicons name="close" size={20} color={C.text} />
-            </Pressable>
-          </View>
-          <View style={communitySt.searchBar}>
-            <Ionicons name="search" size={18} color={C.textMuted} />
-            <TextInput
-              value={query}
-              onChangeText={onQueryChange}
-              placeholder="Search communities"
-              placeholderTextColor={C.textMuted}
-              style={communitySt.searchInput}
-            />
-          </View>
-          <FlatList
-            data={filteredCommunities}
-            keyExtractor={(community) => community.id}
-            keyboardShouldPersistTaps="handled"
-            style={communitySt.list}
-            contentContainerStyle={communitySt.listContent}
-            ListEmptyComponent={<EmptyState icon="business-outline" title="No communities found" subtitle="Try a different search." />}
-            renderItem={({ item }) => {
-              const active = item.id === session.workspace.community.id;
-              return (
-                <Pressable disabled={Boolean(switchingId)} onPress={() => onSelect(item.id)} style={({ pressed }) => [communitySt.row, pressed && st.pressed]}>
-                  <View style={[communitySt.iconBox, active && { backgroundColor: C.greenBg }]}>
-                    <Ionicons name="business-outline" size={18} color={active ? C.green : C.brand} />
-                  </View>
-                  <View style={communitySt.rowText}>
-                    <Text style={communitySt.rowTitle} numberOfLines={1}>{item.name}</Text>
-                    {item.alias && <Text style={communitySt.rowSub} numberOfLines={1}>{item.alias}</Text>}
-                  </View>
-                  <View style={communitySt.rowAction}>
-                    {switchingId === item.id
-                      ? <ActivityIndicator size="small" color={C.brand} />
-                      : active
-                        ? <Ionicons name="checkmark-circle" size={20} color={C.green} />
-                        : <Ionicons name="chevron-forward" size={17} color={C.textMuted} />}
-                  </View>
-                </Pressable>
-              );
-            }}
-          />
-        </View>
-      </View>
-    </Modal>
   );
 }
 
@@ -4371,8 +4352,11 @@ function SRow({ label, value }: { label: string; value: string }) {
 const W = Dimensions.get("window").width;
 
 const homeSt = StyleSheet.create({
-  topBar: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  propertyPicker: { minWidth: 164, maxWidth: 230, height: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 16, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 999, backgroundColor: "#fff" },
+  topBar: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8 },
+  topBarSide: { width: 44, alignItems: "flex-start", justifyContent: "center" },
+  topBarSideEnd: { alignItems: "flex-end" },
+  topBarCenter: { flex: 1, minWidth: 0, alignItems: "center", justifyContent: "center" },
+  propertyPicker: { maxWidth: "100%", minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 16, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 999, backgroundColor: "#fff" },
   propertyPickerText: { flexShrink: 1, color: "#5f6673", fontSize: 16, lineHeight: 19, fontWeight: "800", textAlign: "center" },
   headerIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e2e2e2", borderRadius: 8, backgroundColor: "#fff" },
   profileCard: { overflow: "hidden", borderRadius: 28, backgroundColor: "#fff", shadowColor: "#101828", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 24, elevation: 4 },
@@ -4400,6 +4384,7 @@ const homeSt = StyleSheet.create({
   smsButton: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: C.brand },
   smsButtonText: { color: "#fff", fontSize: 10, fontWeight: "800" },
   metricsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
+  metricCard: { width: (W - 47) / 2 },
   commandGrid: { flexDirection: "row", gap: 9 },
   commandButton: { flex: 1, minHeight: 92, justifyContent: "space-between", padding: 12, borderWidth: 1, borderColor: C.border, borderRadius: 16, backgroundColor: "#fff" },
   commandIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 10 },
@@ -4427,7 +4412,8 @@ const homeSt = StyleSheet.create({
   actionTitle: { color: "#000", fontSize: 14, fontWeight: "900" },
   actionSub: { color: C.textSec, fontSize: 12, marginTop: 3 },
   mediaRow: { flexDirection: "row", gap: 10 },
-  mediaTile: { width: "31.5%", minHeight: 132, justifyContent: "space-between", gap: 8, padding: 8, borderRadius: 12, backgroundColor: "#eef4ff" },
+  mediaTileWrap: { width: (W - 56) / 3 },
+  mediaTile: { minHeight: 132, justifyContent: "space-between", gap: 8, padding: 8, borderRadius: 12, backgroundColor: "#eef4ff" },
   mediaThumb: { flex: 1, minHeight: 82, alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden", borderRadius: 10, backgroundColor: "rgba(255,255,255,0.55)" },
   mediaPreviewImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
   mediaFallbackIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, backgroundColor: "#fff" },
@@ -4827,6 +4813,9 @@ const st = StyleSheet.create({
   cancelSessionText: { color: C.red, fontSize: 13, fontWeight: "800" },
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(16,24,40,0.52)" },
   assetSheet: { maxHeight: "78%", minHeight: "52%", borderTopLeftRadius: 18, borderTopRightRadius: 18, backgroundColor: "#fff", paddingHorizontal: 18, paddingBottom: Platform.OS === "ios" ? 32 : 18 },
+  communitySheet: { minHeight: "70%", overflow: "hidden" },
+  communitySheetList: { paddingTop: 10, paddingBottom: 20 },
+  communityEmpty: { alignItems: "center", gap: 8, paddingVertical: 32 },
   sheetHandle: { width: 40, height: 4, alignSelf: "center", borderRadius: 2, backgroundColor: "#d0d5dd", marginTop: 9, marginBottom: 14 },
   sheetHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
   sheetTitle: { color: C.text, fontSize: 20, fontWeight: "900" },
@@ -4869,10 +4858,12 @@ const st = StyleSheet.create({
 
   // Settings
   settingsIdentity: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderWidth: 1, borderColor: C.border, borderRadius: 8, backgroundColor: C.card },
+  settingsCommunityRow: { flexDirection: "row", alignItems: "center", gap: 12, width: "100%" },
   settingsSectionLabel: { color: C.textMuted, fontSize: 10, fontWeight: "900", marginTop: 4 },
   communitySettingRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 12 },
   communitySettingIcon: { width: 34, height: 34, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#eef2ff" },
-  communitySettingName: { flex: 1, color: C.text, fontSize: 13, fontWeight: "800" },
+  communityRowBody: { flex: 1, minWidth: 0, gap: 2 },
+  communitySettingName: { color: C.text, fontSize: 13, fontWeight: "800" },
   settingsChangeText: { color: C.brand, fontSize: 12, fontWeight: "900" },
   settingsVersion: { color: C.textMuted, fontSize: 11, textAlign: "center", marginTop: 4 },
 

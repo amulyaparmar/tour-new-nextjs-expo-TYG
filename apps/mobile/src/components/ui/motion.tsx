@@ -5,7 +5,6 @@ import Reanimated, {
   FadeIn,
   FadeInDown,
   FadeOut,
-  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -21,7 +20,7 @@ export function MotionPressable({
   onPress,
   haptic = "selection",
   entering,
-  layout,
+  layout: _layout,
   disabled,
   ...props
 }: {
@@ -44,7 +43,6 @@ export function MotionPressable({
       {...props}
       disabled={disabled}
       entering={entering as never}
-      layout={layout as never}
       onPressIn={() => {
         scale.value = withSpring(0.975, { damping: 18, stiffness: 380 });
       }}
@@ -75,11 +73,7 @@ export function MotionBlock({
   style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <Reanimated.View
-      entering={FadeInDown.delay(delay).duration(420).springify()}
-      layout={LinearTransition.springify()}
-      style={style}
-    >
+    <Reanimated.View entering={FadeInDown.delay(delay).duration(420).springify()} style={style}>
       {children}
     </Reanimated.View>
   );
@@ -95,13 +89,7 @@ export function AnimatedTabContent({
   style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <Reanimated.View
-      key={tabKey}
-      entering={FadeInDown.duration(280).springify()}
-      exiting={FadeOut.duration(180)}
-      layout={LinearTransition.springify()}
-      style={style}
-    >
+    <Reanimated.View key={tabKey} entering={FadeInDown.duration(280).springify()} exiting={FadeOut.duration(180)} style={style}>
       {children}
     </Reanimated.View>
   );

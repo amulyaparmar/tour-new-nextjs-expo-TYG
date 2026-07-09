@@ -8,19 +8,19 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   StyleSheet,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { CommunityListRow } from "@/components/community-list-row";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
-import { cn } from "@/lib/utils";
+import { UIColors } from "@/lib/ui-colors";
 
 import {
   type BusinessOption,
@@ -31,6 +31,65 @@ import {
 import { TourLogo } from "./components/TourLogo";
 
 const TOUR_BRAND = "#006ce5";
+
+const st = StyleSheet.create({
+  root: { flex: 1, backgroundColor: UIColors.background },
+  hero: { minHeight: 245, overflow: "hidden", backgroundColor: "#0f172a" },
+  heroBody: { flex: 1, justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 24 },
+  heroKicker: { marginBottom: 8, fontSize: 11, fontWeight: "800", letterSpacing: 0.6, color: "rgba(255,255,255,0.7)" },
+  heroTitle: { maxWidth: 390, fontSize: 29, fontWeight: "900", lineHeight: 34, color: "#fff" },
+  form: { flex: 1, backgroundColor: UIColors.background, paddingHorizontal: 20, paddingTop: 20 },
+  stepHeader: { marginBottom: 16, minHeight: 56, flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  stepHeaderText: { flex: 1 },
+  stepTitle: { fontSize: 22, fontWeight: "900", color: UIColors.foreground },
+  stepSub: { marginTop: 4, fontSize: 14, color: UIColors.mutedForeground },
+  stepBadge: { borderRadius: 8 },
+  searchBar: {
+    marginBottom: 12,
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: UIColors.input,
+    backgroundColor: "rgba(241,245,249,0.7)",
+    paddingHorizontal: 12,
+  },
+  searchInput: { flex: 1, borderWidth: 0, backgroundColor: "transparent", shadowOpacity: 0, minHeight: 44 },
+  loadingBox: { alignItems: "center", gap: 8, paddingVertical: 32 },
+  loadingText: { fontSize: 14, fontWeight: "600", color: UIColors.mutedForeground },
+  communityCard: {
+    borderWidth: 1,
+    borderColor: UIColors.border,
+    borderRadius: 12,
+    backgroundColor: UIColors.card,
+    overflow: "hidden",
+  },
+  calendarBadge: { flexDirection: "row", alignItems: "center", gap: 4, borderColor: "transparent", backgroundColor: UIColors.emerald50 },
+  calendarDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: UIColors.emerald500 },
+  calendarText: { fontSize: 10, fontWeight: "700", color: UIColors.emerald700 },
+  emptyList: { alignItems: "center", gap: 8, paddingVertical: 32 },
+  backBtn: { width: 40, height: 40, borderRadius: 8 },
+  continueBtn: { marginTop: 4, minHeight: 52, borderRadius: 8 },
+  fieldWrap: { marginBottom: 14, gap: 6 },
+  fieldLabel: { fontSize: 11, fontWeight: "800", color: UIColors.mutedForeground },
+  fieldRow: {
+    minHeight: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: UIColors.input,
+    backgroundColor: UIColors.card,
+    paddingHorizontal: 12,
+  },
+  fieldInput: { flex: 1, borderWidth: 0, backgroundColor: "transparent", minHeight: 44 },
+  errorCard: { marginBottom: 12, borderColor: "rgba(239,68,68,0.2)", backgroundColor: "rgba(239,68,68,0.05)", paddingVertical: 8 },
+  errorRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  errorText: { flex: 1, fontSize: 12, fontWeight: "600", color: UIColors.destructive },
+});
 
 export function LoginScreen({
   player,
@@ -82,45 +141,33 @@ export function LoginScreen({
   }
 
   return (
-    <View className="flex-1 bg-background">
-      <View className="min-h-[245px] overflow-hidden bg-slate-900" style={{ height: "35%" }}>
+    <View style={st.root}>
+      <View style={[st.hero, { height: "35%" }]}>
         <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
         <LinearGradient colors={["rgba(7,18,34,0.08)", "rgba(7,18,34,0.9)"]} style={StyleSheet.absoluteFill} />
-        <View
-          className="flex-1 justify-between px-5 pb-6"
-          style={{ paddingTop: insets.top + 12 }}
-        >
+        <View style={[st.heroBody, { paddingTop: insets.top + 12 }]}>
           <TourLogo width={78} color="#fff" />
           <View>
-            <Text className="mb-2 text-[11px] font-extrabold tracking-wide text-white/70">
-              LEASING OPERATIONS
-            </Text>
-            <Text className="max-w-[390px] text-[29px] font-black leading-[34px] text-white">
-              Tours, coaching, and follow-up in one place.
-            </Text>
+            <Text style={st.heroKicker}>LEASING OPERATIONS</Text>
+            <Text style={st.heroTitle}>Tours, coaching, and follow-up in one place.</Text>
           </View>
         </View>
       </View>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        className="flex-1 bg-background px-5 pt-5"
-      >
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={st.form}>
         {step === "community" ? (
           <>
-            <View className="mb-4 min-h-14 flex-row items-start gap-3">
-              <View className="flex-1">
-                <Text className="text-[22px] font-black text-foreground">Choose community</Text>
-                <Text className="mt-1 text-sm text-muted-foreground">
-                  Select the property you are working from.
-                </Text>
+            <View style={st.stepHeader}>
+              <View style={st.stepHeaderText}>
+                <Text style={st.stepTitle}>Choose community</Text>
+                <Text style={st.stepSub}>Select the property you are working from.</Text>
               </View>
-              <Badge variant="secondary" className="rounded-md">
-                <Text className="text-[11px] font-extrabold">1 of 2</Text>
+              <Badge variant="secondary" style={st.stepBadge}>
+                <Text style={{ fontSize: 11, fontWeight: "800" }}>1 of 2</Text>
               </Badge>
             </View>
 
-            <View className="mb-3 min-h-12 flex-row items-center gap-2 rounded-lg border border-input bg-muted/40 px-3">
+            <View style={st.searchBar}>
               <Ionicons name="search" size={18} color="#667085" />
               <Input
                 value={query}
@@ -128,16 +175,16 @@ export function LoginScreen({
                 placeholder="Search communities"
                 autoCapitalize="none"
                 autoCorrect={false}
-                className="flex-1 border-0 bg-transparent px-0 shadow-none"
+                style={st.searchInput}
               />
             </View>
 
             {error ? <LoginError message={error} /> : null}
 
             {loading ? (
-              <View className="items-center gap-2 py-8">
+              <View style={st.loadingBox}>
                 <ActivityIndicator color={TOUR_BRAND} />
-                <Text className="text-sm font-semibold text-muted-foreground">Loading communities</Text>
+                <Text style={st.loadingText}>Loading communities</Text>
               </View>
             ) : (
               <FlatList
@@ -147,41 +194,30 @@ export function LoginScreen({
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingTop: 8, paddingBottom: 28, gap: 8 }}
                 renderItem={({ item }) => (
-                  <Pressable
+                  <CommunityListRow
+                    name={item.name}
+                    subtitle={item.companyName}
+                    showBorder={false}
+                    style={st.communityCard}
+                    accessory={
+                      item.calendarConnected ? (
+                        <Badge variant="outline" style={st.calendarBadge}>
+                          <View style={st.calendarDot} />
+                          <Text style={st.calendarText}>Calendar</Text>
+                        </Badge>
+                      ) : null
+                    }
                     onPress={() => {
                       setSelected(item);
                       setError(null);
                       setStep("credentials");
                     }}
-                  >
-                    <Card className="border-border py-0">
-                      <CardContent className="min-h-[66px] flex-row items-center gap-3 px-3 py-3">
-                        <View className="h-10 w-10 items-center justify-center rounded-lg bg-secondary">
-                          <Ionicons name="business-outline" size={19} color={TOUR_BRAND} />
-                        </View>
-                        <View className="min-w-0 flex-1">
-                          <Text className="text-sm font-extrabold text-foreground" numberOfLines={1}>
-                            {item.name}
-                          </Text>
-                          <Text className="mt-0.5 text-xs text-muted-foreground" numberOfLines={1}>
-                            {item.companyName}
-                          </Text>
-                        </View>
-                        {item.calendarConnected ? (
-                          <Badge variant="outline" className="border-transparent bg-emerald-50">
-                            <View className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                            <Text className="text-[10px] font-bold text-emerald-700">Calendar</Text>
-                          </Badge>
-                        ) : null}
-                        <Ionicons name="chevron-forward" size={18} color="#98a2b3" />
-                      </CardContent>
-                    </Card>
-                  </Pressable>
+                  />
                 )}
                 ListEmptyComponent={
-                  <View className="items-center gap-2 py-8">
+                  <View style={st.emptyList}>
                     <Ionicons name="business-outline" size={24} color="#98a2b3" />
-                    <Text className="text-sm font-semibold text-muted-foreground">No matching communities</Text>
+                    <Text style={st.loadingText}>No matching communities</Text>
                   </View>
                 }
               />
@@ -189,7 +225,7 @@ export function LoginScreen({
           </>
         ) : (
           <>
-            <View className="mb-4 min-h-14 flex-row items-start gap-3">
+            <View style={st.stepHeader}>
               <Button
                 variant="outline"
                 size="icon"
@@ -197,18 +233,16 @@ export function LoginScreen({
                   setStep("community");
                   setError(null);
                 }}
-                className="h-10 w-10 rounded-lg"
+                style={st.backBtn}
               >
                 <Ionicons name="arrow-back" size={20} color="#344054" />
               </Button>
-              <View className="flex-1">
-                <Text className="text-[22px] font-black text-foreground">Sign in</Text>
-                <Text className="mt-1 text-sm text-muted-foreground" numberOfLines={1}>
-                  {selected?.name}
-                </Text>
+              <View style={st.stepHeaderText}>
+                <Text style={st.stepTitle}>Sign in</Text>
+                <Text style={st.stepSub} numberOfLines={1}>{selected?.name}</Text>
               </View>
-              <Badge variant="secondary" className="rounded-md">
-                <Text className="text-[11px] font-extrabold">2 of 2</Text>
+              <Badge variant="secondary" style={st.stepBadge}>
+                <Text style={{ fontSize: 11, fontWeight: "800" }}>2 of 2</Text>
               </Badge>
             </View>
 
@@ -239,13 +273,13 @@ export function LoginScreen({
               size="lg"
               disabled={submitting || !email.trim() || !password}
               onPress={() => void submit()}
-              className="mt-1 min-h-[52px] rounded-lg"
+              style={st.continueBtn}
             >
               {submitting ? (
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Text className="text-base font-extrabold text-primary-foreground">Continue</Text>
+                  <Text style={{ fontSize: 16, fontWeight: "800", color: UIColors.primaryForeground }}>Continue</Text>
                   <Ionicons name="arrow-forward" size={18} color="#fff" />
                 </>
               )}
@@ -260,18 +294,15 @@ export function LoginScreen({
 function LoginField({
   label,
   icon,
-  className,
+  style,
   ...props
 }: React.ComponentProps<typeof Input> & { label: string; icon: keyof typeof Ionicons.glyphMap }) {
   return (
-    <View className="mb-3.5 gap-1.5">
-      <Label className="text-[11px] font-extrabold text-muted-foreground">{label}</Label>
-      <View className="min-h-[50px] flex-row items-center gap-2 rounded-lg border border-input bg-card px-3">
+    <View style={st.fieldWrap}>
+      <Label style={st.fieldLabel}>{label}</Label>
+      <View style={st.fieldRow}>
         <Ionicons name={icon} size={18} color="#667085" />
-        <Input
-          {...props}
-          className={cn("flex-1 border-0 bg-transparent px-0 shadow-none", className)}
-        />
+        <Input {...props} style={[st.fieldInput, style]} />
       </View>
     </View>
   );
@@ -279,10 +310,10 @@ function LoginField({
 
 function LoginError({ message }: { message: string }) {
   return (
-    <Card className="mb-3 border-destructive/20 bg-destructive/5 py-2">
-      <CardContent className="flex-row items-center gap-2 px-3 py-2">
+    <Card style={st.errorCard}>
+      <CardContent style={st.errorRow}>
         <Ionicons name="alert-circle-outline" size={18} color="#b42318" />
-        <Text className="flex-1 text-xs font-semibold text-destructive">{message}</Text>
+        <Text style={st.errorText}>{message}</Text>
       </CardContent>
     </Card>
   );

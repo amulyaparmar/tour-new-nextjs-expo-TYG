@@ -1,7 +1,7 @@
 import { CheckCheck, ChevronRight } from "lucide-react-native";
 import React from "react";
 import { StyleSheet, View } from "react-native";
-import Reanimated, { FadeInDown, LinearTransition } from "react-native-reanimated";
+import Reanimated, { FadeInDown } from "react-native-reanimated";
 
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
@@ -28,11 +28,7 @@ export function SessionSummaryStrip({
     pointsEarned != null && pointsPossible != null ? `${pointsEarned}/${pointsPossible} pts` : null;
 
   return (
-    <Reanimated.View
-      entering={FadeInDown.delay(60).duration(360).springify()}
-      layout={LinearTransition.springify()}
-      style={styles.row}
-    >
+    <Reanimated.View entering={FadeInDown.delay(60).duration(360).springify()} style={styles.row}>
       <View style={[styles.scoreCard, { borderColor: `${color}33`, backgroundColor: `${color}10` }]}>
         <Text selectable style={[styles.scoreValue, { color }]}>
           {score}%

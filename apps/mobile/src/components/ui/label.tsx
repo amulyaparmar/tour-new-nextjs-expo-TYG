@@ -1,9 +1,17 @@
-import { cn } from '@/lib/utils';
-import * as LabelPrimitive from '@rn-primitives/label';
-import { Platform } from 'react-native';
+import { UIColors } from "@/lib/ui-colors";
+import * as LabelPrimitive from "@rn-primitives/label";
+import { StyleSheet, type ViewStyle } from "react-native";
+
+import { Text } from "./text";
+
+const styles = StyleSheet.create({
+  root: { flexDirection: "row", alignItems: "center", gap: 8 },
+  rootDisabled: { opacity: 0.5 },
+  text: { color: UIColors.foreground, fontSize: 14, fontWeight: "500" },
+});
 
 function Label({
-  className,
+  style,
   onPress,
   onLongPress,
   onPressIn,
@@ -13,25 +21,16 @@ function Label({
 }: React.ComponentProps<typeof LabelPrimitive.Text>) {
   return (
     <LabelPrimitive.Root
-      className={cn(
-        'flex select-none flex-row items-center gap-2',
-        Platform.select({
-          web: 'cursor-default leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-50 group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50',
-        }),
-        disabled && 'opacity-50'
-      )}
+      style={StyleSheet.flatten([styles.root, disabled && styles.rootDisabled])}
       onPress={onPress}
       onLongPress={onLongPress}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
-      disabled={disabled}>
+      disabled={disabled}
+    >
       <LabelPrimitive.Text
-        className={cn(
-          'text-foreground text-sm font-medium',
-          Platform.select({ web: 'leading-none' }),
-          className
-        )}
         {...props}
+        style={[styles.text, style]}
       />
     </LabelPrimitive.Root>
   );

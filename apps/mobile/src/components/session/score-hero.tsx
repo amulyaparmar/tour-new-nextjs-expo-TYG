@@ -1,6 +1,6 @@
 import type { AnalysisResult } from "@tour/shared";
 import React, { useEffect, useState } from "react";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import Reanimated, {
   Easing,
   FadeInDown,
@@ -11,8 +11,43 @@ import Reanimated, {
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
+import { UIColors } from "@/lib/ui-colors";
 import { tourEnter } from "@/theme/animations";
 import { scoreColor } from "@/theme/tour-brand";
+
+const st = StyleSheet.create({
+  barTrack: { height: 6, overflow: "hidden", borderRadius: 999, backgroundColor: UIColors.muted },
+  card: { gap: 0, borderColor: UIColors.border, paddingVertical: 0 },
+  cardBody: { gap: 16, paddingHorizontal: 16, paddingVertical: 16 },
+  scoreBlock: { alignItems: "center", gap: 6 },
+  scoreRing: {
+    width: 120,
+    height: 120,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 60,
+    borderWidth: 8,
+  },
+  scoreValue: { fontSize: 36, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  scoreSuffix: { fontSize: 18, fontWeight: "700" },
+  ptsLabel: { fontSize: 13, fontWeight: "800", color: UIColors.mutedForeground },
+  sections: { gap: 10 },
+  sectionRow: { gap: 4 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  sectionName: { flex: 1, fontSize: 13, fontWeight: "700", color: UIColors.foreground },
+  sectionPts: { fontSize: 13, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  compact: {
+    width: 108,
+    alignSelf: "stretch",
+    justifyContent: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  compactValue: { fontSize: 26, fontWeight: "900", lineHeight: 32, fontVariant: ["tabular-nums"] },
+  compactLabel: { marginTop: 2, fontSize: 10, fontWeight: "900", textTransform: "uppercase", color: UIColors.mutedForeground },
+});
 
 function AnimatedBar({ percent, color }: { percent: number; color: string }) {
   const [trackWidth, setTrackWidth] = useState(0);
@@ -26,15 +61,10 @@ function AnimatedBar({ percent, color }: { percent: number; color: string }) {
     });
   }, [percent, trackWidth, width]);
 
-  const style = useAnimatedStyle(() => ({
-    width: width.value,
-  }));
+  const style = useAnimatedStyle(() => ({ width: width.value }));
 
   return (
-    <View
-      className="h-1.5 overflow-hidden rounded-full bg-muted"
-      onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
-    >
+    <View style={st.barTrack} onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}>
       <Reanimated.View style={[{ height: "100%", borderRadius: 999, backgroundColor: color }, style]} />
     </View>
   );
@@ -48,42 +78,28 @@ export function ScoreHero({ analysis }: { analysis: AnalysisResult }) {
   const max = analysis.totalPointsPossible ?? 200;
 
   return (
-    <Reanimated.View entering={tourEnter.fadeDown} layout={tourEnter.layout}>
-      <Card className="gap-0 border-border py-0">
-        <CardContent className="gap-4 px-4 py-4">
-          <Reanimated.View entering={FadeInDown.delay(40).duration(360).springify()} className="items-center gap-1.5">
-            <View
-              className="h-[120px] w-[120px] items-center justify-center rounded-full border-[8px]"
-              style={{ borderColor: `${color}22` }}
-            >
-              <Text selectable className="text-4xl font-black tabular-nums" style={{ color }}>
+    <Reanimated.View entering={tourEnter.fadeDown}>
+      <Card style={st.card}>
+        <CardContent style={st.cardBody}>
+          <Reanimated.View entering={FadeInDown.delay(40).duration(360).springify()} style={st.scoreBlock}>
+            <View style={[st.scoreRing, { borderColor: `${color}22` }]}>
+              <Text selectable style={[st.scoreValue, { color }]}>
                 {analysis.overallScore}
-                <Text className="text-lg font-bold">%</Text>
+                <Text style={st.scoreSuffix}>%</Text>
               </Text>
             </View>
-            <Text selectable className="text-[13px] font-extrabold text-muted-foreground">
-              {pts}/{max} pts
-            </Text>
+            <Text selectable style={st.ptsLabel}>{pts}/{max} pts</Text>
           </Reanimated.View>
 
-          <View className="gap-2.5">
+          <View style={st.sections}>
             {analysis.sectionScores.map((sec, index) => {
               const c = scoreColor(sec.score);
               return (
-                <Reanimated.View
-                  key={sec.section}
-                  entering={tourEnter.stagger(index, 55)}
-                  layout={tourEnter.layout}
-                  className="gap-1"
-                >
-                  <View className="flex-row items-center justify-between gap-2">
-                    <Text selectable className="flex-1 text-[13px] font-bold text-foreground" numberOfLines={1}>
-                      {sec.section}
-                    </Text>
-                    <Text selectable className="text-[13px] font-extrabold tabular-nums" style={{ color: c }}>
-                      {sec.pointsPossible > 0
-                        ? `${sec.pointsEarned}/${sec.pointsPossible}`
-                        : `${sec.score}%`}
+                <Reanimated.View key={sec.section} entering={tourEnter.stagger(index, 55)} style={st.sectionRow}>
+                  <View style={st.sectionHeader}>
+                    <Text selectable style={st.sectionName} numberOfLines={1}>{sec.section}</Text>
+                    <Text selectable style={[st.sectionPts, { color: c }]}>
+                      {sec.pointsPossible > 0 ? `${sec.pointsEarned}/${sec.pointsPossible}` : `${sec.score}%`}
                     </Text>
                   </View>
                   <AnimatedBar percent={sec.score} color={c} />
@@ -102,14 +118,10 @@ export function ScoreCompact({ score }: { score: number }) {
   return (
     <Reanimated.View
       entering={FadeInDown.duration(300).springify()}
-      layout={tourEnter.layout}
-      className="w-[108px] self-stretch justify-center rounded-2xl border px-3.5 py-3"
-      style={{ borderColor: `${color}33`, backgroundColor: `${color}10` }}
+      style={[st.compact, { borderColor: `${color}33`, backgroundColor: `${color}10` }]}
     >
-      <Text selectable className="text-[26px] font-black leading-8 tabular-nums" style={{ color }}>
-        {score}%
-      </Text>
-      <Text className="mt-0.5 text-[10px] font-black uppercase text-muted-foreground">Tour score</Text>
+      <Text selectable style={[st.compactValue, { color }]}>{score}%</Text>
+      <Text style={st.compactLabel}>Tour score</Text>
     </Reanimated.View>
   );
 }

@@ -1,84 +1,64 @@
-import { cn } from '@/lib/utils';
-import { Slot } from '@rn-primitives/slot';
-import { cva, type VariantProps } from 'class-variance-authority';
-import * as React from 'react';
-import { Platform, Text as RNText, type Role } from 'react-native';
+import { UIColors } from "@/lib/ui-colors";
+import { Slot } from "@rn-primitives/slot";
+import * as React from "react";
+import { Platform, StyleSheet, Text as RNText, type Role, type TextStyle } from "react-native";
 
-const textVariants = cva(
-  cn(
-    'text-foreground text-base',
-    Platform.select({
-      web: 'select-text',
-    })
-  ),
-  {
-    variants: {
-      variant: {
-        default: '',
-        h1: cn(
-          'text-center text-4xl font-extrabold tracking-tight',
-          Platform.select({ web: 'scroll-m-20 text-balance' })
-        ),
-        h2: cn(
-          'border-border border-b pb-2 text-3xl font-semibold tracking-tight',
-          Platform.select({ web: 'scroll-m-20 first:mt-0' })
-        ),
-        h3: cn('text-2xl font-semibold tracking-tight', Platform.select({ web: 'scroll-m-20' })),
-        h4: cn('text-xl font-semibold tracking-tight', Platform.select({ web: 'scroll-m-20' })),
-        p: 'mt-3 leading-7 sm:mt-6',
-        blockquote: 'mt-4 border-l-2 pl-3 italic sm:mt-6 sm:pl-6',
-        code: cn(
-          'bg-muted relative rounded px-[0.3rem] py-[0.2rem] font-mono text-sm font-semibold'
-        ),
-        lead: 'text-muted-foreground text-xl',
-        large: 'text-lg font-semibold',
-        small: 'text-sm font-medium leading-none',
-        muted: 'text-muted-foreground text-sm',
-      },
-    },
-    defaultVariants: {
-      variant: 'default',
-    },
-  }
-);
-
-type TextVariantProps = VariantProps<typeof textVariants>;
-
-type TextVariant = NonNullable<TextVariantProps['variant']>;
+export type TextVariant =
+  | "default"
+  | "h1"
+  | "h2"
+  | "h3"
+  | "h4"
+  | "p"
+  | "lead"
+  | "large"
+  | "small"
+  | "muted";
 
 const ROLE: Partial<Record<TextVariant, Role>> = {
-  h1: 'heading',
-  h2: 'heading',
-  h3: 'heading',
-  h4: 'heading',
-  blockquote: Platform.select({ web: 'blockquote' as Role }),
-  code: Platform.select({ web: 'code' as Role }),
+  h1: "heading",
+  h2: "heading",
+  h3: "heading",
+  h4: "heading",
 };
 
 const ARIA_LEVEL: Partial<Record<TextVariant, string>> = {
-  h1: '1',
-  h2: '2',
-  h3: '3',
-  h4: '4',
+  h1: "1",
+  h2: "2",
+  h3: "3",
+  h4: "4",
 };
 
-const TextClassContext = React.createContext<string | undefined>(undefined);
+const variantStyles = StyleSheet.create({
+  default: { color: UIColors.foreground, fontSize: 16 },
+  h1: { color: UIColors.foreground, fontSize: 36, fontWeight: "800", textAlign: "center" },
+  h2: { color: UIColors.foreground, fontSize: 30, fontWeight: "600" },
+  h3: { color: UIColors.foreground, fontSize: 24, fontWeight: "600" },
+  h4: { color: UIColors.foreground, fontSize: 20, fontWeight: "600" },
+  p: { color: UIColors.foreground, fontSize: 16, lineHeight: 24, marginTop: 12 },
+  lead: { color: UIColors.mutedForeground, fontSize: 20 },
+  large: { color: UIColors.foreground, fontSize: 18, fontWeight: "600" },
+  small: { color: UIColors.foreground, fontSize: 14, fontWeight: "500" },
+  muted: { color: UIColors.mutedForeground, fontSize: 14 },
+});
+
+const TextStyleContext = React.createContext<TextStyle | undefined>(undefined);
 
 function Text({
-  className,
+  style,
   asChild = false,
-  variant = 'default',
+  variant = "default",
   ...props
 }: React.ComponentProps<typeof RNText> &
-  React.RefAttributes<typeof RNText> &
-  TextVariantProps & {
+  React.RefAttributes<typeof RNText> & {
     asChild?: boolean;
+    variant?: TextVariant;
   }) {
-  const textClass = React.useContext(TextClassContext);
+  const contextStyle = React.useContext(TextStyleContext);
   const Component = asChild ? Slot : RNText;
   return (
     <Component
-      className={cn(textVariants({ variant }), textClass, className)}
+      style={[variantStyles[variant], contextStyle, style]}
       role={variant ? ROLE[variant] : undefined}
       aria-level={variant ? ARIA_LEVEL[variant] : undefined}
       {...props}
@@ -86,4 +66,7 @@ function Text({
   );
 }
 
-export { Text, TextClassContext };
+/** @deprecated Use TextStyleContext */
+const TextClassContext = TextStyleContext;
+
+export { Text, TextClassContext, TextStyleContext };

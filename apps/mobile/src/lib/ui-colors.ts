@@ -1,0 +1,22 @@
+/** Design tokens for StyleSheet-based UI (no NativeWind). */
+export const UIColors = {
+  background: "#f8fafc",
+  foreground: "#0f172a",
+  card: "#ffffff",
+  cardForeground: "#0f172a",
+  primary: "#006ce5",
+  primaryForeground: "#ffffff",
+  secondary: "#e8f2ff",
+  secondaryForeground: "#0056b8",
+  muted: "#f1f5f9",
+  mutedForeground: "#64748b",
+  accent: "#e8f2ff",
+  accentForeground: "#0056b8",
+  destructive: "#ef4444",
+  destructiveForeground: "#ffffff",
+  border: "#e2e8f0",
+  input: "#e2e8f0",
+  emerald50: "#ecfdf5",
+  emerald500: "#10b981",
+  emerald700: "#047857",
+} as const;

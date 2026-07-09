@@ -4215,49 +4215,52 @@ function CommunityPickerModal({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={st.sheetBackdrop}>
         <Pressable style={StyleSheet.absoluteFill} disabled={Boolean(switchingId)} onPress={onClose} />
-        <View style={[st.assetSheet, { minHeight: "70%" }]}>
-          <View style={st.sheetHandle} />
-          <View style={st.sheetHeader}>
-            <View style={st.flex1}>
-              <Text style={st.sheetTitle}>Switch community</Text>
-              <Text style={st.sheetSubtitle}>Your dashboard, sessions, assets, and integrations will update.</Text>
+        <View style={communitySt.sheet}>
+          <View style={communitySt.handle} />
+          <View style={communitySt.header}>
+            <View style={communitySt.headerText}>
+              <Text style={communitySt.title}>Switch community</Text>
+              <Text style={communitySt.subtitle}>Your dashboard, sessions, assets, and integrations will update.</Text>
             </View>
-            <Pressable accessibilityLabel="Close communities" disabled={Boolean(switchingId)} onPress={onClose} style={st.iconButton}>
+            <Pressable accessibilityLabel="Close communities" disabled={Boolean(switchingId)} onPress={onClose} style={communitySt.closeButton}>
               <Ionicons name="close" size={20} color={C.text} />
             </Pressable>
           </View>
-          <View style={st.searchBar}>
+          <View style={communitySt.searchBar}>
             <Ionicons name="search" size={18} color={C.textMuted} />
             <TextInput
               value={query}
               onChangeText={onQueryChange}
               placeholder="Search communities"
               placeholderTextColor={C.textMuted}
-              style={st.searchInput}
+              style={communitySt.searchInput}
             />
           </View>
           <FlatList
             data={filteredCommunities}
             keyExtractor={(community) => community.id}
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ paddingTop: 10, paddingBottom: 20 }}
+            style={communitySt.list}
+            contentContainerStyle={communitySt.listContent}
             ListEmptyComponent={<EmptyState icon="business-outline" title="No communities found" subtitle="Try a different search." />}
             renderItem={({ item }) => {
               const active = item.id === session.workspace.community.id;
               return (
-                <Pressable disabled={Boolean(switchingId)} onPress={() => onSelect(item.id)} style={({ pressed }) => [st.communitySettingRow, st.rowBorder, pressed && st.pressed]}>
-                  <View style={[st.communitySettingIcon, active && { backgroundColor: C.greenBg }]}>
+                <Pressable disabled={Boolean(switchingId)} onPress={() => onSelect(item.id)} style={({ pressed }) => [communitySt.row, pressed && st.pressed]}>
+                  <View style={[communitySt.iconBox, active && { backgroundColor: C.greenBg }]}>
                     <Ionicons name="business-outline" size={18} color={active ? C.green : C.brand} />
                   </View>
-                  <View style={st.flex1}>
-                    <Text style={st.communitySettingName} numberOfLines={1}>{item.name}</Text>
-                    {item.alias && <Text style={st.cardRowSub} numberOfLines={1}>{item.alias}</Text>}
+                  <View style={communitySt.rowText}>
+                    <Text style={communitySt.rowTitle} numberOfLines={1}>{item.name}</Text>
+                    {item.alias && <Text style={communitySt.rowSub} numberOfLines={1}>{item.alias}</Text>}
                   </View>
-                  {switchingId === item.id
-                    ? <ActivityIndicator size="small" color={C.brand} />
-                    : active
-                      ? <Ionicons name="checkmark-circle" size={20} color={C.green} />
-                      : <Ionicons name="chevron-forward" size={17} color={C.textMuted} />}
+                  <View style={communitySt.rowAction}>
+                    {switchingId === item.id
+                      ? <ActivityIndicator size="small" color={C.brand} />
+                      : active
+                        ? <Ionicons name="checkmark-circle" size={20} color={C.green} />
+                        : <Ionicons name="chevron-forward" size={17} color={C.textMuted} />}
+                  </View>
                 </Pressable>
               );
             }}
@@ -4496,16 +4499,36 @@ const homeSt = StyleSheet.create({
   sheetInputMultiline: { minHeight: 52, textAlignVertical: "top" },
   sheetPrimary: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 4, borderRadius: 16, backgroundColor: "#111" },
   sheetPrimaryText: { color: "#fff", fontSize: 15, fontWeight: "900" },
-  qrPanel: { alignItems: "center", gap: 12, paddingTop: 6 },
+  qrPanel: { alignSelf: "stretch", alignItems: "center", gap: 12, paddingTop: 6 },
   qrCard: { width: 210, height: 210, alignItems: "center", justifyContent: "center", padding: 12, borderRadius: 24, backgroundColor: "#f8fafc" },
   qrImage: { width: "100%", height: "100%" },
   qrTitle: { color: C.text, fontSize: 18, fontWeight: "900" },
   qrSub: { maxWidth: 300, color: C.textSec, fontSize: 13, lineHeight: 19, fontWeight: "600", textAlign: "center" },
-  qrShareGrid: { alignSelf: "stretch", flexDirection: "row", gap: 8, paddingTop: 4 },
-  qrShareButton: { flex: 1, minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 14, backgroundColor: "#fff" },
+  qrShareGrid: { alignSelf: "stretch", width: "100%", flexDirection: "row", gap: 8, paddingTop: 4 },
+  qrShareButton: { flex: 1, minWidth: 0, minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 14, backgroundColor: "#fff" },
   qrShareButtonPrimary: { borderColor: C.brand, backgroundColor: C.brand },
   qrShareButtonText: { color: C.text, fontSize: 12, fontWeight: "900" },
   qrShareButtonPrimaryText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+});
+
+const communitySt = StyleSheet.create({
+  sheet: { minHeight: "70%", maxHeight: "84%", borderTopLeftRadius: 22, borderTopRightRadius: 22, backgroundColor: "#fff", paddingHorizontal: 14, paddingBottom: Platform.OS === "ios" ? 32 : 18 },
+  handle: { width: 40, height: 4, alignSelf: "center", borderRadius: 2, backgroundColor: "#d0d5dd", marginTop: 11, marginBottom: 16 },
+  header: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 14 },
+  headerText: { flex: 1, minWidth: 0 },
+  title: { color: C.text, fontSize: 21, lineHeight: 26, fontWeight: "900" },
+  subtitle: { color: C.textSec, fontSize: 13, lineHeight: 18, fontWeight: "600", marginTop: 3 },
+  closeButton: { width: 46, height: 46, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: C.card },
+  searchBar: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, borderWidth: 1, borderColor: C.border, borderRadius: 10, backgroundColor: C.card },
+  searchInput: { flex: 1, minWidth: 0, color: C.text, fontSize: 16, fontWeight: "700", paddingVertical: 0 },
+  list: { flex: 1, marginTop: 10 },
+  listContent: { paddingBottom: 20 },
+  row: { minHeight: 62, width: "100%", flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 0, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" },
+  iconBox: { width: 42, height: 42, flexShrink: 0, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#eef2ff" },
+  rowText: { flex: 1, minWidth: 0, justifyContent: "center" },
+  rowTitle: { color: C.text, fontSize: 15, lineHeight: 19, fontWeight: "900" },
+  rowSub: { color: C.textSec, fontSize: 13, lineHeight: 17, fontWeight: "700", marginTop: 1 },
+  rowAction: { width: 28, flexShrink: 0, alignItems: "flex-end", justifyContent: "center" },
 });
 
 const reviewSt = StyleSheet.create({

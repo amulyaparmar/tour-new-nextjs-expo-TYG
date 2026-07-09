@@ -15,7 +15,7 @@
     "update:production": "npx eas-cli@latest update --branch production",
     "testflight": "npx testflight",
     "lint": "echo \"No mobile lint configured\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node scripts/check-style-health.js && tsc --noEmit",
     "clean": "rm -rf .expo dist"
   },
   "dependencies": {

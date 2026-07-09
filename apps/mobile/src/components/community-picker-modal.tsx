@@ -3,7 +3,6 @@ import React, { useMemo } from "react";
 import {
   ActivityIndicator,
   Dimensions,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,8 +11,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import type { MobileAuthSession } from "../auth";
 import { tourColors } from "@/theme/tour-brand";
 
@@ -38,7 +37,6 @@ export function CommunityPickerModal({
   onClose,
   onSelect,
 }: CommunityPickerModalProps) {
-  const insets = useSafeAreaInsets();
   const filteredCommunities = useMemo(() => {
     const value = query.trim().toLowerCase();
     return value
@@ -49,11 +47,13 @@ export function CommunityPickerModal({
   }, [query, session.workspace.communities]);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} disabled={Boolean(switchingId)} onPress={onClose} />
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <View style={styles.handle} />
+    <BottomSheetModal
+      visible={visible}
+      onClose={onClose}
+      sheetHeight={SHEET_HEIGHT}
+      dismissDisabled={Boolean(switchingId)}
+      header={
+        <>
           <View style={styles.header}>
             <View style={styles.headerCopy}>
               <Text style={styles.title}>Switch community</Text>
@@ -83,89 +83,68 @@ export function CommunityPickerModal({
               autoCapitalize="none"
             />
           </View>
-
-          <ScrollView
-            style={styles.list}
-            contentContainerStyle={styles.listContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator
-          >
-            {filteredCommunities.length === 0 ? (
-              <View style={styles.empty}>
-                <Ionicons name="business-outline" size={28} color={tourColors.textMuted} />
-                <Text style={styles.emptyTitle}>No communities found</Text>
-                <Text style={styles.emptySub}>Try a different search.</Text>
-              </View>
-            ) : (
-              filteredCommunities.map((item) => {
-                const active = item.id === session.workspace.community.id;
-                const loading = switchingId === item.id;
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    activeOpacity={0.72}
-                    disabled={Boolean(switchingId)}
-                    onPress={() => onSelect(item.id)}
-                  >
-                    <View style={styles.row}>
-                      <View style={[styles.rowIcon, active && styles.rowIconActive]}>
-                        <Ionicons
-                          name="business-outline"
-                          size={18}
-                          color={active ? tourColors.green : tourColors.brand}
-                        />
-                      </View>
-                      <View style={styles.rowBody}>
-                        <Text style={styles.rowName} numberOfLines={1}>
-                          {item.name}
-                        </Text>
-                        {item.alias ? (
-                          <Text style={styles.rowAlias} numberOfLines={1}>
-                            {item.alias}
-                          </Text>
-                        ) : null}
-                      </View>
-                      {loading ? (
-                        <ActivityIndicator size="small" color={tourColors.brand} />
-                      ) : active ? (
-                        <Ionicons name="checkmark-circle" size={20} color={tourColors.green} />
-                      ) : (
-                        <Ionicons name="chevron-forward" size={17} color={tourColors.textMuted} />
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                );
-              })
-            )}
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
+        </>
+      }
+    >
+      <ScrollView
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator
+      >
+        {filteredCommunities.length === 0 ? (
+          <View style={styles.empty}>
+            <Ionicons name="business-outline" size={28} color={tourColors.textMuted} />
+            <Text style={styles.emptyTitle}>No communities found</Text>
+            <Text style={styles.emptySub}>Try a different search.</Text>
+          </View>
+        ) : (
+          filteredCommunities.map((item) => {
+            const active = item.id === session.workspace.community.id;
+            const loading = switchingId === item.id;
+            return (
+              <TouchableOpacity
+                key={item.id}
+                activeOpacity={0.72}
+                disabled={Boolean(switchingId)}
+                onPress={() => onSelect(item.id)}
+              >
+                <View style={styles.row}>
+                  <View style={[styles.rowIcon, active && styles.rowIconActive]}>
+                    <Ionicons
+                      name="business-outline"
+                      size={18}
+                      color={active ? tourColors.green : tourColors.brand}
+                    />
+                  </View>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    {item.alias ? (
+                      <Text style={styles.rowAlias} numberOfLines={1}>
+                        {item.alias}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {loading ? (
+                    <ActivityIndicator size="small" color={tourColors.brand} />
+                  ) : active ? (
+                    <Ionicons name="checkmark-circle" size={20} color={tourColors.green} />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={17} color={tourColors.textMuted} />
+                  )}
+                </View>
+              </TouchableOpacity>
+            );
+          })
+        )}
+      </ScrollView>
+    </BottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(16,24,40,0.52)",
-  },
-  sheet: {
-    height: SHEET_HEIGHT,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    backgroundColor: "#fff",
-    paddingHorizontal: 18,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    alignSelf: "center",
-    borderRadius: 2,
-    backgroundColor: "#d0d5dd",
-    marginTop: 9,
-    marginBottom: 14,
-  },
   header: {
     flexDirection: "row",
     alignItems: "flex-start",

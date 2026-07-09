@@ -5,11 +5,10 @@ import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
 import { useVideoPlayer } from "expo-video";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { AppProviders } from "./src/components/app-providers";
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   AppState,
   Dimensions,
   FlatList,
@@ -24,21 +23,40 @@ import {
   Text,
   TextInput,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
+import Reanimated, {
+  Easing,
+  FadeIn,
+  FadeInDown,
+  FadeInUp,
+  LinearTransition,
+  SlideInLeft,
+  SlideInRight,
+  SlideOutLeft,
+  SlideOutRight,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import {
   type AnalysisResult,
   type ConversationPhaseSegmentation,
   type FollowUpAction,
   type Rubric,
   type SessionSummary,
+  type AudioInsights,
+  type AudioInsightsStatus,
   rubricItemCount,
   rubricTotalPoints,
 } from "@tour/shared";
 import {
-  buildPhaseTracks,
   findPhaseForTimestamp,
   processingStatusMessage,
-  segmentTrackColor,
   shortPhaseLabel,
   tourSegmentColor,
 } from "./src/conversationPhases";
@@ -52,6 +70,7 @@ import {
   deleteComment,
   fetchActions,
   fetchAnalysis,
+  fetchAudioInsights,
   fetchComments,
   fetchCalendarEvents,
   assetNoteSnippet,
@@ -75,39 +94,54 @@ import { type MobileAuthSession, authenticatedFetch, clearSession, restoreSessio
 import { LoginScreen } from "./src/LoginScreen";
 import { TourLogo, TourMark } from "./src/components/TourLogo";
 import { LiveActivityBanner, RecordingExperience, RecordingProvider, useRecording } from "./src/recording";
+import { MotionBlock, MotionPressable, AnimatedTabContent } from "./src/components/ui/motion";
+import {
+  RubricTab,
+  ScoreHero,
+  SectionScoreOverview,
+  SessionAiChatScreen,
+  SessionAudioInsightsScreen,
+  SessionInsightCards,
+  SessionModeTabs,
+  SessionPlayer,
+  SessionReviewSkeleton,
+  SessionSummaryStrip,
+  TourScreenHeader,
+  SESSION_PAGE_PADDING,
+  type SessionReviewMode,
+} from "./src/components/session";
+import { tourColors as C, tourColors, scoreColor } from "./src/theme/tour-brand";
+import { selectionHaptic, impactHaptic } from "./src/lib/haptics";
+import {
+  TourBackButton as BackBtn,
+  TourEmptyState as EmptyState,
+  TourInput as Input,
+  TourLoadingBox as LoadingBox,
+  TourPrimaryButton as PrimaryBtn,
+  TourSegPicker as SegPicker,
+  TourStatusBadge,
+} from "./src/components/tour";
+import { Card, CardContent } from "@/components/ui/card";
+import { Text as UiText } from "@/components/ui/text";
+import { Button } from "@/components/ui/button";
+import { Clock3, ListTodo, Mic } from "lucide-react-native";
 
 const loginBackground = require("./assets/videos/login-bg.mp4");
-
-// ── Design Tokens ──
-const C = {
-  brand: "#006ce5",
-  bg: "#f4f7fb",
-  card: "#ffffff",
-  text: "#101828",
-  textSec: "#667085",
-  textMuted: "#8a94a6",
-  border: "rgba(16, 24, 40, 0.08)",
-  green: "#16a34a",
-  greenBg: "#eefaf3",
-  amber: "#d97706",
-  amberBg: "#fffbeb",
-  red: "#b91c1c",
-  redBg: "#fef2f2",
-  purple: "#7c3aed",
-  purpleBg: "#f3e8ff",
-} as const;
 
 type ProspectData = { name: string; email: string; phone: string; moveIn: string; bedrooms: string; budget: string };
 type MainTab = "home" | "sessions" | "calendar" | "materials" | "settings";
 type Screen =
   | { type: "main"; tab: MainTab }
   | { type: "session-detail"; sessionId: string }
+  | { type: "session-ai-chat"; sessionId: string; sessionTitle?: string; prospectName?: string }
+  | { type: "session-audio-insights"; sessionId: string; sessionTitle?: string; initialStatus?: AudioInsightsStatus; initialInsights?: AudioInsights | null }
   | { type: "create-session" }
   | { type: "rubrics" }
   | { type: "profile" }
   | { type: "tour" };
 
 type TourStep = "contact" | "preferences" | "ready";
+type SlideDirection = "forward" | "back";
 
 const AGENT = {
   name: "Alex Johnson",
@@ -149,12 +183,12 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const PROCESSING_STATUSES = new Set(["transcribing", "segmenting", "analyzing"]);
-
-function scoreColor(score: number) {
-  if (score >= 75) return C.green;
-  if (score >= 50) return C.amber;
-  return C.red;
-}
+const SESSION_PROCESS_STEPS = [
+  { id: "uploaded", label: "Uploaded", icon: "cloud-done-outline" },
+  { id: "transcribing", label: "Transcript", icon: "mic-outline" },
+  { id: "segmenting", label: "Segments", icon: "git-branch-outline" },
+  { id: "analyzing", label: "Analysis", icon: "sparkles-outline" },
+] as const;
 
 function fmtDate(d: string | null) {
   if (!d) return "Unscheduled";
@@ -180,12 +214,114 @@ function parseMomentTime(value: string): number | null {
   return null;
 }
 
-function selectionHaptic() {
-  void Haptics.selectionAsync().catch(() => undefined);
+function PulseDot({ color = C.red }: { color?: string }) {
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(1);
+
+  useEffect(() => {
+    scale.value = withRepeat(withSequence(
+      withTiming(1.45, { duration: 850, easing: Easing.out(Easing.quad) }),
+      withTiming(1, { duration: 850, easing: Easing.in(Easing.quad) })
+    ), -1, false);
+    opacity.value = withRepeat(withSequence(
+      withTiming(0.45, { duration: 850 }),
+      withTiming(1, { duration: 850 })
+    ), -1, false);
+  }, [opacity, scale]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+
+  return <Reanimated.View style={[st.pulseDot, { backgroundColor: color }, animatedStyle]} />;
 }
 
-function impactHaptic(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
-  void Haptics.impactAsync(style).catch(() => undefined);
+function LoadingShimmer({ rows = 3 }: { rows?: number }) {
+  const shimmer = useSharedValue(0.35);
+  useEffect(() => {
+    shimmer.value = withRepeat(withSequence(
+      withTiming(1, { duration: 760 }),
+      withTiming(0.35, { duration: 760 })
+    ), -1, true);
+  }, [shimmer]);
+  const animatedStyle = useAnimatedStyle(() => ({ opacity: shimmer.value }));
+
+  return (
+    <View style={{ gap: 10 }}>
+      {Array.from({ length: rows }).map((_, index) => (
+        <Reanimated.View key={index} style={[st.shimmerCard, animatedStyle]}>
+          <View style={[st.shimmerBar, { width: index % 2 === 0 ? "68%" : "52%" }]} />
+          <View style={[st.shimmerBar, { width: index % 2 === 0 ? "44%" : "72%", height: 8 }]} />
+        </Reanimated.View>
+      ))}
+    </View>
+  );
+}
+
+function AnimatedProgressFill({ percent, color = C.brand }: { percent: number; color?: string }) {
+  const progress = useSharedValue(percent);
+
+  useEffect(() => {
+    progress.value = withTiming(Math.max(0, Math.min(100, percent)), { duration: 260, easing: Easing.out(Easing.cubic) });
+  }, [percent, progress]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    width: `${progress.value}%`,
+  }));
+
+  return <Reanimated.View style={[st.progressFill, { backgroundColor: color }, animatedStyle]} />;
+}
+
+function screenKey(screen: Screen) {
+  if (screen.type === "main") return `main:${screen.tab}`;
+  if (screen.type === "session-detail") return `session:${screen.sessionId}`;
+  if (screen.type === "session-ai-chat") return `session-ai:${screen.sessionId}`;
+  if (screen.type === "session-audio-insights") return `session-audio:${screen.sessionId}`;
+  return screen.type;
+}
+
+function screenRank(screen: Screen) {
+  if (screen.type === "main") {
+    const index = TAB_ITEMS.findIndex((tab) => tab.id === screen.tab);
+    return Math.max(0, index);
+  }
+  if (screen.type === "profile") return 10;
+  if (screen.type === "tour") return 11;
+  if (screen.type === "create-session") return 12;
+  if (screen.type === "rubrics") return 12;
+  if (screen.type === "session-detail") return 13;
+  if (screen.type === "session-ai-chat") return 14;
+  if (screen.type === "session-audio-insights") return 14;
+  return 0;
+}
+
+function ScreenTransition({
+  children,
+  transitionKey,
+  direction,
+}: {
+  children: React.ReactNode;
+  transitionKey: string;
+  direction: SlideDirection;
+}) {
+  const entering = direction === "forward"
+    ? SlideInRight.duration(260).easing(Easing.out(Easing.cubic))
+    : SlideInLeft.duration(260).easing(Easing.out(Easing.cubic));
+  const exiting = direction === "forward"
+    ? SlideOutLeft.duration(180).easing(Easing.in(Easing.cubic))
+    : SlideOutRight.duration(180).easing(Easing.in(Easing.cubic));
+
+  return (
+    <Reanimated.View
+      key={transitionKey}
+      entering={entering}
+      exiting={exiting}
+      style={st.screenTransition}
+    >
+      {children}
+    </Reanimated.View>
+  );
 }
 
 // ═══════════════════════════════════════
@@ -241,6 +377,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [tourStep, setTourStep] = useState<TourStep>("contact");
   const [prospect, setProspect] = useState<ProspectData>({ name: "", email: "", phone: "", moveIn: "", bedrooms: "2 bed", budget: "$2,200 - $2,600" });
+  const [transitionDirection, setTransitionDirection] = useState<SlideDirection>("forward");
 
   useEffect(() => {
     player.play();
@@ -255,25 +392,29 @@ export default function App() {
   }, []);
 
   const tourIdx = useMemo(() => tourSteps.findIndex((s) => s.id === tourStep), [tourStep]);
-  const nav = useCallback((s: Screen) => setScreen(s), []);
+  const routeKey = screen.type === "main" ? "main" : screenKey(screen);
+  const nav = useCallback((next: Screen) => {
+    setTransitionDirection(screenRank(next) >= screenRank(screen) ? "forward" : "back");
+    setScreen(next);
+  }, [screen]);
 
   if (authLoading) {
     return (
-      <SafeAreaProvider>
+      <AppProviders>
         <View style={[st.root, st.center]}>
           <StatusBar style="dark" />
           <ActivityIndicator color={C.brand} size="large" />
         </View>
-      </SafeAreaProvider>
+      </AppProviders>
     );
   }
 
   if (!authSession) {
     return (
-      <SafeAreaProvider>
+      <AppProviders>
         <StatusBar style="light" />
         <LoginScreen player={player} onAuthenticated={setAuthSession} />
-      </SafeAreaProvider>
+      </AppProviders>
     );
   }
 
@@ -284,53 +425,79 @@ export default function App() {
   const property = authSession.workspace.community.name;
 
   return (
-    <SafeAreaProvider>
+    <AppProviders>
     <View style={st.root}>
       <StatusBar style="dark" />
       <RecordingProvider onNotify={showToast}>
         <ToastProvider>
           <LiveActivityBanner />
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={st.flex1}>
-            {screen.type === "main" && (
-              <MainTabs
-                key={authSession.workspace.community.id}
-                tab={screen.tab}
-                onTab={(t) => nav({ type: "main", tab: t })}
-                onSession={(id) => nav({ type: "session-detail", sessionId: id })}
-                onCreate={() => nav({ type: "create-session" })}
-                onGuestRegistration={() => {
-                  setTourStep("contact");
-                  nav({ type: "tour" });
-                }}
-                onProfile={() => nav({ type: "profile" })}
-                onRubrics={() => nav({ type: "rubrics" })}
-                onSignOut={() => {
-                  void clearSession().then(() => setAuthSession(null));
-                }}
-                authSession={authSession}
-                onAuthSession={setAuthSession}
-                agentName={agentName}
-                property={property}
-              />
-            )}
-            {screen.type === "session-detail" && <SessionDetailScreen sessionId={screen.sessionId} onBack={() => nav({ type: "main", tab: "sessions" })} />}
-            {screen.type === "create-session" && <CreateSessionScreen onBack={() => nav({ type: "main", tab: "sessions" })} onCreated={(id) => nav({ type: "session-detail", sessionId: id })} />}
-            {screen.type === "rubrics" && <RubricsScreen session={authSession} onBack={() => nav({ type: "main", tab: "settings" })} onSession={(id) => nav({ type: "session-detail", sessionId: id })} />}
-            {screen.type === "profile" && (
-              <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-                <ProfileScreen session={authSession} onBack={() => nav({ type: "main", tab: "home" })} onStartTour={() => { setTourStep("contact"); nav({ type: "tour" }); }} />
-              </ScrollView>
-            )}
-            {screen.type === "tour" && (
-              <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-                <TourStepper session={authSession} idx={tourIdx} prospect={prospect} step={tourStep} onBack={() => nav({ type: "profile" })} onChange={(k, v) => setProspect((c) => ({ ...c, [k]: v }))} onStep={setTourStep} />
-              </ScrollView>
-            )}
+            <ScreenTransition transitionKey={routeKey} direction={transitionDirection}>
+              {screen.type === "main" && (
+                <MainTabs
+                  key={authSession.workspace.community.id}
+                  tab={screen.tab}
+                  onTab={(t) => nav({ type: "main", tab: t })}
+                  onSession={(id) => nav({ type: "session-detail", sessionId: id })}
+                  onCreate={() => nav({ type: "create-session" })}
+                  onGuestRegistration={() => {
+                    setTourStep("contact");
+                    nav({ type: "tour" });
+                  }}
+                  onProfile={() => nav({ type: "profile" })}
+                  onRubrics={() => nav({ type: "rubrics" })}
+                  onSignOut={() => {
+                    void clearSession().then(() => setAuthSession(null));
+                  }}
+                  authSession={authSession}
+                  onAuthSession={setAuthSession}
+                  agentName={agentName}
+                  property={property}
+                />
+              )}
+              {screen.type === "session-detail" && (
+                <SessionDetailScreen
+                  sessionId={screen.sessionId}
+                  onBack={() => nav({ type: "main", tab: "sessions" })}
+                  onOpenAiChat={(meta) => nav({ type: "session-ai-chat", ...meta })}
+                  onOpenAudioInsights={(meta) => nav({ type: "session-audio-insights", ...meta })}
+                />
+              )}
+              {screen.type === "session-ai-chat" && (
+                <SessionAiChatScreen
+                  sessionId={screen.sessionId}
+                  sessionTitle={screen.sessionTitle}
+                  prospectName={screen.prospectName}
+                  onBack={() => nav({ type: "session-detail", sessionId: screen.sessionId })}
+                />
+              )}
+              {screen.type === "session-audio-insights" && (
+                <SessionAudioInsightsScreen
+                  sessionId={screen.sessionId}
+                  sessionTitle={screen.sessionTitle}
+                  initialStatus={screen.initialStatus}
+                  initialInsights={screen.initialInsights ?? null}
+                  onBack={() => nav({ type: "session-detail", sessionId: screen.sessionId })}
+                />
+              )}
+              {screen.type === "create-session" && <CreateSessionScreen onBack={() => nav({ type: "main", tab: "sessions" })} onCreated={(id) => nav({ type: "session-detail", sessionId: id })} />}
+              {screen.type === "rubrics" && <RubricsScreen session={authSession} onBack={() => nav({ type: "main", tab: "settings" })} onSession={(id) => nav({ type: "session-detail", sessionId: id })} />}
+              {screen.type === "profile" && (
+                <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
+                  <ProfileScreen session={authSession} onBack={() => nav({ type: "main", tab: "home" })} onStartTour={() => { setTourStep("contact"); nav({ type: "tour" }); }} />
+                </ScrollView>
+              )}
+              {screen.type === "tour" && (
+                <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
+                  <TourStepper session={authSession} idx={tourIdx} prospect={prospect} step={tourStep} onBack={() => nav({ type: "profile" })} onChange={(k, v) => setProspect((c) => ({ ...c, [k]: v }))} onStep={setTourStep} />
+                </ScrollView>
+              )}
+            </ScreenTransition>
           </KeyboardAvoidingView>
         </ToastProvider>
       </RecordingProvider>
     </View>
-    </SafeAreaProvider>
+    </AppProviders>
   );
 }
 
@@ -359,6 +526,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
   const [communityPickerOpen, setCommunityPickerOpen] = useState(false);
   const [communityQuery, setCommunityQuery] = useState("");
   const [switchingCommunityId, setSwitchingCommunityId] = useState<string | null>(null);
+  const [tabTransitionDirection, setTabTransitionDirection] = useState<SlideDirection>("forward");
 
   const load = useCallback(async () => {
     setError(null);
@@ -404,21 +572,31 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
   }, [authSession.workspace.community.id, onAuthSession]);
 
   const showScrollView = tab !== "sessions";
+  const handleTabPress = useCallback((nextTab: MainTab) => {
+    const currentIndex = TAB_ITEMS.findIndex((item) => item.id === tab);
+    const nextIndex = TAB_ITEMS.findIndex((item) => item.id === nextTab);
+    setTabTransitionDirection(nextIndex >= currentIndex ? "forward" : "back");
+    onTab(nextTab);
+  }, [onTab, tab]);
 
   return (
     <View style={st.flex1}>
       {showScrollView && (
-        <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
-          {error && <ErrorBanner message={error} onRetry={load} />}
-          {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} onSession={onSession} onProfile={onProfile} onCreate={onCreate} onGuestRegistration={onGuestRegistration} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} property={property} />}
-          {tab === "calendar" && <CalendarScreen sessions={sessions} entrataEvents={calendarEvents} onSession={onSession} onReload={load} />}
-          {tab === "materials" && <MaterialsScreen materials={materials} loading={loading} onReload={load} />}
-          {tab === "settings" && <SettingsScreen session={authSession} onSessionChange={onAuthSession} onRubrics={onRubrics} onSignOut={onSignOut} />}
-        </ScrollView>
+        <ScreenTransition transitionKey={`tab:${tab}`} direction={tabTransitionDirection}>
+          <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
+            {error && <ErrorBanner message={error} onRetry={load} />}
+            {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} onSession={onSession} onProfile={onProfile} onCreate={onCreate} onGuestRegistration={onGuestRegistration} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} property={property} />}
+            {tab === "calendar" && <CalendarScreen sessions={sessions} entrataEvents={calendarEvents} onSession={onSession} onReload={load} />}
+            {tab === "materials" && <MaterialsScreen materials={materials} loading={loading} onReload={load} />}
+            {tab === "settings" && <SettingsScreen session={authSession} onSessionChange={onAuthSession} onRubrics={onRubrics} onSignOut={onSignOut} />}
+          </ScrollView>
+        </ScreenTransition>
       )}
 
       {tab === "sessions" && (
-        <SessionsListScreen onSession={onSession} onCreate={onCreate} />
+        <ScreenTransition transitionKey="tab:sessions" direction={tabTransitionDirection}>
+          <SessionsListScreen onSession={onSession} onCreate={onCreate} />
+        </ScreenTransition>
       )}
 
       {tab === "sessions" && (
@@ -429,7 +607,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
 
       <View style={st.tabBar}>
         {TAB_ITEMS.map((t) => (
-          <Pressable key={t.id} onPress={() => { selectionHaptic(); onTab(t.id); }} style={st.tabBarItem}>
+          <Pressable key={t.id} onPress={() => { selectionHaptic(); handleTabPress(t.id); }} style={st.tabBarItem}>
             <Ionicons name={tab === t.id ? t.iconActive : t.icon} size={22} color={tab === t.id ? C.brand : C.textMuted} />
             <Text style={[st.tabBarLabel, tab === t.id && st.tabBarLabelActive]}>{t.label}</Text>
           </Pressable>
@@ -459,15 +637,19 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
 
 function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <View style={st.errorBanner}>
-      <Ionicons name="cloud-offline-outline" size={18} color={C.red} />
-      <Text style={st.errorBannerText} numberOfLines={2}>{message}</Text>
-      {onRetry && (
-        <Pressable onPress={onRetry} style={({ pressed }) => [st.errorRetryBtn, pressed && st.pressed]}>
-          <Ionicons name="refresh" size={16} color={C.brand} />
-        </Pressable>
-      )}
-    </View>
+    <Card className="flex-row items-center gap-2.5 border-destructive/20 bg-destructive/5 py-3">
+      <CardContent className="flex-row items-center gap-2.5 px-4 py-0">
+        <Ionicons name="cloud-offline-outline" size={18} color={C.red} />
+        <UiText className="flex-1 text-sm font-semibold text-destructive" numberOfLines={2}>
+          {message}
+        </UiText>
+        {onRetry ? (
+          <Button variant="ghost" size="icon" onPress={onRetry} className="h-9 w-9">
+            <Ionicons name="refresh" size={16} color={C.brand} />
+          </Button>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -510,7 +692,7 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
         </Pressable>
       </View>
 
-      <Pressable onPress={onProfile} style={({ pressed }) => [homeSt.businessCard, pressed && st.pressed]}>
+      <MotionPressable onPress={onProfile} haptic="selection" entering={FadeInDown.delay(40)} style={homeSt.businessCard}>
         <View style={homeSt.profileRow}>
           <View style={homeSt.profileAvatar}><Text style={homeSt.profileAvatarText}>{initials}</Text></View>
           <View style={st.flex1}>
@@ -524,47 +706,49 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
           <TourLogo width={62} />
           <View style={homeSt.smsButton}><Text style={homeSt.smsButtonText}>Share via SMS</Text></View>
         </View>
-      </Pressable>
+      </MotionPressable>
 
-      <View style={homeSt.metricsGrid}>
-        <MetricCard icon="analytics-outline" label="Avg score" value={averageScore} color={metrics.averageScore !== null ? scoreColor(metrics.averageScore) : C.brand} />
-        <MetricCard icon="radio-button-on-outline" label="Live" value={String(metrics.liveSessions)} color={C.red} />
-        <MetricCard icon="alert-circle-outline" label="Review queue" value={String(metrics.reviewQueue)} color={C.amber} />
-        <MetricCard icon="checkmark-done-outline" label="Analyzed" value={String(metrics.analyzedSessions)} color={C.green} />
-      </View>
+      <MotionBlock delay={80}>
+        <View className="flex-row flex-wrap gap-2">
+          <MetricCard icon="analytics-outline" label="Avg score" value={averageScore} color={metrics.averageScore !== null ? scoreColor(metrics.averageScore) : C.brand} delay={0} />
+          <MetricCard icon="radio-button-on-outline" label="Live" value={String(metrics.liveSessions)} color={C.red} delay={40} live={metrics.liveSessions > 0} />
+          <MetricCard icon="alert-circle-outline" label="Review queue" value={String(metrics.reviewQueue)} color={C.amber} delay={80} />
+          <MetricCard icon="checkmark-done-outline" label="Analyzed" value={String(metrics.analyzedSessions)} color={C.green} delay={120} />
+        </View>
+      </MotionBlock>
 
       <View style={homeSt.commandGrid}>
-        <Pressable onPress={() => { impactHaptic(); onCreate(); }} style={({ pressed }) => [homeSt.commandButton, pressed && st.pressed]}>
+        <MotionPressable onPress={onCreate} haptic="medium" entering={FadeInDown.delay(140)} style={homeSt.commandButton}>
           <View style={[homeSt.commandIcon, { backgroundColor: C.brand + "12" }]}><Ionicons name="mic-outline" size={19} color={C.brand} /></View>
           <Text style={homeSt.commandTitle}>Record</Text>
           <Text style={homeSt.commandSub}>Start tour</Text>
-        </Pressable>
-        <Pressable onPress={() => { impactHaptic(); onGuestRegistration(); }} style={({ pressed }) => [homeSt.commandButton, pressed && st.pressed]}>
+        </MotionPressable>
+        <MotionPressable onPress={onGuestRegistration} haptic="medium" entering={FadeInDown.delay(180)} style={homeSt.commandButton}>
           <View style={[homeSt.commandIcon, { backgroundColor: C.purpleBg }]}><BrandedQrIcon size={19} /></View>
           <Text style={homeSt.commandTitle}>Check in</Text>
           <Text style={homeSt.commandSub}>Guest card</Text>
-        </Pressable>
-        <Pressable onPress={onProfile} style={({ pressed }) => [homeSt.commandButton, pressed && st.pressed]}>
+        </MotionPressable>
+        <MotionPressable onPress={onProfile} haptic="selection" entering={FadeInDown.delay(220)} style={homeSt.commandButton}>
           <View style={[homeSt.commandIcon, { backgroundColor: C.greenBg }]}><Ionicons name="person-outline" size={19} color={C.green} /></View>
           <Text style={homeSt.commandTitle}>Profile</Text>
           <Text style={homeSt.commandSub}>Share link</Text>
-        </Pressable>
+        </MotionPressable>
       </View>
 
       {focusSessions.length > 0 && (
         <HomeSection title="Needs Attention">
           <View style={homeSt.focusStack}>
             {focusSessions.map((session) => (
-              <Pressable key={session.id} onPress={() => { selectionHaptic(); onSession(session.id); }} style={({ pressed }) => [homeSt.focusCard, pressed && st.pressed]}>
+              <MotionPressable key={session.id} onPress={() => onSession(session.id)} haptic="selection" layout={LinearTransition.springify()} style={homeSt.focusCard}>
                 <View style={[homeSt.focusIcon, { backgroundColor: (STATUS_COLORS[session.status]?.bg ?? C.amberBg) }]}>
-                  <Ionicons name={session.status === "in_progress" ? "radio-button-on-outline" : session.status === "failed" ? "warning-outline" : "sparkles"} size={18} color={STATUS_COLORS[session.status]?.text ?? C.amber} />
+                  {session.status === "in_progress" ? <PulseDot color={STATUS_COLORS[session.status]?.text ?? C.red} /> : <Ionicons name={session.status === "failed" ? "warning-outline" : "sparkles"} size={18} color={STATUS_COLORS[session.status]?.text ?? C.amber} />}
                 </View>
                 <View style={st.flex1}>
                   <Text style={homeSt.focusTitle} numberOfLines={1}>{session.title}</Text>
                   <Text style={homeSt.focusMeta} numberOfLines={1}>{STATUS_LABELS[session.status] ?? session.status}{session.prospectName ? ` · ${session.prospectName}` : ""}</Text>
                 </View>
                 {session.overallScore !== null ? <Text style={[homeSt.focusScore, { color: scoreColor(session.overallScore) }]}>{session.overallScore}</Text> : <Ionicons name="chevron-forward" size={17} color={C.textMuted} />}
-              </Pressable>
+              </MotionPressable>
             ))}
           </View>
         </HomeSection>
@@ -574,7 +758,7 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
         {loading ? <LoadingBox /> : upcomingSessions.length === 0 ? (
           <EmptyState icon="calendar-outline" title="No upcoming tours" subtitle="Scheduled and active tours will appear here" />
         ) : upcomingSessions.slice(0, 3).map((session) => (
-          <Pressable key={session.id} onPress={() => { selectionHaptic(); onSession(session.id); }} style={({ pressed }) => [homeSt.tourCard, pressed && st.pressed]}>
+          <MotionPressable key={session.id} onPress={() => onSession(session.id)} haptic="selection" layout={LinearTransition.springify()} style={homeSt.tourCard}>
             <View style={st.flex1}>
               <Text style={homeSt.tourTitle} numberOfLines={1}>{session.title}</Text>
               <View style={homeSt.tourMetaRow}>
@@ -593,11 +777,11 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
                 {session.status === "in_progress" ? "ACTIVE" : "UPCOMING"}
               </Text>
             </View>
-          </Pressable>
+          </MotionPressable>
         ))}
       </HomeSection>
 
-      <Pressable onPress={() => { impactHaptic(); onGuestRegistration(); }} style={({ pressed }) => [homeSt.actionCard, pressed && st.pressed]}>
+      <MotionPressable onPress={onGuestRegistration} haptic="medium" style={homeSt.actionCard}>
         <View style={homeSt.actionIcon}>
           <BrandedQrIcon size={36} />
         </View>
@@ -606,7 +790,7 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
           <Text style={homeSt.actionSub}>Check in a prospect for a tour</Text>
         </View>
         <Ionicons name="arrow-forward-circle" size={28} color={C.text} />
-      </Pressable>
+      </MotionPressable>
 
       <HomeSection title="Media" showLogo action={materials.length ? "See All" : undefined}>
         <View style={homeSt.mediaRow}>
@@ -618,9 +802,9 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
           ))}
           {materials.length === 0 && <Text style={homeSt.emptyInline}>Reusable tour assets will appear here.</Text>}
         </View>
-        <Pressable onPress={() => { impactHaptic(); onCreate(); }} style={({ pressed }) => [homeSt.createButton, pressed && st.pressed]}>
+        <MotionPressable onPress={onCreate} haptic="medium" style={homeSt.createButton}>
           <Text style={homeSt.createButtonText}>+ Create New Session</Text>
-        </Pressable>
+        </MotionPressable>
       </HomeSection>
 
       <HomeSection title="AI Coaching Insights" showLogo>
@@ -650,14 +834,14 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
 
 function HomeSection({ title, action, showLogo = false, children }: { title: string; action?: string; showLogo?: boolean; children: React.ReactNode }) {
   return (
-    <View style={{ gap: 12 }}>
+    <MotionBlock style={{ gap: 12 }}>
       <View style={homeSt.sectionHeader}>
         {showLogo && <TourLogo width={58} />}
         <Text style={homeSt.sectionTitle}>{title}</Text>
         {action && <Text style={homeSt.sectionAction}>{action}</Text>}
       </View>
       {children}
-    </View>
+    </MotionBlock>
   );
 }
 
@@ -673,26 +857,36 @@ function BrandedQrIcon({ size = 32 }: { size?: number }) {
   );
 }
 
-function MetricCard({ icon, label, value, color }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; color: string }) {
+function MetricCard({ icon, label, value, color, delay = 0, live = false }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; color: string; delay?: number; live?: boolean }) {
   return (
-    <View style={st.metricCard}>
-      <Ionicons name={icon} size={20} color={color} />
-      <Text style={st.metricValue}>{value}</Text>
-      <Text style={st.metricLabel}>{label}</Text>
-    </View>
+    <Reanimated.View entering={FadeInUp.delay(delay).duration(360).springify()} layout={LinearTransition.springify()} className="w-[48%]">
+      <Card className="gap-1.5 border-border py-4">
+        <CardContent className="gap-1.5 px-4 py-0">
+          {live ? <PulseDot color={color} /> : <Ionicons name={icon} size={20} color={color} />}
+          <UiText className="text-2xl font-black tabular-nums text-foreground">{value}</UiText>
+          <UiText className="text-[11px] font-extrabold uppercase text-muted-foreground">{label}</UiText>
+        </CardContent>
+      </Card>
+    </Reanimated.View>
   );
 }
 
 function CardRow({ icon, title, sub, onPress }: { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [st.cardRow, pressed && st.pressed]}>
-      <View style={st.cardRowIcon}><Ionicons name={icon} size={22} color={C.brand} /></View>
-      <View style={st.flex1}>
-        <Text style={st.cardRowTitle}>{title}</Text>
-        <Text style={st.cardRowSub}>{sub}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
-    </Pressable>
+    <MotionPressable onPress={onPress} haptic="selection">
+      <Card className="flex-row items-center gap-3 border-border py-3">
+        <CardContent className="flex-row items-center gap-3 px-4 py-0">
+          <View className="h-11 w-11 items-center justify-center rounded-xl bg-secondary">
+            <Ionicons name={icon} size={22} color={C.brand} />
+          </View>
+          <View className="flex-1">
+            <UiText className="text-sm font-black text-foreground">{title}</UiText>
+            <UiText className="mt-0.5 text-xs text-muted-foreground">{sub}</UiText>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+        </CardContent>
+      </Card>
+    </MotionPressable>
   );
 }
 
@@ -700,15 +894,15 @@ function SessionRow({ session, onPress, isLast }: { session: SessionSummary; onP
   const colors = STATUS_COLORS[session.status] ?? { bg: "#eaf4ff", text: C.brand };
   const label = STATUS_LABELS[session.status] ?? session.status;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [st.sessionRow, !isLast && st.rowBorder, pressed && st.pressed]}>
+    <MotionPressable onPress={onPress} haptic="selection" style={[st.sessionRow, !isLast && st.rowBorder]}>
       <View style={st.flex1}>
         <Text style={st.sessionTitle} numberOfLines={1}>{session.title}</Text>
         <Text style={st.sessionMeta} numberOfLines={1}>{session.prospectName ?? "No prospect"}{session.scheduledAt ? ` \u00B7 ${fmtDate(session.scheduledAt)}` : ""}</Text>
       </View>
-      <View style={[st.badge, { backgroundColor: colors.bg }]}><Text style={[st.badgeText, { color: colors.text }]}>{label}</Text></View>
+      <TourStatusBadge label={label} bg={colors.bg} color={colors.text} />
       {session.overallScore !== null && <Text style={[st.scoreNum, { color: scoreColor(session.overallScore) }]}>{session.overallScore}%</Text>}
       <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
-    </Pressable>
+    </MotionPressable>
   );
 }
 
@@ -838,19 +1032,19 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
   const renderItem = useCallback(({ item }: { item: SessionListItem }) => {
     if (item.kind === "header") {
       return (
-        <View style={slst.groupHeader}>
+        <Reanimated.View entering={FadeIn.delay(80)} layout={LinearTransition.springify()} style={slst.groupHeader}>
           <Text style={slst.groupLabel}>{item.label}</Text>
           <View style={slst.groupCount}><Text style={slst.groupCountText}>{item.count}</Text></View>
-        </View>
+        </Reanimated.View>
       );
     }
     const session = item.session;
     const needsReview = ["uploaded", "failed", "analysis_ready"].includes(session.status);
     return (
-      <Pressable onPress={() => { selectionHaptic(); onSession(session.id); }} style={({ pressed }) => [slst.sessionCard, pressed && st.pressed]}>
+      <MotionPressable onPress={() => onSession(session.id)} haptic="selection" entering={FadeInDown.duration(260).springify()} layout={LinearTransition.springify()} style={slst.sessionCard}>
         <View style={st.flex1}>
           <View style={slst.sessionNameRow}>
-            {session.status === "in_progress" && <View style={slst.liveDot} />}
+            {session.status === "in_progress" && <PulseDot color="#f04438" />}
             <Text style={slst.sessionName} numberOfLines={1}>{session.title}</Text>
           </View>
           <Text style={slst.sessionMeta} numberOfLines={1}>
@@ -863,7 +1057,7 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
           </View>
           {session.overallScore !== null && <Text style={slst.sessionScore}>{session.overallScore}</Text>}
         </View>
-      </Pressable>
+      </MotionPressable>
     );
   }, [onSession]);
 
@@ -881,10 +1075,10 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
       <Text style={st.pageTitle}>Sessions</Text>
 
       {showSearch && (
-        <View style={st.searchBar}>
+        <Reanimated.View entering={FadeInDown.duration(220)} style={st.searchBar}>
           <Ionicons name="search-outline" size={18} color={C.textMuted} />
           <TextInput autoFocus placeholder="Search sessions..." placeholderTextColor={C.textMuted} value={search} onChangeText={setSearch} style={st.searchInput} returnKeyType="search" />
-        </View>
+        </Reanimated.View>
       )}
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={slst.chipsRow}>
@@ -944,12 +1138,7 @@ function SessionsListScreen({ onSession, onCreate }: { onSession: (id: string) =
   const ListEmpty = useMemo(() => {
     if (loading) return (
       <View style={{ paddingTop: 20 }}>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <View key={i} style={slst.skeleton}>
-            <View style={[slst.skelBar, { width: "55%" }]} />
-            <View style={[slst.skelBar, { width: "35%", height: 8 }]} />
-          </View>
-        ))}
+        <LoadingShimmer rows={5} />
       </View>
     );
     return (
@@ -1481,7 +1670,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
             <ActivityIndicator size="large" color={C.brand} />
             <Text style={st.formTitle}>Uploading...</Text>
             <Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec }} numberOfLines={1}>{fileName}</Text>
-            <View style={[st.progressTrack, { alignSelf: "stretch" }]}><View style={[st.progressFill, { width: `${progress}%` as any }]} /></View>
+            <View style={[st.progressTrack, { alignSelf: "stretch" }]}><AnimatedProgressFill percent={progress} /></View>
             <Text style={st.pageSub}>{progress}%</Text>
           </View>
         </View>
@@ -1555,13 +1744,30 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
 
 type DTab = "overview" | "rubric" | "transcript" | "actions" | "comments";
 
-function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack: () => void }) {
+function SessionDetailScreen({
+  sessionId,
+  onBack,
+  onOpenAiChat,
+  onOpenAudioInsights,
+}: {
+  sessionId: string;
+  onBack: () => void;
+  onOpenAiChat: (meta: { sessionId: string; sessionTitle?: string; prospectName?: string }) => void;
+  onOpenAudioInsights: (meta: {
+    sessionId: string;
+    sessionTitle?: string;
+    initialStatus?: AudioInsightsStatus;
+    initialInsights?: AudioInsights | null;
+  }) => void;
+}) {
   const [session, setSession] = useState<any>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [actions, setActions] = useState<FollowUpAction[]>([]);
   const [transcript, setTranscript] = useState<any[]>([]);
   const [phases, setPhases] = useState<ConversationPhaseSegmentation | null>(null);
   const [comments, setComments] = useState<SessionComment[]>([]);
+  const [audioInsightsStatus, setAudioInsightsStatus] = useState<AudioInsightsStatus>("pending");
+  const [audioInsights, setAudioInsights] = useState<AudioInsights | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<DTab>("overview");
   const [refreshing, setRefreshing] = useState(false);
@@ -1579,10 +1785,19 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
       ]);
       setSession(sRes.session);
       setPhases(sRes.phases ?? null);
+      setAudioInsightsStatus(sRes.session.audioInsightsStatus ?? "pending");
       setAnalysis(aRes.analysis);
       setActions(actRes.actions);
       setTranscript(tRes.transcript);
       setComments(cRes.comments);
+
+      if (sRes.session.audioInsightsStatus === "ready" || sRes.session.audioInsightsStatus === "processing") {
+        const insightsRes = await fetchAudioInsights(sessionId).catch(() => null);
+        if (insightsRes) {
+          setAudioInsightsStatus(insightsRes.status);
+          setAudioInsights(insightsRes.insights);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load session");
     } finally { setLoading(false); }
@@ -1598,7 +1813,7 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
   }, [analysis, load, session]);
   const onRefresh = useCallback(async () => { setRefreshing(true); await load(); setRefreshing(false); }, [load]);
 
-  if (loading) return <View style={[st.flex1, st.center]}><ActivityIndicator size="large" color={C.brand} /><Text style={[st.pageSub, { marginTop: 12 }]}>Loading session...</Text></View>;
+  if (loading && !session) return <SessionReviewSkeleton onBack={onBack} />;
 
   if (!session) return (
     <View style={[st.flex1, st.center, { gap: 12 }]}>
@@ -1622,9 +1837,26 @@ function SessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack:
         phases={phases}
         comments={comments}
         actions={actions}
+        audioInsightsStatus={audioInsightsStatus}
+        audioInsights={audioInsights}
         sessionId={sessionId}
         onBack={onBack}
         onReload={load}
+        onOpenAiChat={() =>
+          onOpenAiChat({
+            sessionId,
+            sessionTitle: session.title,
+            prospectName: session.prospectName ?? undefined,
+          })
+        }
+        onOpenAudioInsights={() =>
+          onOpenAudioInsights({
+            sessionId,
+            sessionTitle: session.title,
+            initialStatus: audioInsightsStatus,
+            initialInsights: audioInsights,
+          })
+        }
       />
     );
   }
@@ -1695,9 +1927,13 @@ function SessionReviewExperience({
   phases,
   comments,
   actions,
+  audioInsightsStatus,
+  audioInsights,
   sessionId,
   onBack,
   onReload,
+  onOpenAiChat,
+  onOpenAudioInsights,
 }: {
   session: any;
   analysis: AnalysisResult;
@@ -1705,10 +1941,16 @@ function SessionReviewExperience({
   phases: ConversationPhaseSegmentation | null;
   comments: SessionComment[];
   actions: FollowUpAction[];
+  audioInsightsStatus: AudioInsightsStatus;
+  audioInsights: AudioInsights | null;
   sessionId: string;
   onBack: () => void;
   onReload: () => void;
+  onOpenAiChat: () => void;
+  onOpenAudioInsights: () => void;
 }) {
+  const [localActions, setLocalActions] = useState(actions);
+  const [localComments, setLocalComments] = useState(comments);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
@@ -1717,25 +1959,16 @@ function SessionReviewExperience({
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(transcript[0]?.id ?? null);
   const [commentingOn, setCommentingOn] = useState<any | null>(null);
   const [commentBody, setCommentBody] = useState("");
-  const [posting, setPosting] = useState(false);
-  const [momentIndex, setMomentIndex] = useState(0);
-  const [reviewMode, setReviewMode] = useState<"transcript" | "coaching" | "summary" | "moments">("transcript");
+  const [reviewMode, setReviewMode] = useState<SessionReviewMode>("rubric");
   const scrollRef = useRef<ScrollView | null>(null);
   const segmentY = useRef<Record<string, number>>({});
   const userDragging = useRef(false);
   const lastAutoSegment = useRef<string | null>(null);
 
+  useEffect(() => { setLocalActions(actions); }, [actions]);
+  useEffect(() => { setLocalComments(comments); }, [comments]);
+
   const playbackUrl = getRecordingPlaybackUrl(sessionId);
-  const timestampedComments = useMemo(
-    () => comments.filter((comment) => comment.timestampSec !== null).sort((a, b) => (a.timestampSec ?? 0) - (b.timestampSec ?? 0)),
-    [comments]
-  );
-  const momentTimes = useMemo(() => {
-    if (timestampedComments.length) return timestampedComments.map((comment) => comment.timestampSec ?? 0);
-    if (!transcript.length) return [];
-    const stride = Math.max(1, Math.floor(transcript.length / 3));
-    return transcript.filter((_, index) => index % stride === 0).map((segment) => segment.startTime);
-  }, [timestampedComments, transcript]);
 
   const scrollToSegment = useCallback((segment: any, animated = true) => {
     if (!segment) return;
@@ -1808,29 +2041,34 @@ function SessionReviewExperience({
 
   async function postInlineComment() {
     if (!commentingOn || !commentBody.trim()) return;
-    setPosting(true);
+    const body = commentBody.trim();
+    const timestampSec = commentingOn.startTime;
+    const tempId = `optimistic-${Date.now()}`;
+    const optimistic: SessionComment = {
+      id: tempId,
+      sessionId,
+      authorName: "You",
+      body,
+      timestampSec,
+      parentId: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    setLocalComments((prev) => [...prev, optimistic]);
+    setCommentBody("");
+    setCommentingOn(null);
     try {
-      await postComment(sessionId, { body: commentBody.trim(), timestampSec: commentingOn.startTime });
-      setCommentBody("");
-      setCommentingOn(null);
+      const { comment } = await postComment(sessionId, { body, timestampSec });
+      setLocalComments((prev) => prev.map((item) => (item.id === tempId ? comment : item)));
       showToast("Comment added at this moment", "success");
-      onReload();
     } catch {
+      setLocalComments((prev) => prev.filter((item) => item.id !== tempId));
       showToast("Could not add comment", "error");
-    } finally {
-      setPosting(false);
     }
   }
 
-  function jumpMoment(direction: 1 | -1) {
-    if (!momentTimes.length) return;
-    const next = (momentIndex + direction + momentTimes.length) % momentTimes.length;
-    setMomentIndex(next);
-    void seekToSeconds(momentTimes[next] ?? 0, true);
-  }
-
   function commentsForSegment(segment: any) {
-    return comments.filter((comment) =>
+    return localComments.filter((comment) =>
       comment.timestampSec !== null &&
       comment.timestampSec >= segment.startTime &&
       comment.timestampSec < segment.endTime
@@ -1838,9 +2076,7 @@ function SessionReviewExperience({
   }
 
   const pct = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
-  const phaseTracks = useMemo(() => buildPhaseTracks(phases, duration), [phases, duration]);
-  const openActionCount = actions.filter((action) => action.status === "open").length;
-  const scoreTone = scoreColor(analysis.overallScore);
+  const openActionCount = localActions.filter((action) => action.status === "open").length;
   const coachingMoments = useMemo(() => {
     return analysis.exactMoments
       .map((moment, index) => ({
@@ -1872,63 +2108,18 @@ function SessionReviewExperience({
 
   return (
     <View style={reviewSt.root}>
-      <View style={reviewSt.header}>
-        <Pressable onPress={onBack} style={reviewSt.headerButton}><Ionicons name="arrow-back" size={22} color={C.text} /></Pressable>
-        <View style={reviewSt.propertyPicker}>
-          <Text style={reviewSt.propertyText} numberOfLines={1}>{session.location || "Session Review"}</Text>
-          <Ionicons name="chevron-down" size={15} color={C.textSec} />
-        </View>
-        <Pressable style={reviewSt.headerButton}><Ionicons name="notifications-outline" size={20} color={C.text} /></Pressable>
-      </View>
-
-      <View style={reviewSt.titleRow}>
-        <View style={st.flex1}>
-          <Text style={reviewSt.title} numberOfLines={1}>{session.title}</Text>
-          <Text style={reviewSt.subtitle}>{session.prospectName || "Recorded tour"} · {duration ? `${fmtSec(duration)} call` : "review ready"}</Text>
-        </View>
-      </View>
-
-      <View style={reviewSt.reviewSummary}>
-        <View style={[reviewSt.scoreCompact, { borderColor: `${scoreTone}33`, backgroundColor: `${scoreTone}10` }]}>
-          <Text style={[reviewSt.scoreCompactValue, { color: scoreTone }]}>{analysis.overallScore}%</Text>
-          <Text style={reviewSt.scoreCompactLabel}>Tour Score</Text>
-        </View>
-        <Pressable onPress={() => { selectionHaptic(); setReviewMode("coaching"); }} style={({ pressed }) => [reviewSt.actionsCta, pressed && st.pressed]}>
-          <View style={reviewSt.actionsCtaIcon}><Ionicons name="checkmark-done-outline" size={18} color={C.brand} /></View>
-          <View style={st.flex1}>
-            <Text style={reviewSt.actionsCtaTitle}>{openActionCount} coaching actions</Text>
-            <Text style={reviewSt.actionsCtaSub}>View next steps</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={17} color={C.textMuted} />
-        </Pressable>
-      </View>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={reviewSt.modeRow}>
-        {([
-          ["transcript", "Transcript", "chatbubble-outline"],
-          ["coaching", "Coaching", "school-outline"],
-          ["summary", "Summary", "document-text-outline"],
-          ["moments", "Moments", "flash-outline"],
-        ] as const).map(([mode, label, icon]) => (
-          <Pressable
-            key={mode}
-            accessibilityLabel={label}
-            onPress={() => { selectionHaptic(); setReviewMode(mode); }}
-            style={[reviewSt.modeButton, reviewMode === mode && reviewSt.modeButtonActive]}
-          >
-            <Ionicons name={icon} size={15} color={reviewMode === mode ? C.brand : C.textSec} />
-            <Text style={[reviewSt.modeText, reviewMode === mode && reviewSt.modeTextActive]}>{label}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-
       <ScrollView
         ref={scrollRef}
+        style={reviewSt.scrollBody}
+        contentContainerStyle={reviewSt.scrollContent}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={reviewSt.transcriptContent}
+        stickyHeaderIndices={[3]}
         scrollEventThrottle={16}
-        onScrollBeginDrag={() => { userDragging.current = true; }}
+        onScrollBeginDrag={() => {
+          if (reviewMode === "transcript") userDragging.current = true;
+        }}
         onMomentumScrollEnd={(event) => {
+          if (reviewMode !== "transcript") return;
           const offset = event.nativeEvent.contentOffset.y;
           const closest = transcript.reduce<any | null>((best, segment) => {
             if (!best) return segment;
@@ -1937,46 +2128,94 @@ function SessionReviewExperience({
           userDragging.current = false;
           if (closest && closest.id !== activeSegmentId) void seekToSeconds(closest.startTime);
         }}
-        onScrollEndDrag={() => { setTimeout(() => { userDragging.current = false; }, 120); }}
+        onScrollEndDrag={() => {
+          setTimeout(() => { userDragging.current = false; }, 120);
+        }}
       >
-        {reviewMode === "summary" && (
-          <View style={{ gap: 12 }}>
-            <ScoreHero analysis={analysis} />
-            <InfoCard title="Executive Summary" icon="document-text-outline">{analysis.summary}</InfoCard>
-            <View style={[st.card, { padding: 14, gap: 8, borderLeftWidth: 3, borderLeftColor: C.green }]}>
-              <Text style={[st.cardTitle, { color: C.green }]}>Strengths</Text>
-              {analysis.strengths.map((strength, index) => <BulletItem key={index} text={strength} color={C.green} />)}
+        <TourScreenHeader
+          onBack={onBack}
+          title={session.title}
+          subtitle={session.prospectName || "Recorded tour"}
+          meta={[
+            ...(duration ? [{ icon: Clock3, label: fmtSec(duration) }] : []),
+            { icon: Mic, label: "Call review" },
+            ...(openActionCount > 0
+              ? [{ icon: ListTodo, label: `${openActionCount} actions` }]
+              : []),
+          ]}
+        />
+
+        <SessionSummaryStrip
+          score={analysis.overallScore}
+          pointsEarned={analysis.totalPointsEarned}
+          pointsPossible={analysis.totalPointsPossible}
+          openActionCount={openActionCount}
+          onCoachingPress={() => setReviewMode("coaching")}
+        />
+
+        <SessionInsightCards
+          analysis={analysis}
+          audioInsightsStatus={audioInsightsStatus}
+          audioInsights={audioInsights}
+          onOpenAiChat={onOpenAiChat}
+          onOpenAudioInsights={onOpenAudioInsights}
+        />
+
+        <View style={reviewSt.tabSticky}>
+          <SessionModeTabs
+            value={reviewMode}
+            onChange={setReviewMode}
+            openActionCount={openActionCount}
+          />
+        </View>
+
+        <View style={reviewSt.tabBody}>
+        {reviewMode === "rubric" && (
+          <AnimatedTabContent tabKey="rubric">
+            <View style={{ gap: 12 }}>
+              <InfoCard title="Executive Summary" icon="document-text-outline">{analysis.summary}</InfoCard>
+              <SectionScoreOverview analysis={analysis} />
+              <RubricTab analysis={analysis} />
+              <View style={[st.card, { padding: 14, gap: 8, borderLeftWidth: 3, borderLeftColor: C.green }]}>
+                <Text style={[st.cardTitle, { color: C.green }]}>Strengths</Text>
+                {analysis.strengths.map((strength, index) => <BulletItem key={index} text={strength} color={C.green} />)}
+              </View>
             </View>
-            <View style={[st.card, { padding: 14, gap: 8, borderLeftWidth: 3, borderLeftColor: C.amber }]}>
-              <Text style={[st.cardTitle, { color: C.amber }]}>Coaching opportunities</Text>
-              {analysis.opportunities.map((opportunity, index) => <BulletItem key={index} text={opportunity} color={C.amber} />)}
-            </View>
-          </View>
+          </AnimatedTabContent>
         )}
         {reviewMode === "coaching" && (
+          <AnimatedTabContent tabKey="coaching">
           <View style={{ gap: 12 }}>
-            <ActionsTab actions={actions} sessionId={sessionId} onUpdate={onReload} />
+            <ActionsTab
+              actions={localActions}
+              sessionId={sessionId}
+              onUpdate={onReload}
+              onActionsChange={setLocalActions}
+            />
             <View style={[st.card, { padding: 14, gap: 8, borderLeftWidth: 3, borderLeftColor: C.amber }]}>
               <Text style={[st.cardTitle, { color: C.amber }]}>Where points were lost</Text>
               {analysis.opportunities.map((opportunity, index) => <BulletItem key={index} text={opportunity} color={C.amber} />)}
             </View>
-            <RubricTab analysis={analysis} />
+            {coachingMoments.length > 0 ? (
+              <View style={{ gap: 10 }}>
+                <Text style={st.sectionTitle}>Coachable moments</Text>
+                {coachingMoments.map((moment) => (
+                  <CoachingMomentCard
+                    key={moment.id}
+                    moment={moment}
+                    onSeek={() => void seekToSeconds(moment.seconds ?? 0, true)}
+                  />
+                ))}
+              </View>
+            ) : null}
           </View>
+          </AnimatedTabContent>
         )}
-        {reviewMode === "moments" && (
-          <View style={{ gap: 10 }}>
-            {coachingMoments.length === 0 ? (
-              <EmptyState icon="flash-outline" title="No exact moments" subtitle="Coaching moments will appear after analysis." />
-            ) : coachingMoments.map((moment) => (
-              <CoachingMomentCard
-                key={moment.id}
-                moment={moment}
-                onSeek={() => void seekToSeconds(moment.seconds ?? 0, true)}
-              />
-            ))}
-          </View>
+        {reviewMode === "transcript" && transcript.length === 0 && (
+          <AnimatedTabContent tabKey="transcript-empty">
+            <EmptyState icon="chatbubble-outline" title="No transcript yet" subtitle="The transcript will appear after processing." />
+          </AnimatedTabContent>
         )}
-        {reviewMode === "transcript" && transcript.length === 0 && <EmptyState icon="chatbubble-outline" title="No transcript yet" subtitle="The transcript will appear after processing." />}
         {reviewMode === "transcript" && transcriptGroups.map((group) => (
           <View key={group.id} style={reviewSt.phaseSection}>
             <View style={reviewSt.phaseDivider}>
@@ -1996,22 +2235,24 @@ function SessionReviewExperience({
                 moment.seconds < segment.endTime
               );
               return (
-                <View
+                <Reanimated.View
                   key={segment.id || index}
+                  entering={FadeInDown.delay(Math.min(index * 18, 180)).duration(240)}
+                  layout={LinearTransition.springify()}
                   onLayout={(event) => { segmentY.current[segment.id] = event.nativeEvent.layout.y; }}
                   style={[reviewSt.turnRow, active && reviewSt.turnRowActive]}
                 >
                   <Pressable onPress={() => void seekToSeconds(segment.startTime, true)} style={reviewSt.turnMain}>
                     <View style={reviewSt.turnInitialSlot}>
                       {showInitial && (
-                        <Text style={[reviewSt.turnInitial, { color: isAgent ? C.purple : C.brand }]}>
+                        <Text style={[reviewSt.turnInitial, { color: isAgent ? tourColors.agent : tourColors.prospect }]}>
                           {isAgent ? "A" : "P"}
                         </Text>
                       )}
                     </View>
                     <View style={st.flex1}>
                       <View style={reviewSt.turnMeta}>
-                        <Text style={[reviewSt.turnSpeaker, { color: isAgent ? C.purple : C.brand }]}>
+                        <Text style={[reviewSt.turnSpeaker, { color: isAgent ? tourColors.agent : tourColors.prospect }]}>
                           {segment.speaker || (isAgent ? "Agent" : "Prospect")}
                         </Text>
                         <Text style={reviewSt.segmentTime}>{fmtSec(segment.startTime)}</Text>
@@ -2043,55 +2284,30 @@ function SessionReviewExperience({
                   {commentingOn?.id === segment.id && (
                     <View style={reviewSt.inlineComposer}>
                       <TextInput autoFocus value={commentBody} onChangeText={setCommentBody} placeholder={`Comment at ${fmtSec(segment.startTime)}`} placeholderTextColor={C.textMuted} style={reviewSt.inlineInput} />
-                      <Pressable disabled={posting || !commentBody.trim()} onPress={postInlineComment} style={reviewSt.inlineSend}>
-                        {posting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={16} color="#fff" />}
+                      <Pressable disabled={!commentBody.trim()} onPress={postInlineComment} style={reviewSt.inlineSend}>
+                        <Ionicons name="send" size={16} color="#fff" />
                       </Pressable>
                     </View>
                   )}
-                </View>
+                </Reanimated.View>
               );
             })}
           </View>
         ))}
+        </View>
       </ScrollView>
 
-      <View style={reviewSt.playerDock}>
-        {phaseTracks.length > 0 && (
-          <View style={reviewSt.phaseTrack}>
-            {phaseTracks.map((track) => (
-              <View
-                key={track.id}
-                style={[
-                  reviewSt.phaseSegment,
-                  {
-                    left: `${track.leftPct}%`,
-                    width: `${Math.max(track.widthPct, 1.5)}%`,
-                    backgroundColor: segmentTrackColor(track),
-                  },
-                ]}
-              />
-            ))}
-            <View style={[reviewSt.phasePlayhead, { left: `${pct}%` }]} />
-          </View>
-        )}
-        <Pressable onPress={(event) => {
-          const width = Dimensions.get("window").width - 40;
-          void seekToSeconds(((event.nativeEvent as any).locationX / width) * duration);
-        }} style={reviewSt.waveformTrack}>
-          {[8, 14, 28, 10, 32, 24, 18, 40, 34, 12, 22, 38, 16, 30, 24, 12, 36, 18, 28, 10, 20, 14, 30, 12].map((height, index) => (
-            <View key={`${height}-${index}`} style={[reviewSt.waveformBar, { height, opacity: (index / 23) * 100 <= pct ? 1 : 0.35 }]} />
-          ))}
-        </Pressable>
-        <View style={reviewSt.playbackRow}>
-          <Pressable onPress={changeSpeed}><Text style={reviewSt.speed}>{speed}x</Text></Pressable>
-          <Text style={reviewSt.time}>{fmtSec(position)} / {fmtSec(duration)}</Text>
-          <Pressable onPress={() => jumpMoment(-1)}><Ionicons name="play-skip-back-outline" size={23} color={C.text} /></Pressable>
-          <Pressable disabled={!sound} onPress={() => { impactHaptic(Haptics.ImpactFeedbackStyle.Medium); void togglePlayback(); }} style={reviewSt.playButton}>
-            {!sound ? <ActivityIndicator color="#fff" /> : <Ionicons name={playing ? "pause" : "play"} size={22} color="#fff" />}
-          </Pressable>
-          <Pressable onPress={() => jumpMoment(1)}><Ionicons name="play-skip-forward-outline" size={23} color={C.text} /></Pressable>
-        </View>
-      </View>
+      <SessionPlayer
+        position={position}
+        duration={duration}
+        playing={playing}
+        speed={speed}
+        ready={!!sound}
+        progressPercent={pct}
+        onToggle={() => void togglePlayback()}
+        onSpeed={() => void changeSpeed()}
+        onSeek={(ratio) => void seekToSeconds(ratio * duration)}
+      />
     </View>
   );
 }
@@ -2121,7 +2337,7 @@ function CoachingMomentCard({
   compact?: boolean;
 }) {
   return (
-    <Pressable onPress={onSeek} style={({ pressed }) => [reviewSt.coachingMoment, compact && reviewSt.coachingMomentCompact, pressed && st.pressed]}>
+    <MotionPressable onPress={onSeek} haptic="selection" entering={FadeInDown.duration(260).springify()} layout={LinearTransition.springify()} style={[reviewSt.coachingMoment, compact && reviewSt.coachingMomentCompact]}>
       <View style={reviewSt.coachingMomentHeader}>
         <View style={reviewSt.coachingMomentIcon}><Ionicons name="flash" size={13} color={C.purple} /></View>
         <Text style={reviewSt.coachingMomentKicker}>Coachable Moment</Text>
@@ -2142,7 +2358,7 @@ function CoachingMomentCard({
         <Text style={reviewSt.coachingMomentAction}>Practice</Text>
         <Text style={reviewSt.coachingMomentAction}>Copy suggestion</Text>
       </View>
-    </Pressable>
+    </MotionPressable>
   );
 }
 
@@ -2200,6 +2416,29 @@ function RubricPicker({
           ))}
         </View>
       )}
+    </View>
+  );
+}
+
+function ProcessingTimeline({ status }: { status: string }) {
+  const activeIndex = Math.max(0, SESSION_PROCESS_STEPS.findIndex((step) => step.id === status));
+  const isComplete = status === "analysis_ready" || status === "reviewed";
+
+  return (
+    <View style={reviewSt.processingTimeline}>
+      {SESSION_PROCESS_STEPS.map((step, index) => {
+        const done = isComplete || index < activeIndex;
+        const active = !isComplete && index === activeIndex;
+        const color = done ? C.green : active ? C.brand : C.textMuted;
+        return (
+          <View key={step.id} style={reviewSt.processingStep}>
+            <View style={[reviewSt.processingStepIcon, active && reviewSt.processingStepIconActive, done && reviewSt.processingStepIconDone]}>
+              {active ? <PulseDot color={C.brand} /> : <Ionicons name={(done ? "checkmark" : step.icon) as any} size={16} color={color} />}
+            </View>
+            <Text style={[reviewSt.processingStepText, (active || done) && { color }]}>{step.label}</Text>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -2553,7 +2792,7 @@ function UploadProcessCard({
       <View style={[st.card, { padding: 20, gap: 12, alignItems: "center" }]}>
         <ActivityIndicator size="large" color={C.brand} />
         <Text style={st.formTitle}>Uploading...</Text>
-        <View style={st.progressTrack}><View style={[st.progressFill, { width: `${progress}%` as any }]} /></View>
+        <View style={st.progressTrack}><AnimatedProgressFill percent={progress} /></View>
         <Text style={st.pageSub}>{progress}% uploaded</Text>
       </View>
     );
@@ -2566,19 +2805,7 @@ function UploadProcessCard({
         <ActivityIndicator size="large" color={C.brand} />
         <Text style={st.formTitle}>Analyzing Your Tour</Text>
         <Text style={[st.pageSub, { textAlign: "center" }]}>{processingStatusMessage(status)}</Text>
-        <View style={{ flexDirection: "row", gap: 12, marginTop: 4, flexWrap: "wrap", justifyContent: "center" }}>
-          {([
-            ["mic-outline", "Transcribe"],
-            ["git-branch-outline", "Segment"],
-            ["analytics-outline", "Analyze"],
-            ["sparkles-outline", "Actions"],
-          ] as const).map(([icon, label]) => (
-            <View key={label} style={{ alignItems: "center", gap: 4, minWidth: 56 }}>
-              <Ionicons name={icon} size={20} color={C.brand} />
-              <Text style={{ fontSize: 10, fontWeight: "700", color: C.textSec }}>{label}</Text>
-            </View>
-          ))}
-        </View>
+        <ProcessingTimeline status={status} />
       </View>
     );
   }
@@ -2621,42 +2848,6 @@ function UploadProcessCard({
       <View style={{ flexDirection: "row", gap: 10 }}>
         <PrimaryBtn label="Process Now" onPress={startProcess} icon="analytics-outline" />
         <Pressable onPress={pickAndUpload} style={({ pressed }) => [st.outlineBtn, pressed && st.pressed]}><Text style={st.outlineBtnText}>Re-upload</Text></Pressable>
-      </View>
-    </View>
-  );
-}
-
-// ═══════════════════════════════════════
-// Score Hero
-// ═══════════════════════════════════════
-
-function ScoreHero({ analysis }: { analysis: AnalysisResult }) {
-  const color = scoreColor(analysis.overallScore);
-  const pts = analysis.totalPointsEarned ?? Math.round((analysis.overallScore / 100) * (analysis.totalPointsPossible ?? 200));
-  const max = analysis.totalPointsPossible ?? 200;
-
-  return (
-    <View style={st.scoreHero}>
-      <View style={{ alignItems: "center", gap: 6 }}>
-        <View style={[st.scoreRing, { borderColor: color + "18" }]}>
-          <View style={[st.scoreRingFill, { borderColor: color, borderLeftColor: analysis.overallScore >= 75 ? color : "transparent", borderBottomColor: analysis.overallScore >= 50 ? color : "transparent", borderRightColor: analysis.overallScore >= 25 ? color : "transparent", borderTopColor: "transparent" }]} />
-          <Text style={[st.scoreNum, { color }]}>{analysis.overallScore}<Text style={{ fontSize: 18, fontWeight: "700" }}>%</Text></Text>
-        </View>
-        <Text style={{ fontSize: 13, fontWeight: "800", color: C.textSec }}>{pts}/{max} pts</Text>
-      </View>
-      <View style={{ gap: 10 }}>
-        {analysis.sectionScores.map((sec) => {
-          const c = scoreColor(sec.score);
-          return (
-            <View key={sec.section} style={{ gap: 5 }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                <Text style={{ fontSize: 13, fontWeight: "700", color: C.text, flex: 1 }} numberOfLines={1}>{sec.section}</Text>
-                <Text style={{ fontSize: 13, fontWeight: "800", color: c }}>{sec.pointsPossible > 0 ? `${sec.pointsEarned}/${sec.pointsPossible}` : `${sec.score}%`}  {sec.score}%</Text>
-              </View>
-              <View style={st.trackBg}><View style={[st.trackFill, { width: `${sec.score}%` as any, backgroundColor: c }]} /></View>
-            </View>
-          );
-        })}
       </View>
     </View>
   );
@@ -2863,65 +3054,6 @@ function BulletItem({ text, color }: { text: string; color: string }) {
 }
 
 // ═══════════════════════════════════════
-// Rubric Tab
-// ═══════════════════════════════════════
-
-function RubricTab({ analysis }: { analysis: AnalysisResult }) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
-    const init: Record<string, boolean> = {};
-    analysis.sectionScores.forEach((s) => { init[s.section] = true; });
-    return init;
-  });
-
-  return (
-    <View style={{ gap: 12 }}>
-      {analysis.sectionScores.map((sec) => {
-        const c = scoreColor(sec.score);
-        const hasQ = sec.questions?.length > 0;
-        const exp = expanded[sec.section] ?? true;
-        const passCount = hasQ ? sec.questions.filter((q) => q.passed).length : 0;
-
-        return (
-          <View key={sec.section} style={st.card}>
-            <Pressable onPress={() => setExpanded((p) => ({ ...p, [sec.section]: !p[sec.section] }))} style={{ padding: 14, flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View style={st.flex1}>
-                <Text style={{ fontSize: 14, fontWeight: "800", color: C.text }}>{sec.section}</Text>
-                {hasQ && <Text style={{ fontSize: 11, fontWeight: "700", color: C.textSec, marginTop: 1 }}>{passCount}/{sec.questions.length} passed</Text>}
-              </View>
-              {sec.pointsPossible > 0 && <Text style={{ fontSize: 12, fontWeight: "700", color: C.textSec }}>{sec.pointsEarned}/{sec.pointsPossible}</Text>}
-              <View style={[st.rubricPctBadge, { backgroundColor: c + "15" }]}><Text style={{ fontSize: 12, fontWeight: "800", color: c }}>{sec.score}%</Text></View>
-              <Ionicons name={exp ? "chevron-down" : "chevron-forward"} size={16} color={C.textMuted} />
-            </Pressable>
-            {exp && hasQ && (
-              <View style={{ borderTopWidth: 1, borderTopColor: "#f1f5f9" }}>
-                {sec.questions.map((q) => (
-                  <View key={q.id} style={[st.questionRow, { borderLeftColor: q.passed ? C.green : C.red }]}>
-                    <View style={[st.qIcon, { backgroundColor: q.passed ? C.greenBg : C.redBg }]}>
-                      <Ionicons name={q.passed ? "checkmark" : "close"} size={14} color={q.passed ? C.green : C.red} />
-                    </View>
-                    <View style={st.flex1}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Text style={{ fontSize: 11, fontWeight: "800", color: C.textMuted }}>{q.id}</Text>
-                        <Text style={{ flex: 1, fontSize: 13, fontWeight: "700", color: C.text }} numberOfLines={2}>{q.question}</Text>
-                        <View style={[st.qPtsBadge, { backgroundColor: q.passed ? C.greenBg : C.redBg }]}>
-                          <Text style={{ fontSize: 11, fontWeight: "800", color: q.passed ? C.green : C.red }}>{q.earnedPoints}/{q.maxPoints}</Text>
-                        </View>
-                      </View>
-                      {q.evidence ? <Text style={{ fontSize: 12, fontWeight: "600", color: C.textSec, marginTop: 4, lineHeight: 18 }}>{q.evidence}</Text> : null}
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-            {exp && !hasQ && <View style={{ padding: 14, borderTopWidth: 1, borderTopColor: "#f1f5f9" }}><Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec }}>Re-process on web for per-question detail.</Text></View>}
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-// ═══════════════════════════════════════
 // Transcript Tab
 // ═══════════════════════════════════════
 
@@ -2953,14 +3085,35 @@ function TranscriptTab({ transcript }: { transcript: any[] }) {
 // Actions Tab
 // ═══════════════════════════════════════
 
-function ActionsTab({ actions, sessionId, onUpdate }: { actions: FollowUpAction[]; sessionId: string; onUpdate: () => void }) {
+function ActionsTab({
+  actions,
+  sessionId,
+  onUpdate,
+  onActionsChange,
+}: {
+  actions: FollowUpAction[];
+  sessionId: string;
+  onUpdate: () => void;
+  onActionsChange?: (next: FollowUpAction[] | ((prev: FollowUpAction[]) => FollowUpAction[])) => void;
+}) {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const open = actions.filter((a) => a.status === "open");
   const done = actions.filter((a) => a.status !== "open");
 
   async function handleStatus(id: string, status: "completed" | "dismissed") {
+    const previous = actions;
+    onActionsChange?.((prev) => prev.map((action) => (action.id === id ? { ...action, status } : action)));
     setUpdatingId(id);
-    try { await updateActionStatus(sessionId, id, status); showToast(status === "completed" ? "Marked as done" : "Dismissed", "success"); onUpdate(); } catch { showToast("Failed to update", "error"); } finally { setUpdatingId(null); }
+    try {
+      await updateActionStatus(sessionId, id, status);
+      showToast(status === "completed" ? "Marked as done" : "Dismissed", "success");
+      onUpdate();
+    } catch {
+      onActionsChange?.(previous);
+      showToast("Failed to update", "error");
+    } finally {
+      setUpdatingId(null);
+    }
   }
 
   if (!actions.length) return <EmptyState icon="rocket-outline" title="No actions" subtitle="Follow-up actions will appear after analysis" />;
@@ -3613,67 +3766,7 @@ function SRow({ label, value }: { label: string; value: string }) {
 }
 
 // ═══════════════════════════════════════
-// Shared components
-// ═══════════════════════════════════════
-
-function LoadingBox() { return <View style={{ padding: 40, alignItems: "center" }}><ActivityIndicator color={C.brand} /><Text style={[st.pageSub, { marginTop: 8 }]}>Loading...</Text></View>; }
-
-function EmptyState({ icon, title, subtitle }: { icon: keyof typeof Ionicons.glyphMap; title: string; subtitle?: string }) {
-  return (
-    <View style={[st.card, { padding: 32, alignItems: "center", gap: 8 }]}>
-      <Ionicons name={icon} size={36} color={C.textMuted} />
-      <Text style={st.emptyTitle}>{title}</Text>
-      {subtitle && <Text style={st.pageSub}>{subtitle}</Text>}
-    </View>
-  );
-}
-
-function BackBtn({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [st.backBtn, pressed && st.pressed]}>
-      <Ionicons name="chevron-back" size={16} color={C.textSec} />
-      <Text style={{ fontSize: 14, fontWeight: "800", color: C.textSec }}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function PrimaryBtn({ label, onPress, icon, disabled }: { label: string; onPress: () => void; icon?: keyof typeof Ionicons.glyphMap; disabled?: boolean }) {
-  return (
-    <Pressable onPress={onPress} disabled={disabled} style={({ pressed }) => [st.primaryBtn, pressed && st.pressed, disabled && { opacity: 0.5 }]}>
-      {icon && <Ionicons name={icon} size={18} color="#fff" />}
-      <Text style={st.primaryBtnText}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function Input({ placeholder, value, onChangeText, icon, multiline, secureTextEntry, keyboardType, autoCapitalize }: {
-  placeholder: string; value: string; onChangeText: (v: string) => void; icon?: keyof typeof Ionicons.glyphMap; multiline?: boolean; secureTextEntry?: boolean; keyboardType?: any; autoCapitalize?: any;
-}) {
-  return (
-    <View style={[st.inputWrap, multiline && { minHeight: 96, alignItems: "flex-start", paddingTop: 14 }]}>
-      {icon && <Ionicons name={icon} size={18} color={C.textMuted} style={multiline ? { marginTop: 2 } : undefined} />}
-      <TextInput placeholder={placeholder} placeholderTextColor={C.textMuted} value={value} onChangeText={onChangeText} style={[st.inputField, multiline && { textAlignVertical: "top", minHeight: 70 }]} multiline={multiline} secureTextEntry={secureTextEntry} keyboardType={keyboardType} autoCapitalize={autoCapitalize} />
-    </View>
-  );
-}
-
-function SegPicker({ label, options, value, onChange }: { label: string; options: string[]; value: string; onChange: (v: string) => void }) {
-  return (
-    <View style={{ gap: 8 }}>
-      <Text style={st.labelSmall}>{label}</Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        {options.map((o) => (
-          <Pressable key={o} onPress={() => onChange(o)} style={[st.segPill, value === o && st.segPillActive]}>
-            <Text style={[st.segText, value === o && st.segTextActive]}>{o}</Text>
-          </Pressable>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-// ═══════════════════════════════════════
-// Styles
+// Shared components (see src/components/tour)
 // ═══════════════════════════════════════
 
 const W = Dimensions.get("window").width;
@@ -3691,7 +3784,7 @@ const homeSt = StyleSheet.create({
   profileRole: { color: C.textSec, fontSize: 11, marginTop: 3 },
   contactRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   contactText: { flex: 1, color: C.textSec, fontSize: 11 },
-  smsButton: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: "#1674ff" },
+  smsButton: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: C.brand },
   smsButtonText: { color: "#fff", fontSize: 10, fontWeight: "800" },
   metricsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
   commandGrid: { flexDirection: "row", gap: 9 },
@@ -3724,7 +3817,7 @@ const homeSt = StyleSheet.create({
   mediaTile: { width: "31.5%", aspectRatio: 1, justifyContent: "flex-end", gap: 6, padding: 10, borderRadius: 12, backgroundColor: "#eef4ff" },
   mediaLabel: { color: C.text, fontSize: 11, fontWeight: "700" },
   emptyInline: { color: C.textSec, fontSize: 12 },
-  createButton: { minHeight: 50, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: "#1674ff" },
+  createButton: { minHeight: 50, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: C.brand },
   createButtonText: { color: "#fff", fontSize: 14, fontWeight: "800" },
   insightCard: { minHeight: 105, flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderWidth: 1, borderLeftWidth: 4, borderColor: C.brand, borderRadius: 16, backgroundColor: "#fff" },
   insightText: { color: C.text, fontSize: 14, lineHeight: 20, fontWeight: "600" },
@@ -3732,7 +3825,11 @@ const homeSt = StyleSheet.create({
 });
 
 const reviewSt = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#f7f8fb", paddingTop: Platform.OS === "ios" ? 50 : 18 },
+  root: { flex: 1, backgroundColor: tourColors.bg, paddingTop: Platform.OS === "ios" ? 50 : 18 },
+  scrollBody: { flex: 1 },
+  scrollContent: { paddingBottom: 150 },
+  tabSticky: { backgroundColor: tourColors.bg, zIndex: 2 },
+  tabBody: { gap: 13, paddingHorizontal: SESSION_PAGE_PADDING, paddingTop: 8 },
   header: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
   headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e6eaf0", borderRadius: 12, backgroundColor: "#fff" },
   propertyPicker: { maxWidth: 210, minHeight: 36, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#eef2f7" },
@@ -3740,22 +3837,24 @@ const reviewSt = StyleSheet.create({
   titleRow: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 10 },
   title: { color: C.text, fontSize: 24, fontWeight: "900", letterSpacing: 0 },
   subtitle: { color: "#7b8496", fontSize: 13, fontWeight: "700", marginTop: 4 },
-  reviewSummary: { flexDirection: "row", gap: 10, paddingHorizontal: 20, paddingBottom: 12 },
+  reviewSummary: { flexDirection: "row", alignItems: "stretch", gap: 10, paddingHorizontal: 16, paddingBottom: 12 },
   scoreCompact: { width: 108, minHeight: 70, justifyContent: "center", paddingHorizontal: 14, borderWidth: 1, borderRadius: 16 },
   scoreCompactValue: { fontSize: 26, fontWeight: "900", lineHeight: 30, fontVariant: ["tabular-nums"] },
   scoreCompactLabel: { color: "#667085", fontSize: 10, fontWeight: "900", textTransform: "uppercase", marginTop: 2 },
-  actionsCta: { flex: 1, minHeight: 70, flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderWidth: 1, borderColor: "#dbeafe", borderRadius: 16, backgroundColor: "#fff" },
+  scorePill: { minWidth: 40, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, alignItems: "center", borderCurve: "continuous" },
+  scorePillText: { fontSize: 13, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  actionsCta: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderWidth: 1, borderColor: "#dbeafe", borderRadius: 16, backgroundColor: "#fff" },
   actionsCtaIcon: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#eff6ff" },
   actionsCtaTitle: { color: C.text, fontSize: 14, fontWeight: "900" },
   actionsCtaSub: { color: C.brand, fontSize: 11, fontWeight: "800", marginTop: 2 },
   actionCount: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, backgroundColor: "#eef2ff" },
   actionCountText: { color: "#4338ca", fontSize: 10, fontWeight: "800" },
-  modeRow: { flexDirection: "row", gap: 8, paddingHorizontal: 20, paddingBottom: 12 },
-  modeButton: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 13, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 999, backgroundColor: "#fff" },
+  modeRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 12 },
+  modeButton: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 13, paddingVertical: 8, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 999, backgroundColor: "#fff" },
   modeButtonActive: { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" },
   modeText: { color: "#667085", fontSize: 12, fontWeight: "900" },
   modeTextActive: { color: C.brand },
-  transcriptContent: { gap: 13, paddingHorizontal: 20, paddingTop: 2, paddingBottom: 150 },
+  transcriptContent: { gap: 13, paddingHorizontal: SESSION_PAGE_PADDING, paddingTop: 8, paddingBottom: 150 },
   phaseSection: { gap: 4 },
   phaseDivider: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 10, paddingBottom: 7 },
   phaseDividerLine: { width: 4, height: 18, borderRadius: 2 },
@@ -3790,14 +3889,41 @@ const reviewSt = StyleSheet.create({
   coachingQuote: { color: "#7b8496", fontSize: 12, lineHeight: 17, fontStyle: "italic" },
   coachingMomentActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   coachingMomentAction: { color: C.purple, fontSize: 11, fontWeight: "900" },
-  playerDock: { position: "absolute", left: 0, right: 0, bottom: 0, gap: 8, paddingHorizontal: 18, paddingTop: 10, paddingBottom: Platform.OS === "ios" ? 22 : 12, borderTopWidth: 1, borderTopColor: "#e5e7eb", backgroundColor: "rgba(255,255,255,0.98)" },
+  processingTimeline: { alignSelf: "stretch", flexDirection: "row", justifyContent: "space-between", gap: 8, marginTop: 2, paddingTop: 8 },
+  processingStep: { flex: 1, alignItems: "center", gap: 6, minWidth: 58 },
+  processingStepIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#fff" },
+  processingStepIconActive: { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" },
+  processingStepIconDone: { borderColor: "#bbf7d0", backgroundColor: C.greenBg },
+  processingStepText: { color: C.textMuted, fontSize: 10, lineHeight: 13, fontWeight: "800", textAlign: "center" },
+  playerDock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === "ios" ? 26 : 14,
+    borderTopWidth: 1,
+    borderTopColor: "#e5e7eb",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.98)",
+    shadowColor: "#101828",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 12,
+  },
   phaseTrack: { height: 5, borderRadius: 4, backgroundColor: "#f3f4f6", position: "relative", overflow: "hidden" },
   phaseSegment: { position: "absolute", top: 0, bottom: 0, borderRadius: 2, opacity: 0.92 },
   phasePlayhead: { position: "absolute", top: -2, bottom: -2, width: 2, backgroundColor: "#111827" },
   waveformTrack: { height: 24, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 },
   waveformBar: { width: 3, borderRadius: 2, backgroundColor: C.brand },
-  time: { flex: 1, color: "#667085", fontSize: 12, fontWeight: "800", textAlign: "center" },
-  playbackRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  time: { color: "#667085", fontSize: 12, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  playbackRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  playbackMeta: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 },
+  playbackControls: { flexDirection: "row", alignItems: "center", gap: 14 },
   speed: { minWidth: 28, color: C.text, fontSize: 13, fontWeight: "900" },
   playButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: C.brand, shadowColor: C.brand, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.2, shadowRadius: 8 },
 });
@@ -3806,9 +3932,13 @@ const st = StyleSheet.create({
   root: { backgroundColor: C.bg, flex: 1 },
   flex1: { flex: 1 },
   center: { alignItems: "center", justifyContent: "center" },
+  screenTransition: { flex: 1 },
   scroll: { gap: 14, paddingHorizontal: 18, paddingTop: 56, paddingBottom: 32 },
   pressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
   page: { gap: 14 },
+  pulseDot: { width: 10, height: 10, borderRadius: 5 },
+  shimmerCard: { minHeight: 76, justifyContent: "center", gap: 9, padding: 14, borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: C.card },
+  shimmerBar: { height: 12, borderRadius: 999, backgroundColor: "#e8eef7" },
 
   // Toast
   toast: { position: "absolute", bottom: 100, left: 20, right: 20, flexDirection: "row", alignItems: "center", gap: 10, padding: 14, borderRadius: 8, zIndex: 999 },
@@ -3946,23 +4076,23 @@ const st = StyleSheet.create({
   callTopBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   callTopButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#f2f2f7" },
   callTopSpacer: { width: 42 },
-  callLiveBadge: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 100, backgroundColor: "rgba(0,122,255,0.08)" },
-  callLiveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#007aff" },
-  callLiveText: { color: "#007aff", fontSize: 10, fontWeight: "900" },
+  callLiveBadge: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 100, backgroundColor: C.brand + "12" },
+  callLiveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.brand },
+  callLiveText: { color: C.brand, fontSize: 10, fontWeight: "900" },
   callCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 12 },
   callMicHalo: { width: 128, height: 128, borderRadius: 64, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(79,70,229,0.17)", marginBottom: 24 },
-  callMicCore: { width: 88, height: 88, borderRadius: 44, alignItems: "center", justifyContent: "center", backgroundColor: "#4f46e5", shadowColor: "#4f46e5", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.38, shadowRadius: 24, elevation: 8 },
+  callMicCore: { width: 88, height: 88, borderRadius: 44, alignItems: "center", justifyContent: "center", backgroundColor: C.brand, shadowColor: C.brand, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.38, shadowRadius: 24, elevation: 8 },
   callTitle: { color: "#636366", fontSize: 20, fontWeight: "800", textTransform: "uppercase" },
   callTimer: { color: "#111", fontSize: 36, fontWeight: "800", fontVariant: ["tabular-nums"], marginTop: 18, textAlign: "center" },
   waveform: { height: 54, flexDirection: "row", alignItems: "center", gap: 5, marginTop: 22 },
-  waveBar: { width: 3, borderRadius: 2, backgroundColor: "#3b82f6" },
+  waveBar: { width: 3, borderRadius: 2, backgroundColor: C.brand },
   callCaption: { color: "#98a2b3", fontSize: 12, fontWeight: "600", marginTop: 7 },
   callControls: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-around" },
   callAction: { width: 82, alignItems: "center", gap: 8 },
   callActionButton: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(25,23,23,0.06)" },
-  callActionCount: { position: "absolute", top: -3, right: -2, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#4f46e5", borderWidth: 2, borderColor: "#111318" },
+  callActionCount: { position: "absolute", top: -3, right: -2, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: C.brand, borderWidth: 2, borderColor: "#111318" },
   callActionCountText: { color: "#fff", fontSize: 10, fontWeight: "900" },
-  callStopButton: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: "#2563eb", shadowColor: "#2563eb", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 9 },
+  callStopButton: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: C.brand, shadowColor: C.brand, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 9 },
   callStopSquare: { width: 23, height: 23, borderRadius: 4, backgroundColor: "#fff" },
   callActionLabel: { color: C.text, fontSize: 10, fontWeight: "700" },
   recordingAssetGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 46 },

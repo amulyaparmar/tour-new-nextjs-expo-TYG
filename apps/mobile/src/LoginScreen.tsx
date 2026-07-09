@@ -9,12 +9,18 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Text } from "@/components/ui/text";
+import { cn } from "@/lib/utils";
 
 import {
   type BusinessOption,
@@ -24,6 +30,8 @@ import {
 } from "./auth";
 import { TourLogo } from "./components/TourLogo";
 
+const TOUR_BRAND = "#006ce5";
+
 export function LoginScreen({
   player,
   onAuthenticated,
@@ -31,6 +39,7 @@ export function LoginScreen({
   player: VideoPlayer;
   onAuthenticated: (session: MobileAuthSession) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState<"community" | "credentials">("community");
   const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
   const [selected, setSelected] = useState<BusinessOption | null>(null);
@@ -47,7 +56,9 @@ export function LoginScreen({
       .then((items) => active && setBusinesses(items))
       .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load communities."))
       .finally(() => active && setLoading(false));
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -71,48 +82,62 @@ export function LoginScreen({
   }
 
   return (
-    <View style={styles.root}>
-      <View style={styles.hero}>
+    <View className="flex-1 bg-background">
+      <View className="min-h-[245px] overflow-hidden bg-slate-900" style={{ height: "35%" }}>
         <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
         <LinearGradient colors={["rgba(7,18,34,0.08)", "rgba(7,18,34,0.9)"]} style={StyleSheet.absoluteFill} />
-        <SafeAreaView style={styles.heroSafe}>
-          <View style={styles.brand}>
-            <TourLogo width={78} color="#fff" />
-          </View>
+        <View
+          className="flex-1 justify-between px-5 pb-6"
+          style={{ paddingTop: insets.top + 12 }}
+        >
+          <TourLogo width={78} color="#fff" />
           <View>
-            <Text style={styles.eyebrow}>LEASING OPERATIONS</Text>
-            <Text style={styles.heroTitle}>Tours, coaching, and follow-up in one place.</Text>
+            <Text className="mb-2 text-[11px] font-extrabold tracking-wide text-white/70">
+              LEASING OPERATIONS
+            </Text>
+            <Text className="max-w-[390px] text-[29px] font-black leading-[34px] text-white">
+              Tours, coaching, and follow-up in one place.
+            </Text>
           </View>
-        </SafeAreaView>
+        </View>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.panel}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        className="flex-1 bg-background px-5 pt-5"
+      >
         {step === "community" ? (
           <>
-            <View style={styles.headingRow}>
-              <View>
-                <Text style={styles.title}>Choose community</Text>
-                <Text style={styles.subtitle}>Select the property you are working from.</Text>
+            <View className="mb-4 min-h-14 flex-row items-start gap-3">
+              <View className="flex-1">
+                <Text className="text-[22px] font-black text-foreground">Choose community</Text>
+                <Text className="mt-1 text-sm text-muted-foreground">
+                  Select the property you are working from.
+                </Text>
               </View>
-              <View style={styles.stepBadge}><Text style={styles.stepText}>1 of 2</Text></View>
+              <Badge variant="secondary" className="rounded-md">
+                <Text className="text-[11px] font-extrabold">1 of 2</Text>
+              </Badge>
             </View>
-            <View style={styles.search}>
+
+            <View className="mb-3 min-h-12 flex-row items-center gap-2 rounded-lg border border-input bg-muted/40 px-3">
               <Ionicons name="search" size={18} color="#667085" />
-              <TextInput
+              <Input
                 value={query}
                 onChangeText={setQuery}
                 placeholder="Search communities"
-                placeholderTextColor="#98a2b3"
-                style={styles.input}
                 autoCapitalize="none"
                 autoCorrect={false}
+                className="flex-1 border-0 bg-transparent px-0 shadow-none"
               />
             </View>
-            {error && <ErrorMessage message={error} />}
+
+            {error ? <LoginError message={error} /> : null}
+
             {loading ? (
-              <View style={styles.loading}>
-                <ActivityIndicator color="#4f46e5" />
-                <Text style={styles.loadingText}>Loading communities</Text>
+              <View className="items-center gap-2 py-8">
+                <ActivityIndicator color={TOUR_BRAND} />
+                <Text className="text-sm font-semibold text-muted-foreground">Loading communities</Text>
               </View>
             ) : (
               <FlatList
@@ -120,7 +145,7 @@ export function LoginScreen({
                 keyExtractor={(item) => item.id}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.list}
+                contentContainerStyle={{ paddingTop: 8, paddingBottom: 28, gap: 8 }}
                 renderItem={({ item }) => (
                   <Pressable
                     onPress={() => {
@@ -128,38 +153,66 @@ export function LoginScreen({
                       setError(null);
                       setStep("credentials");
                     }}
-                    style={({ pressed }) => [styles.communityRow, pressed && styles.pressed]}
                   >
-                    <View style={styles.communityIcon}><Ionicons name="business-outline" size={19} color="#4f46e5" /></View>
-                    <View style={styles.communityCopy}>
-                      <Text style={styles.communityName} numberOfLines={1}>{item.name}</Text>
-                      <Text style={styles.companyName} numberOfLines={1}>{item.companyName}</Text>
-                    </View>
-                    {item.calendarConnected && <View style={styles.connected}><View style={styles.connectedDot} /><Text style={styles.connectedText}>Calendar</Text></View>}
-                    <Ionicons name="chevron-forward" size={18} color="#98a2b3" />
+                    <Card className="border-border py-0">
+                      <CardContent className="min-h-[66px] flex-row items-center gap-3 px-3 py-3">
+                        <View className="h-10 w-10 items-center justify-center rounded-lg bg-secondary">
+                          <Ionicons name="business-outline" size={19} color={TOUR_BRAND} />
+                        </View>
+                        <View className="min-w-0 flex-1">
+                          <Text className="text-sm font-extrabold text-foreground" numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                          <Text className="mt-0.5 text-xs text-muted-foreground" numberOfLines={1}>
+                            {item.companyName}
+                          </Text>
+                        </View>
+                        {item.calendarConnected ? (
+                          <Badge variant="outline" className="border-transparent bg-emerald-50">
+                            <View className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                            <Text className="text-[10px] font-bold text-emerald-700">Calendar</Text>
+                          </Badge>
+                        ) : null}
+                        <Ionicons name="chevron-forward" size={18} color="#98a2b3" />
+                      </CardContent>
+                    </Card>
                   </Pressable>
                 )}
-                ListEmptyComponent={<View style={styles.empty}><Ionicons name="business-outline" size={24} color="#98a2b3" /><Text style={styles.emptyText}>No matching communities</Text></View>}
+                ListEmptyComponent={
+                  <View className="items-center gap-2 py-8">
+                    <Ionicons name="business-outline" size={24} color="#98a2b3" />
+                    <Text className="text-sm font-semibold text-muted-foreground">No matching communities</Text>
+                  </View>
+                }
               />
             )}
           </>
         ) : (
           <>
-            <View style={styles.headingRow}>
-              <Pressable
-                accessibilityLabel="Back to communities"
-                onPress={() => { setStep("community"); setError(null); }}
-                style={styles.backButton}
+            <View className="mb-4 min-h-14 flex-row items-start gap-3">
+              <Button
+                variant="outline"
+                size="icon"
+                onPress={() => {
+                  setStep("community");
+                  setError(null);
+                }}
+                className="h-10 w-10 rounded-lg"
               >
                 <Ionicons name="arrow-back" size={20} color="#344054" />
-              </Pressable>
-              <View style={styles.credentialsHeading}>
-                <Text style={styles.title}>Sign in</Text>
-                <Text style={styles.subtitle} numberOfLines={1}>{selected?.name}</Text>
+              </Button>
+              <View className="flex-1">
+                <Text className="text-[22px] font-black text-foreground">Sign in</Text>
+                <Text className="mt-1 text-sm text-muted-foreground" numberOfLines={1}>
+                  {selected?.name}
+                </Text>
               </View>
-              <View style={styles.stepBadge}><Text style={styles.stepText}>2 of 2</Text></View>
+              <Badge variant="secondary" className="rounded-md">
+                <Text className="text-[11px] font-extrabold">2 of 2</Text>
+              </Badge>
             </View>
-            <Field
+
+            <LoginField
               label="EMAIL"
               icon="mail-outline"
               value={email}
@@ -169,7 +222,7 @@ export function LoginScreen({
               autoCapitalize="none"
               textContentType="username"
             />
-            <Field
+            <LoginField
               label="PASSWORD"
               icon="lock-closed-outline"
               value={password}
@@ -179,14 +232,24 @@ export function LoginScreen({
               textContentType="password"
               onSubmitEditing={() => void submit()}
             />
-            {error && <ErrorMessage message={error} />}
-            <Pressable
-              onPress={() => void submit()}
+
+            {error ? <LoginError message={error} /> : null}
+
+            <Button
+              size="lg"
               disabled={submitting || !email.trim() || !password}
-              style={({ pressed }) => [styles.signInButton, (!email.trim() || !password) && styles.disabled, pressed && styles.pressed]}
+              onPress={() => void submit()}
+              className="mt-1 min-h-[52px] rounded-lg"
             >
-              {submitting ? <ActivityIndicator color="#fff" /> : <><Text style={styles.signInText}>Continue</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></>}
-            </Pressable>
+              {submitting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Text className="text-base font-extrabold text-primary-foreground">Continue</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#fff" />
+                </>
+              )}
+            </Button>
           </>
         )}
       </KeyboardAvoidingView>
@@ -194,61 +257,33 @@ export function LoginScreen({
   );
 }
 
-function Field({ label, icon, ...props }: React.ComponentProps<typeof TextInput> & { label: string; icon: keyof typeof Ionicons.glyphMap }) {
+function LoginField({
+  label,
+  icon,
+  className,
+  ...props
+}: React.ComponentProps<typeof Input> & { label: string; icon: keyof typeof Ionicons.glyphMap }) {
   return (
-    <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={styles.fieldControl}>
+    <View className="mb-3.5 gap-1.5">
+      <Label className="text-[11px] font-extrabold text-muted-foreground">{label}</Label>
+      <View className="min-h-[50px] flex-row items-center gap-2 rounded-lg border border-input bg-card px-3">
         <Ionicons name={icon} size={18} color="#667085" />
-        <TextInput {...props} placeholderTextColor="#98a2b3" style={styles.input} />
+        <Input
+          {...props}
+          className={cn("flex-1 border-0 bg-transparent px-0 shadow-none", className)}
+        />
       </View>
     </View>
   );
 }
 
-function ErrorMessage({ message }: { message: string }) {
-  return <View style={styles.error}><Ionicons name="alert-circle-outline" size={18} color="#b42318" /><Text style={styles.errorText}>{message}</Text></View>;
+function LoginError({ message }: { message: string }) {
+  return (
+    <Card className="mb-3 border-destructive/20 bg-destructive/5 py-2">
+      <CardContent className="flex-row items-center gap-2 px-3 py-2">
+        <Ionicons name="alert-circle-outline" size={18} color="#b42318" />
+        <Text className="flex-1 text-xs font-semibold text-destructive">{message}</Text>
+      </CardContent>
+    </Card>
+  );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#fff" },
-  hero: { height: "35%", minHeight: 245, overflow: "hidden", backgroundColor: "#101828" },
-  heroSafe: { flex: 1, justifyContent: "space-between", paddingHorizontal: 22, paddingBottom: 24 },
-  brand: { flexDirection: "row", alignItems: "center", gap: 9 },
-  mark: { width: 34, height: 34, borderRadius: 9, backgroundColor: "#4f46e5", alignItems: "center", justifyContent: "center" },
-  brandText: { color: "#fff", fontSize: 22, fontWeight: "900" },
-  eyebrow: { color: "rgba(255,255,255,0.68)", fontSize: 11, fontWeight: "800", marginBottom: 8 },
-  heroTitle: { maxWidth: 390, color: "#fff", fontSize: 29, lineHeight: 34, fontWeight: "900" },
-  panel: { flex: 1, paddingHorizontal: 20, paddingTop: 22, backgroundColor: "#fff" },
-  headingRow: { minHeight: 56, flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 16 },
-  credentialsHeading: { flex: 1 },
-  title: { color: "#101828", fontSize: 22, fontWeight: "900" },
-  subtitle: { color: "#667085", fontSize: 13, lineHeight: 18, marginTop: 3 },
-  stepBadge: { marginLeft: "auto", paddingHorizontal: 9, paddingVertical: 5, borderRadius: 7, backgroundColor: "#f2f4f7" },
-  stepText: { color: "#667085", fontSize: 11, fontWeight: "800" },
-  search: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 13, borderWidth: 1, borderColor: "#dfe3ea", borderRadius: 10, backgroundColor: "#f8fafc" },
-  input: { flex: 1, color: "#101828", fontSize: 15, paddingVertical: 12 },
-  list: { paddingTop: 10, paddingBottom: 28, gap: 8 },
-  communityRow: { minHeight: 66, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 12, borderWidth: 1, borderColor: "#e4e7ec", borderRadius: 10, backgroundColor: "#fff" },
-  communityIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: "#eef2ff" },
-  communityCopy: { flex: 1, minWidth: 0 },
-  communityName: { color: "#1d2939", fontSize: 14, fontWeight: "800" },
-  companyName: { color: "#667085", fontSize: 12, marginTop: 2 },
-  connected: { flexDirection: "row", alignItems: "center", gap: 5 },
-  connectedDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#12b76a" },
-  connectedText: { color: "#027a48", fontSize: 10, fontWeight: "700" },
-  empty: { alignItems: "center", gap: 8, paddingVertical: 34 },
-  emptyText: { color: "#667085", fontSize: 13, fontWeight: "600" },
-  loading: { alignItems: "center", gap: 9, paddingVertical: 34 },
-  loadingText: { color: "#667085", fontSize: 13, fontWeight: "600" },
-  backButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e4e7ec", borderRadius: 9 },
-  field: { gap: 7, marginBottom: 14 },
-  label: { color: "#475467", fontSize: 11, fontWeight: "800" },
-  fieldControl: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 13, borderWidth: 1, borderColor: "#d0d5dd", borderRadius: 10, backgroundColor: "#fff" },
-  signInButton: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 4, borderRadius: 10, backgroundColor: "#4f46e5" },
-  signInText: { color: "#fff", fontSize: 15, fontWeight: "800" },
-  disabled: { opacity: 0.45 },
-  pressed: { opacity: 0.76 },
-  error: { flexDirection: "row", alignItems: "center", gap: 8, padding: 11, marginTop: 10, marginBottom: 12, borderRadius: 9, borderWidth: 1, borderColor: "#fecdca", backgroundColor: "#fef3f2" },
-  errorText: { flex: 1, color: "#b42318", fontSize: 12, fontWeight: "600" },
-});

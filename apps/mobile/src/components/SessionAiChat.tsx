@@ -1,5 +1,5 @@
 import type { AnalysisResult } from "@tour/shared";
-import { Ionicons } from "@expo/vector-icons";
+import { ArrowUp } from "lucide-react-native";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,6 +23,7 @@ import {
   type SessionAiPrompt,
 } from "../session-ai-prompts";
 import { AiChatText } from "./AiChatText";
+import { Icon } from "@/components/ui/icon";
 
 const C = {
   brand: "#006CE5",
@@ -45,9 +46,11 @@ type Props = {
   sessionId: string;
   analysis: AnalysisResult;
   onSeek?: (seconds: number) => void;
+  showHeader?: boolean;
+  bottomInset?: number;
 };
 
-export function SessionAiChat({ sessionId, analysis, onSeek }: Props) {
+export function SessionAiChat({ sessionId, analysis, onSeek, showHeader = true, bottomInset = 0 }: Props) {
   const [input, setInput] = useState("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -135,16 +138,20 @@ export function SessionAiChat({ sessionId, analysis, onSeek }: Props) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={120}
     >
-      <View style={styles.head}>
-        <Text style={styles.title}>Tour AI</Text>
-        {messages.length > 0 && (
-          <Pressable disabled={isBusy} onPress={() => setMessages([])}>
-            <Text style={styles.clear}>Clear</Text>
-          </Pressable>
-        )}
+      <View style={[styles.head, !showHeader && styles.headHidden]}>
+        {showHeader ? (
+          <>
+            <Text style={styles.title}>Tour AI</Text>
+            {messages.length > 0 && (
+              <Pressable disabled={isBusy} onPress={() => setMessages([])}>
+                <Text style={styles.clear}>Clear</Text>
+              </Pressable>
+            )}
+          </>
+        ) : null}
       </View>
 
-      <ScrollView ref={listRef} style={styles.list} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={listRef} style={styles.list} contentContainerStyle={[styles.listContent, { paddingBottom: 8 + bottomInset }]} showsVerticalScrollIndicator={false}>
         {messages.length === 0 ? (
           <View style={styles.starter}>
             {coachingPoints.map((point) => (
@@ -225,7 +232,7 @@ export function SessionAiChat({ sessionId, analysis, onSeek }: Props) {
             {isBusy ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Ionicons name="arrow-up" size={18} color="#fff" />
+              <Icon as={ArrowUp} size={18} color="#fff" />
             )}
           </Pressable>
         </View>
@@ -237,6 +244,7 @@ export function SessionAiChat({ sessionId, analysis, onSeek }: Props) {
 const styles = StyleSheet.create({
   root: { flex: 1, gap: 8 },
   head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 },
+  headHidden: { minHeight: 0, height: 0, overflow: "hidden" },
   title: { fontSize: 17, fontWeight: "900", color: C.text },
   clear: { fontSize: 13, fontWeight: "700", color: C.brand },
   list: { flex: 1 },

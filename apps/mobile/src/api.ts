@@ -1,4 +1,4 @@
-import type { AnalysisResult, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionDetail, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionDetail, SessionSummary } from "@tour/shared";
 
 import { authenticatedFetch } from "./auth";
 import { uploadLocalFileWithPresign } from "./presignedUpload";
@@ -323,6 +323,32 @@ export async function deleteComment(sessionId: string, commentId: string) {
   });
   if (!res.ok) throw new Error("Failed to delete comment.");
   return (await res.json()) as { ok: boolean };
+}
+
+export async function fetchAudioInsights(sessionId: string) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/audio-insights`);
+  if (!res.ok) {
+    throw new Error("Failed to fetch audio insights.");
+  }
+  return (await res.json()) as {
+    status: AudioInsightsStatus;
+    insights: AudioInsights | null;
+    error?: string | null;
+  };
+}
+
+export async function startAudioInsights(sessionId: string) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/audio-insights`, {
+    method: "POST",
+  });
+  const body = (await res.json().catch(() => null)) as {
+    status?: AudioInsightsStatus;
+    error?: string | null;
+  } | null;
+  if (!res.ok) {
+    throw new Error(body?.error ?? "Failed to start audio insights.");
+  }
+  return body ?? { status: "processing" as const };
 }
 
 export async function sendSessionFollowUp(

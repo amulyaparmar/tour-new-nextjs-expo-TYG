@@ -29,5 +29,11 @@
     "next": "^16.0.0",
     "turbo": "^2.8.0",
     "typescript": "^6.0.3"
+  },
+  "overrides": {
+    "react-native-worklets": "0.5.1",
+    "react-native-reanimated": {
+      "react-native-worklets": "0.5.1"
+    }
   }
 }

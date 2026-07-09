@@ -1,8 +1,10 @@
 const { getDefaultConfig } = require("expo/metro-config");
+const { withNativeWind } = require("nativewind/metro");
 const path = require("path");
 
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, "../..");
+const workletsRoot = path.resolve(projectRoot, "node_modules/react-native-worklets");
 
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(projectRoot);
@@ -12,5 +14,35 @@ config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),
   path.resolve(workspaceRoot, "node_modules"),
 ];
+config.resolver.disableHierarchicalLookup = true;
+config.resolver.alias = {
+  ...(config.resolver.alias ?? {}),
+  "@": path.resolve(projectRoot, "src"),
+};
+config.resolver.extraNodeModules = {
+  ...(config.resolver.extraNodeModules ?? {}),
+  // Expo Go ships worklets 0.5.1 — keep JS in sync with native runtime.
+  "react-native-worklets": workletsRoot,
+};
 
-module.exports = config;
+const upstreamResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === "react-native-worklets" || moduleName.startsWith("react-native-worklets/")) {
+    return {
+      type: "sourceFile",
+      filePath: require.resolve(
+        moduleName === "react-native-worklets" ? "react-native-worklets" : moduleName,
+        { paths: [workletsRoot, projectRoot] }
+      ),
+    };
+  }
+  if (upstreamResolveRequest) {
+    return upstreamResolveRequest(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
+module.exports = withNativeWind(config, {
+  input: "./global.css",
+  inlineRem: 16,
+});

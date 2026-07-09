@@ -840,6 +840,11 @@ function formatCheckInPhone(value: string) {
   return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
 }
 
+function normalizeCountryCode(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 4);
+  return `+${digits || "1"}`;
+}
+
 function validCheckInEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
@@ -851,18 +856,24 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState("+1");
   const [reason, setReason] = useState(`Tour ${CHECK_IN_PROPERTY}`);
   const [jobTitle, setJobTitle] = useState("");
   const [showJobTitle, setShowJobTitle] = useState(false);
   const [wantsSummary, setWantsSummary] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [questionIndex, setQuestionIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeQuestion = CHECK_IN_QUESTIONS[questionIndex] ?? CHECK_IN_QUESTIONS[0];
+  const isLastQuestion = questionIndex >= CHECK_IN_QUESTIONS.length - 1;
+  const propertyLabel = property || CHECK_IN_PROPERTY;
 
   useEffect(() => {
     if (!visible) return;
     setMode("checkin");
     setStep("contact");
+    setQuestionIndex(0);
     setError(null);
   }, [visible]);
 
@@ -874,17 +885,18 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
     setSubmitting(true);
     setError(null);
     try {
+      const phoneDigits = phone.replace(/\D/g, "");
       await submitCheckInLead({
         firstName: firstName.trim(),
         lastName: lastName.trim() || null,
         email: email.trim(),
-        phone: phone.replace(/\D/g, ""),
+        phone: phoneDigits ? `${normalizeCountryCode(countryCode)}${phoneDigits}` : null,
         wantsSummary,
         jobTitle: showJobTitle ? jobTitle.trim() || null : null,
-        reason: reason.trim() || `Tour ${CHECK_IN_PROPERTY}`,
+        reason: reason.trim() || null,
         questionAnswers: answers,
         repSlug: CHECK_IN_REP.slug,
-        propertyName: CHECK_IN_PROPERTY,
+        propertyName: propertyLabel,
       });
       setStep("done");
       showToast("Guest checked in", "success");
@@ -907,6 +919,25 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
     }
     if (CHECK_IN_QUESTIONS.length) {
       setStep("questions");
+      setQuestionIndex(0);
+      return;
+    }
+    void submitLead();
+  }
+
+  function goBackFromQuestions() {
+    setError(null);
+    if (questionIndex > 0) {
+      setQuestionIndex((current) => Math.max(0, current - 1));
+      return;
+    }
+    setStep("contact");
+  }
+
+  function nextFromQuestion() {
+    setError(null);
+    if (!isLastQuestion) {
+      setQuestionIndex((current) => Math.min(CHECK_IN_QUESTIONS.length - 1, current + 1));
       return;
     }
     void submitLead();
@@ -949,41 +980,45 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
             <View style={homeSt.donePanel}>
               <View style={homeSt.doneIcon}><Ionicons name="checkmark" size={34} color="#fff" /></View>
               <Text style={homeSt.qrTitle}>You're checked in</Text>
-              <Text style={homeSt.qrSub}>Thanks for visiting {CHECK_IN_PROPERTY}. {CHECK_IN_REP.firstName} has the guest details and can start the tour.</Text>
+              <Text style={homeSt.qrSub}>Thanks for visiting {propertyLabel}. {CHECK_IN_REP.firstName} has the guest details and can start the tour.</Text>
               <Pressable onPress={closeSheet} style={({ pressed }) => [homeSt.sheetPrimary, pressed && st.pressed]}>
                 <Text style={homeSt.sheetPrimaryText}>Done</Text>
               </Pressable>
             </View>
           ) : step === "questions" ? (
             <View style={homeSt.checkInForm}>
-              <Pressable onPress={closeSheet} style={homeSt.skipButton}><Text style={homeSt.skipText}>Skip</Text></Pressable>
-              <Text style={homeSt.questionTitle}>{firstName ? `${firstName}, ` : ""}one last thing before your tour</Text>
-              {CHECK_IN_QUESTIONS.map((question) => (
+              <View style={homeSt.stepHeader}>
+                <Text style={homeSt.stepKicker}>Step {Math.min(questionIndex + 2, CHECK_IN_QUESTIONS.length + 1)} of {CHECK_IN_QUESTIONS.length + 1}</Text>
+                <Text style={homeSt.questionTitle}>{firstName ? `${firstName}, ` : ""}one last thing</Text>
+              </View>
+              {activeQuestion ? (
                 <CheckInQuestionField
-                  key={question.id}
-                  question={question}
-                  value={answers[question.id] ?? ""}
-                  onChange={(value) => setAnswers((current) => ({ ...current, [question.id]: value }))}
+                  key={activeQuestion.id}
+                  question={activeQuestion}
+                  value={answers[activeQuestion.id] ?? ""}
+                  onChange={(value) => setAnswers((current) => ({ ...current, [activeQuestion.id]: value }))}
                 />
-              ))}
+              ) : null}
               <Pressable onPress={() => setWantsSummary((value) => !value)} style={homeSt.toggleRow}>
                 <Text style={homeSt.toggleText}>Send me follow-up notes after the tour</Text>
                 <Ionicons name={wantsSummary ? "checkbox" : "square-outline"} size={21} color={wantsSummary ? C.brand : C.textMuted} />
               </Pressable>
               {error && <Text style={homeSt.fieldError}>{error}</Text>}
-              <View style={homeSt.buttonRow}>
-                <Pressable onPress={() => setStep("contact")} style={({ pressed }) => [homeSt.backBtn, pressed && st.pressed]}>
-                  <Text style={homeSt.backBtnText}>Back</Text>
+              <View style={homeSt.questionProgress}>
+                <Text style={homeSt.questionProgressText}>{questionIndex + 1}/{CHECK_IN_QUESTIONS.length}</Text>
+              </View>
+              <View style={homeSt.floatingActionWrap}>
+                <Pressable onPress={goBackFromQuestions} style={({ pressed }) => [homeSt.floatingBackButton, pressed && st.pressed]}>
+                  <Ionicons name="chevron-back" size={18} color={C.text} />
                 </Pressable>
-                <Pressable onPress={() => void submitLead()} disabled={submitting} style={({ pressed }) => [homeSt.nextButton, submitting && { opacity: 0.64 }, pressed && st.pressed]}>
-                  {submitting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send-outline" size={19} color="#fff" />}
-                  <Text style={homeSt.nextButtonText}>{submitting ? "Checking in..." : "Check in"}</Text>
+                <Pressable onPress={nextFromQuestion} disabled={submitting} style={({ pressed }) => [homeSt.floatingNextButton, submitting && { opacity: 0.64 }, pressed && st.pressed]}>
+                  {submitting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name={isLastQuestion ? "send-outline" : "arrow-forward"} size={18} color="#fff" />}
+                  <Text style={homeSt.nextButtonText}>{submitting ? "Checking in..." : isLastQuestion ? "Check in" : "Next"}</Text>
                 </Pressable>
               </View>
             </View>
           ) : (
             <View style={homeSt.checkInForm}>
-              <Pressable onPress={closeSheet} style={homeSt.skipButton}><Text style={homeSt.skipText}>Skip</Text></Pressable>
               <View style={homeSt.checkInHead}>
                 <View style={homeSt.formHeadAvatar}><Ionicons name="person-outline" size={23} color="#fff" /></View>
                 <Text style={homeSt.formHeadText}>Check in for your tour{"\n"}with {CHECK_IN_REP.firstName}</Text>
@@ -994,12 +1029,23 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               </View>
               <CheckInField label="Email" value={email} onChangeText={(value) => { setEmail(value); if (error) setError(null); }} keyboardType="email-address" autoComplete="email" />
               <View style={homeSt.phoneRow}>
-                <View style={homeSt.phoneCc}><Text style={homeSt.phoneFlag}>🇺🇸</Text><Text style={homeSt.phoneCcText}>+1</Text></View>
+                <View style={homeSt.phoneCc}>
+                  <Text style={homeSt.phoneFlag}>🇺🇸</Text>
+                  <TextInput
+                    value={countryCode}
+                    onChangeText={setCountryCode}
+                    keyboardType="phone-pad"
+                    autoComplete="tel-country-code"
+                    placeholder="+1"
+                    placeholderTextColor="#6b7280"
+                    style={homeSt.phoneCcInput}
+                  />
+                </View>
                 <View style={st.flex1}>
                   <CheckInField label="Phone number" value={phone} onChangeText={(value) => setPhone(formatCheckInPhone(value))} keyboardType="phone-pad" autoComplete="tel" />
                 </View>
               </View>
-              <CheckInField label="Reason for visit" value={reason} onChangeText={setReason} />
+              <CheckInField label="Reason for visit (optional)" value={reason} onChangeText={setReason} />
               {showJobTitle ? (
                 <CheckInField label="Job title" value={jobTitle} onChangeText={setJobTitle} autoComplete="organization-title" />
               ) : (
@@ -1009,11 +1055,13 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
                 </Pressable>
               )}
               {error && <Text style={homeSt.fieldError}>{error}</Text>}
-              <Pressable onPress={nextFromContact} disabled={submitting} style={({ pressed }) => [homeSt.nextButton, pressed && st.pressed]}>
-                <Ionicons name="send-outline" size={21} color="#fff" />
-                <Text style={homeSt.nextButtonText}>Next</Text>
-              </Pressable>
               <Text style={homeSt.checkInDestination}>QR opens {CHECK_IN_URL}</Text>
+              <View style={homeSt.floatingActionWrap}>
+                <Pressable onPress={nextFromContact} disabled={submitting} style={({ pressed }) => [homeSt.floatingNextButton, pressed && st.pressed]}>
+                  <Ionicons name="arrow-forward" size={18} color="#fff" />
+                  <Text style={homeSt.nextButtonText}>Next</Text>
+                </Pressable>
+              </View>
             </View>
           )}
         </Pressable>
@@ -4277,51 +4325,59 @@ const homeSt = StyleSheet.create({
   insightLink: { color: C.brand, fontSize: 12, fontWeight: "800", marginTop: 10 },
   sheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.42)" },
   sheetKeyboard: { flex: 1, justifyContent: "flex-end" },
-  checkInSheet: { maxHeight: "92%", gap: 14, paddingHorizontal: 22, paddingTop: 10, paddingBottom: Platform.OS === "ios" ? 34 : 20, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: "#fff" },
+  checkInSheet: { position: "relative", maxHeight: "88%", gap: 10, paddingHorizontal: 18, paddingTop: 8, paddingBottom: Platform.OS === "ios" ? 20 : 14, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: "#fff" },
   sheet: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: Platform.OS === "ios" ? 34 : 20, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: "#fff" },
   sheetHandle: { alignSelf: "center", width: 44, height: 5, borderRadius: 3, backgroundColor: "#d1d5db", marginBottom: 16 },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
   sheetTitle: { color: "#111827", fontSize: 24, fontWeight: "900" },
   sheetSub: { color: "#7b8496", fontSize: 13, fontWeight: "700", marginTop: 2 },
   sheetClose: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 20, backgroundColor: "#fff" },
-  sheetTabs: { flexDirection: "row", gap: 8, padding: 4, borderRadius: 18, backgroundColor: "#f3f4f6", marginBottom: 16 },
-  sheetTab: { flex: 1, minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14 },
+  sheetTabs: { flexDirection: "row", gap: 6, padding: 4, borderRadius: 17, backgroundColor: "#f3f4f6", marginBottom: 10 },
+  sheetTab: { flex: 1, minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 13 },
   sheetTabActive: { backgroundColor: "#fff", shadowColor: "#101828", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 1 },
   sheetTabText: { color: C.textMuted, fontSize: 13, fontWeight: "900" },
   sheetTabTextActive: { color: C.brand },
-  checkInForm: { gap: 14 },
+  checkInForm: { position: "relative", gap: 10, paddingBottom: 76 },
   skipButton: { alignSelf: "flex-end", paddingHorizontal: 8, paddingVertical: 2 },
   skipText: { color: "#0b0b0c", fontSize: 21, fontWeight: "900" },
-  checkInHead: { flexDirection: "row", alignItems: "center", gap: 14 },
-  formHeadAvatar: { width: 52, height: 52, alignItems: "center", justifyContent: "center", borderRadius: 26, backgroundColor: "#111827" },
-  formHeadText: { flex: 1, color: "#111318", fontSize: 20, lineHeight: 26, fontWeight: "900" },
-  formRow2: { flexDirection: "row", gap: 12 },
-  floatingField: { flex: 1, minHeight: 74, justifyContent: "center", paddingHorizontal: 18, borderWidth: 1, borderColor: "#d7dae3", borderRadius: 16, backgroundColor: "#fff" },
-  floatingLabel: { position: "absolute", left: 16, top: -11, paddingHorizontal: 6, color: "#4b5563", fontSize: 14, fontWeight: "900", backgroundColor: "#fff" },
-  floatingInput: { color: "#111318", fontSize: 20, fontWeight: "500", paddingVertical: 0 },
-  phoneRow: { flexDirection: "row", gap: 12 },
-  phoneCc: { width: 86, minHeight: 74, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderColor: "#d7dae3", borderRadius: 16, backgroundColor: "#fff" },
-  phoneFlag: { fontSize: 18 },
+  checkInHead: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 2 },
+  formHeadAvatar: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: "#111827" },
+  formHeadText: { flex: 1, color: "#111318", fontSize: 17, lineHeight: 22, fontWeight: "900" },
+  formRow2: { flexDirection: "row", gap: 9 },
+  floatingField: { flex: 1, minHeight: 56, justifyContent: "center", paddingHorizontal: 14, borderWidth: 1, borderColor: "#d7dae3", borderRadius: 14, backgroundColor: "#fff" },
+  floatingLabel: { position: "absolute", left: 12, top: -8, paddingHorizontal: 5, color: "#4b5563", fontSize: 11, fontWeight: "900", backgroundColor: "#fff" },
+  floatingInput: { color: "#111318", fontSize: 16, fontWeight: "600", paddingVertical: 0 },
+  phoneRow: { flexDirection: "row", gap: 9 },
+  phoneCc: { width: 84, minHeight: 56, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 10, borderWidth: 1, borderColor: "#d7dae3", borderRadius: 14, backgroundColor: "#fff" },
+  phoneFlag: { fontSize: 15 },
+  phoneCcInput: { flex: 1, minWidth: 34, color: "#111318", fontSize: 15, fontWeight: "800", paddingVertical: 0 },
   phoneCcText: { color: "#111318", fontSize: 19, fontWeight: "800" },
-  addJobButton: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderWidth: 1, borderColor: "#d7d7d7", borderRadius: 999, backgroundColor: "#fff" },
-  addJobText: { color: "#111318", fontSize: 15, fontWeight: "900" },
-  nextButton: { minHeight: 64, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, borderRadius: 13, backgroundColor: "#111" },
-  nextButtonText: { color: "#fff", fontSize: 22, fontWeight: "900" },
-  checkInDestination: { color: C.textMuted, fontSize: 10, fontWeight: "700", textAlign: "center" },
-  questionTitle: { color: C.text, fontSize: 22, lineHeight: 28, fontWeight: "900" },
+  addJobButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderColor: "#d7d7d7", borderRadius: 999, backgroundColor: "#fff" },
+  addJobText: { color: "#111318", fontSize: 13, fontWeight: "900" },
+  nextButton: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderRadius: 999, backgroundColor: "#111" },
+  nextButtonText: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  checkInDestination: { color: C.textMuted, fontSize: 9, fontWeight: "700", textAlign: "center" },
+  stepHeader: { gap: 2, marginBottom: 2 },
+  stepKicker: { color: C.brand, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  questionTitle: { color: C.text, fontSize: 18, lineHeight: 23, fontWeight: "900" },
   questionField: { gap: 8 },
-  questionLabel: { color: C.text, fontSize: 14, fontWeight: "900" },
+  questionLabel: { color: C.text, fontSize: 13, fontWeight: "900" },
   questionOptions: { gap: 8, paddingRight: 8 },
-  questionOption: { minHeight: 40, justifyContent: "center", paddingHorizontal: 13, borderWidth: 1, borderColor: "#d7dae3", borderRadius: 999, backgroundColor: "#fff" },
+  questionOption: { minHeight: 36, justifyContent: "center", paddingHorizontal: 12, borderWidth: 1, borderColor: "#d7dae3", borderRadius: 999, backgroundColor: "#fff" },
   questionOptionActive: { borderColor: C.brand, backgroundColor: "#eff6ff" },
-  questionOptionText: { color: C.textSec, fontSize: 13, fontWeight: "800" },
+  questionOptionText: { color: C.textSec, fontSize: 12, fontWeight: "800" },
   questionOptionTextActive: { color: C.brand },
-  toggleRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingHorizontal: 2 },
-  toggleText: { flex: 1, color: C.text, fontSize: 13, fontWeight: "800" },
+  toggleRow: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingHorizontal: 2 },
+  toggleText: { flex: 1, color: C.text, fontSize: 12, fontWeight: "800" },
   fieldError: { color: C.red, fontSize: 12, fontWeight: "800" },
   buttonRow: { flexDirection: "row", gap: 10 },
   backBtn: { minWidth: 96, minHeight: 56, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#d7dae3", borderRadius: 13, backgroundColor: "#fff" },
   backBtnText: { color: C.text, fontSize: 15, fontWeight: "900" },
+  questionProgress: { alignItems: "center", paddingTop: 2 },
+  questionProgressText: { color: C.textMuted, fontSize: 11, fontWeight: "900" },
+  floatingActionWrap: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 10, backgroundColor: "#fff" },
+  floatingBackButton: { width: 50, minHeight: 50, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#d7dae3", borderRadius: 999, backgroundColor: "#fff" },
+  floatingNextButton: { flex: 1, minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 999, backgroundColor: "#111" },
   donePanel: { alignItems: "center", gap: 13, paddingVertical: 10 },
   doneIcon: { width: 68, height: 68, alignItems: "center", justifyContent: "center", borderRadius: 34, backgroundColor: C.green },
   manualForm: { gap: 10 },

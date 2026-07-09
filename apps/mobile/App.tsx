@@ -17,6 +17,7 @@ import {
   KeyboardAvoidingView,
   Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   RefreshControl,
@@ -850,6 +851,7 @@ function validCheckInEmail(value: string) {
 }
 
 function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClose: () => void; property: string }) {
+  const propertyLabel = property || CHECK_IN_PROPERTY;
   const [mode, setMode] = useState<"checkin" | "qr">("checkin");
   const [step, setStep] = useState<"contact" | "questions" | "done">("contact");
   const [firstName, setFirstName] = useState("");
@@ -857,29 +859,41 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [countryCode, setCountryCode] = useState("+1");
-  const [reason, setReason] = useState(`Tour ${CHECK_IN_PROPERTY}`);
+  const [reason, setReason] = useState(`Tour ${propertyLabel}`);
   const [jobTitle, setJobTitle] = useState("");
   const [showJobTitle, setShowJobTitle] = useState(false);
   const [wantsSummary, setWantsSummary] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [questionIndex, setQuestionIndex] = useState(0);
+  const [highlightedField, setHighlightedField] = useState<"firstName" | "email" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const checkInScrollRef = useRef<ScrollView>(null);
+  const contactFieldOffsets = useRef<Record<string, number>>({});
   const activeQuestion = CHECK_IN_QUESTIONS[questionIndex] ?? CHECK_IN_QUESTIONS[0];
   const isLastQuestion = questionIndex >= CHECK_IN_QUESTIONS.length - 1;
-  const propertyLabel = property || CHECK_IN_PROPERTY;
+  const closeSheet = useCallback(() => {
+    onClose();
+  }, [onClose]);
+  const sheetPanResponder = useMemo(
+    () => PanResponder.create({
+      onMoveShouldSetPanResponder: (_event, gesture) => gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+      onPanResponderRelease: (_event, gesture) => {
+        if (gesture.dy > 48 || gesture.vy > 0.85) closeSheet();
+      },
+    }),
+    [closeSheet],
+  );
 
   useEffect(() => {
     if (!visible) return;
     setMode("checkin");
     setStep("contact");
     setQuestionIndex(0);
+    setHighlightedField(null);
+    setReason(`Tour ${propertyLabel}`);
     setError(null);
-  }, [visible]);
-
-  function closeSheet() {
-    onClose();
-  }
+  }, [propertyLabel, visible]);
 
   async function submitLead() {
     setSubmitting(true);
@@ -909,20 +923,36 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
 
   function nextFromContact() {
     setError(null);
-    if (!firstName.trim() || !email.trim()) {
-      setError("Name and email are required.");
+    if (!firstName.trim()) {
+      scrollToContactField("firstName");
+      setError("First name is required.");
+      return;
+    }
+    if (!email.trim()) {
+      scrollToContactField("email");
+      setError("Email is required.");
       return;
     }
     if (!validCheckInEmail(email)) {
+      scrollToContactField("email");
       setError("Enter a valid email.");
       return;
     }
+    setHighlightedField(null);
     if (CHECK_IN_QUESTIONS.length) {
       setStep("questions");
       setQuestionIndex(0);
       return;
     }
     void submitLead();
+  }
+
+  function scrollToContactField(field: "firstName" | "email") {
+    setHighlightedField(field);
+    const y = contactFieldOffsets.current[field] ?? 0;
+    requestAnimationFrame(() => {
+      checkInScrollRef.current?.scrollTo({ y: Math.max(0, y - 14), animated: true });
+    });
   }
 
   function goBackFromQuestions() {
@@ -952,7 +982,9 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
       <Pressable style={homeSt.sheetScrim} onPress={closeSheet} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={homeSt.sheetKeyboard}>
         <Pressable onPress={(event) => event.stopPropagation()} style={homeSt.checkInSheet}>
-          <View style={homeSt.sheetHandle} />
+          <View style={homeSt.sheetHandleHitbox} {...sheetPanResponder.panHandlers}>
+            <View style={homeSt.sheetHandle} />
+          </View>
           <View style={homeSt.sheetTabs}>
             <Pressable onPress={() => setMode("checkin")} style={[homeSt.sheetTab, mode === "checkin" && homeSt.sheetTabActive]}>
               <Ionicons name="send-outline" size={16} color={mode === "checkin" ? C.brand : C.textMuted} />
@@ -986,7 +1018,13 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               </Pressable>
             </View>
           ) : step === "questions" ? (
-            <View style={homeSt.checkInForm}>
+            <ScrollView
+              ref={checkInScrollRef}
+              style={homeSt.checkInScroll}
+              contentContainerStyle={homeSt.checkInForm}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
               <View style={homeSt.stepHeader}>
                 <Text style={homeSt.stepKicker}>Step {Math.min(questionIndex + 2, CHECK_IN_QUESTIONS.length + 1)} of {CHECK_IN_QUESTIONS.length + 1}</Text>
                 <Text style={homeSt.questionTitle}>{firstName ? `${firstName}, ` : ""}one last thing</Text>
@@ -1007,27 +1045,47 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               <View style={homeSt.questionProgress}>
                 <Text style={homeSt.questionProgressText}>{questionIndex + 1}/{CHECK_IN_QUESTIONS.length}</Text>
               </View>
-              <View style={homeSt.floatingActionWrap}>
-                <Pressable onPress={goBackFromQuestions} style={({ pressed }) => [homeSt.floatingBackButton, pressed && st.pressed]}>
-                  <Ionicons name="chevron-back" size={18} color={C.text} />
-                </Pressable>
-                <Pressable onPress={nextFromQuestion} disabled={submitting} style={({ pressed }) => [homeSt.floatingNextButton, submitting && { opacity: 0.64 }, pressed && st.pressed]}>
-                  {submitting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name={isLastQuestion ? "send-outline" : "arrow-forward"} size={18} color="#fff" />}
-                  <Text style={homeSt.nextButtonText}>{submitting ? "Checking in..." : isLastQuestion ? "Check in" : "Next"}</Text>
-                </Pressable>
-              </View>
-            </View>
+            </ScrollView>
           ) : (
-            <View style={homeSt.checkInForm}>
+            <ScrollView
+              ref={checkInScrollRef}
+              style={homeSt.checkInScroll}
+              contentContainerStyle={homeSt.checkInForm}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
               <View style={homeSt.checkInHead}>
                 <View style={homeSt.formHeadAvatar}><Ionicons name="person-outline" size={23} color="#fff" /></View>
                 <Text style={homeSt.formHeadText}>Check in for your tour{"\n"}with {CHECK_IN_REP.firstName}</Text>
               </View>
               <View style={homeSt.formRow2}>
-                <CheckInField label="First name" value={firstName} onChangeText={setFirstName} autoComplete="given-name" autoFocus />
+                <CheckInField
+                  label="First name"
+                  value={firstName}
+                  onChangeText={(value) => {
+                    setFirstName(value);
+                    if (highlightedField === "firstName") setHighlightedField(null);
+                  }}
+                  autoComplete="given-name"
+                  autoFocus
+                  highlighted={highlightedField === "firstName"}
+                  onLayoutY={(y) => { contactFieldOffsets.current.firstName = y; }}
+                />
                 <CheckInField label="Last name" value={lastName} onChangeText={setLastName} autoComplete="family-name" />
               </View>
-              <CheckInField label="Email" value={email} onChangeText={(value) => { setEmail(value); if (error) setError(null); }} keyboardType="email-address" autoComplete="email" />
+              <CheckInField
+                label="Email"
+                value={email}
+                onChangeText={(value) => {
+                  setEmail(value);
+                  if (error) setError(null);
+                  if (highlightedField === "email") setHighlightedField(null);
+                }}
+                keyboardType="email-address"
+                autoComplete="email"
+                highlighted={highlightedField === "email"}
+                onLayoutY={(y) => { contactFieldOffsets.current.email = y; }}
+              />
               <View style={homeSt.phoneRow}>
                 <View style={homeSt.phoneCc}>
                   <Text style={homeSt.phoneFlag}>🇺🇸</Text>
@@ -1056,14 +1114,26 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               )}
               {error && <Text style={homeSt.fieldError}>{error}</Text>}
               <Text style={homeSt.checkInDestination}>QR opens {CHECK_IN_URL}</Text>
-              <View style={homeSt.floatingActionWrap}>
-                <Pressable onPress={nextFromContact} disabled={submitting} style={({ pressed }) => [homeSt.floatingNextButton, pressed && st.pressed]}>
-                  <Ionicons name="arrow-forward" size={18} color="#fff" />
-                  <Text style={homeSt.nextButtonText}>Next</Text>
-                </Pressable>
-              </View>
-            </View>
+            </ScrollView>
           )}
+
+          {mode === "checkin" && step !== "done" ? (
+            <View style={homeSt.floatingActionWrap}>
+              {step === "questions" ? (
+                <Pressable onPress={goBackFromQuestions} style={({ pressed }) => [homeSt.floatingBackButton, pressed && st.pressed]}>
+                  <Ionicons name="chevron-back" size={18} color={C.text} />
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={step === "questions" ? nextFromQuestion : nextFromContact}
+                disabled={submitting}
+                style={({ pressed }) => [homeSt.floatingNextButton, submitting && { opacity: 0.64 }, pressed && st.pressed]}
+              >
+                {submitting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name={step === "questions" && isLastQuestion ? "send-outline" : "arrow-forward"} size={18} color="#fff" />}
+                <Text style={homeSt.nextButtonText}>{submitting ? "Checking in..." : step === "questions" && isLastQuestion ? "Check in" : "Next"}</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </Pressable>
       </KeyboardAvoidingView>
     </Modal>
@@ -1077,6 +1147,8 @@ function CheckInField({
   keyboardType,
   autoComplete,
   autoFocus,
+  highlighted,
+  onLayoutY,
 }: {
   label: string;
   value: string;
@@ -1084,9 +1156,14 @@ function CheckInField({
   keyboardType?: "default" | "email-address" | "phone-pad";
   autoComplete?: "given-name" | "family-name" | "email" | "tel" | "organization-title";
   autoFocus?: boolean;
+  highlighted?: boolean;
+  onLayoutY?: (y: number) => void;
 }) {
   return (
-    <View style={homeSt.floatingField}>
+    <View
+      onLayout={(event) => onLayoutY?.(event.nativeEvent.layout.y)}
+      style={[homeSt.floatingField, highlighted && homeSt.floatingFieldHighlighted]}
+    >
       {value.length > 0 && <Text style={homeSt.floatingLabel}>{label}</Text>}
       <TextInput
         autoFocus={autoFocus}
@@ -4325,9 +4402,10 @@ const homeSt = StyleSheet.create({
   insightLink: { color: C.brand, fontSize: 12, fontWeight: "800", marginTop: 10 },
   sheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.42)" },
   sheetKeyboard: { flex: 1, justifyContent: "flex-end" },
-  checkInSheet: { position: "relative", maxHeight: "88%", gap: 10, paddingHorizontal: 18, paddingTop: 8, paddingBottom: Platform.OS === "ios" ? 20 : 14, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: "#fff" },
+  checkInSheet: { position: "relative", maxHeight: "88%", gap: 8, paddingHorizontal: 18, paddingTop: 4, paddingBottom: Platform.OS === "ios" ? 16 : 12, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: "#fff" },
   sheet: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: Platform.OS === "ios" ? 34 : 20, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: "#fff" },
-  sheetHandle: { alignSelf: "center", width: 44, height: 5, borderRadius: 3, backgroundColor: "#d1d5db", marginBottom: 16 },
+  sheetHandleHitbox: { alignSelf: "stretch", alignItems: "center", justifyContent: "center", minHeight: 28, marginBottom: 6 },
+  sheetHandle: { width: 44, height: 5, borderRadius: 3, backgroundColor: "#d1d5db" },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
   sheetTitle: { color: "#111827", fontSize: 24, fontWeight: "900" },
   sheetSub: { color: "#7b8496", fontSize: 13, fontWeight: "700", marginTop: 2 },
@@ -4337,7 +4415,8 @@ const homeSt = StyleSheet.create({
   sheetTabActive: { backgroundColor: "#fff", shadowColor: "#101828", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 1 },
   sheetTabText: { color: C.textMuted, fontSize: 13, fontWeight: "900" },
   sheetTabTextActive: { color: C.brand },
-  checkInForm: { position: "relative", gap: 10, paddingBottom: 76 },
+  checkInScroll: { flexShrink: 1, maxHeight: "100%" },
+  checkInForm: { gap: 10, paddingBottom: 14 },
   skipButton: { alignSelf: "flex-end", paddingHorizontal: 8, paddingVertical: 2 },
   skipText: { color: "#0b0b0c", fontSize: 21, fontWeight: "900" },
   checkInHead: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 2 },
@@ -4345,6 +4424,7 @@ const homeSt = StyleSheet.create({
   formHeadText: { flex: 1, color: "#111318", fontSize: 17, lineHeight: 22, fontWeight: "900" },
   formRow2: { flexDirection: "row", gap: 9 },
   floatingField: { flex: 1, minHeight: 56, justifyContent: "center", paddingHorizontal: 14, borderWidth: 1, borderColor: "#d7dae3", borderRadius: 14, backgroundColor: "#fff" },
+  floatingFieldHighlighted: { borderColor: C.brand, borderWidth: 2, shadowColor: C.brand, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 10, elevation: 2 },
   floatingLabel: { position: "absolute", left: 12, top: -8, paddingHorizontal: 5, color: "#4b5563", fontSize: 11, fontWeight: "900", backgroundColor: "#fff" },
   floatingInput: { color: "#111318", fontSize: 16, fontWeight: "600", paddingVertical: 0 },
   phoneRow: { flexDirection: "row", gap: 9 },
@@ -4375,9 +4455,9 @@ const homeSt = StyleSheet.create({
   backBtnText: { color: C.text, fontSize: 15, fontWeight: "900" },
   questionProgress: { alignItems: "center", paddingTop: 2 },
   questionProgressText: { color: C.textMuted, fontSize: 11, fontWeight: "900" },
-  floatingActionWrap: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 10, backgroundColor: "#fff" },
+  floatingActionWrap: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 10, paddingBottom: 2, backgroundColor: "#fff" },
   floatingBackButton: { width: 50, minHeight: 50, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#d7dae3", borderRadius: 999, backgroundColor: "#fff" },
-  floatingNextButton: { flex: 1, minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 999, backgroundColor: "#111" },
+  floatingNextButton: { flex: 1, minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, backgroundColor: "#111" },
   donePanel: { alignItems: "center", gap: 13, paddingVertical: 10 },
   doneIcon: { width: 68, height: 68, alignItems: "center", justifyContent: "center", borderRadius: 34, backgroundColor: C.green },
   manualForm: { gap: 10 },

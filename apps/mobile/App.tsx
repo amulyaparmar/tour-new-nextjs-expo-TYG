@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -589,7 +590,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
         <ScreenTransition transitionKey={`tab:${tab}`} direction={tabTransitionDirection}>
           <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
             {error && <ErrorBanner message={error} onRetry={load} />}
-            {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} onSession={onSession} onProfile={onProfile} onCheckIn={() => setCheckInOpen(true)} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} userEmail={authSession.workspace.user.email} property={property} />}
+            {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} onSession={onSession} onProfile={onProfile} onCheckIn={() => setCheckInOpen(true)} onAssets={() => handleTabPress("materials")} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} userEmail={authSession.workspace.user.email} property={property} />}
             {tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={load} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
             {tab === "materials" && <MaterialsScreen materials={materials} loading={loading} onCreate={onCreate} onReload={load} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
             {tab === "settings" && <SettingsScreen session={authSession} onSessionChange={onAuthSession} onRubrics={onRubrics} onSignOut={onSignOut} />}
@@ -656,7 +657,7 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => vo
 // Dashboard
 // ═══════════════════════════════════════
 
-function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSession, onProfile, onCheckIn, onCommunityPress, agentName, userEmail, property }: {
+function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSession, onProfile, onCheckIn, onAssets, onCommunityPress, agentName, userEmail, property }: {
   sessions: SessionSummary[];
   upcomingSessions: SessionSummary[];
   materials: Material[];
@@ -664,11 +665,13 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
   onSession: (id: string) => void;
   onProfile: () => void;
   onCheckIn: () => void;
+  onAssets: () => void;
   onCommunityPress: () => void;
   agentName: string;
   userEmail: string;
   property: string;
 }) {
+  const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const todayTours = useMemo(() => {
     const todayKey = new Date().toDateString();
     return upcomingSessions
@@ -735,13 +738,13 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
         </HomeSection>
       )}
 
-      <HomeSection title="Library" showLogo action={materials.length ? "See All" : undefined}>
+      <HomeSection title="Library" showLogo action={materials.length ? "See All" : undefined} onAction={materials.length ? onAssets : undefined}>
         <View style={homeSt.mediaRow}>
           {materials.slice(0, 3).map((material) => {
             const previewUrl = materialPreviewUrl(material);
             const canOpen = Boolean(materialUrl(material));
             return (
-              <MotionPressable key={material.id} onPress={() => openMaterial(material)} disabled={!canOpen} haptic="selection" style={homeSt.mediaTile}>
+              <MotionPressable key={material.id} onPress={() => setSelectedMaterial(material)} haptic="selection" style={homeSt.mediaTile}>
                 <View style={homeSt.mediaThumb}>
                   {previewUrl ? (
                     <Image source={{ uri: previewUrl }} style={homeSt.mediaPreviewImage} resizeMode="cover" />
@@ -763,6 +766,7 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
           {materials.length === 0 && <Text style={homeSt.emptyInline}>Reusable tour assets will appear here.</Text>}
         </View>
       </HomeSection>
+      <MaterialPreviewModal material={selectedMaterial} onClose={() => setSelectedMaterial(null)} />
     </View>
   );
 }
@@ -1071,13 +1075,17 @@ function CheckInQuestionField({ question, value, onChange }: { question: MobileC
   return <CheckInField label={question.label} value={value} onChangeText={onChange} />;
 }
 
-function HomeSection({ title, action, showLogo = false, children }: { title: string; action?: string; showLogo?: boolean; children: React.ReactNode }) {
+function HomeSection({ title, action, showLogo = false, onAction, children }: { title: string; action?: string; showLogo?: boolean; onAction?: () => void; children: React.ReactNode }) {
   return (
     <MotionBlock style={{ gap: 12 }}>
       <View style={homeSt.sectionHeader}>
         {showLogo && <TourLogo width={58} />}
         <Text style={homeSt.sectionTitle}>{title}</Text>
-        {action && <Text style={homeSt.sectionAction}>{action}</Text>}
+        {action && (
+          <Pressable onPress={onAction} disabled={!onAction} hitSlop={8} style={({ pressed }) => pressed ? st.pressed : undefined}>
+            <Text style={homeSt.sectionAction}>{action}</Text>
+          </Pressable>
+        )}
       </View>
       {children}
     </MotionBlock>
@@ -1803,7 +1811,7 @@ function MaterialsScreen({ materials, loading, onCreate, onReload, onCommunityPr
 function MaterialPreviewModal({ material, onClose }: { material: Material | null; onClose: () => void }) {
   const url = material ? materialUrl(material) : null;
   const previewUrl = material ? materialPreviewUrl(material) : null;
-  const videoUrl = material?.media?.videoUrl ?? null;
+  const videoUrl = material?.media?.videoUrl ?? (url && isVideoLikeUrl(url) ? url : null);
 
   async function shareSelected() {
     if (!material) return;
@@ -1816,6 +1824,11 @@ function MaterialPreviewModal({ material, onClose }: { material: Material | null
     } catch {
       showToast("Could not open share sheet", "error");
     }
+  }
+
+  async function downloadSelected() {
+    if (!material) return;
+    await downloadMaterial(material);
   }
 
   return (
@@ -1848,19 +1861,68 @@ function MaterialPreviewModal({ material, onClose }: { material: Material | null
           <Text style={st.materialDesc}>{material?.description}</Text>
 
           <View style={assetSt.modalActions}>
-            <Pressable disabled={!url} onPress={() => material && void openMaterial(material)} style={({ pressed }) => [assetSt.modalPrimary, !url && { opacity: 0.55 }, pressed && st.pressed]}>
-              <Ionicons name="play" size={16} color="#fff" />
-              <Text style={assetSt.modalPrimaryText}>Play video</Text>
-            </Pressable>
             <Pressable onPress={() => void shareSelected()} style={({ pressed }) => [assetSt.modalSecondary, pressed && st.pressed]}>
               <Ionicons name="share-social-outline" size={16} color={C.text} />
               <Text style={assetSt.modalSecondaryText}>Share</Text>
+            </Pressable>
+            <Pressable disabled={!url} onPress={() => void downloadSelected()} style={({ pressed }) => [assetSt.modalSecondary, !url && { opacity: 0.55 }, pressed && st.pressed]}>
+              <Ionicons name="download-outline" size={16} color={C.text} />
+              <Text style={assetSt.modalSecondaryText}>Download</Text>
             </Pressable>
           </View>
         </Pressable>
       </Pressable>
     </Modal>
   );
+}
+
+function isVideoLikeUrl(url: string) {
+  if (/^file:\/\//i.test(url)) return true;
+  return /\.(mp4|mov|m4v|webm)(?:[?#].*)?$/i.test(url);
+}
+
+function materialDownloadName(material: Material, url: string) {
+  const cleanName = material.name.trim().replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "tour-asset";
+  const path = (() => {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return url;
+    }
+  })();
+  const extension = path.match(/\.([a-z0-9]{2,6})(?:$|[?#])/i)?.[0] ?? (material.media?.videoUrl ? ".mp4" : "");
+  return cleanName.toLowerCase().endsWith(extension.toLowerCase()) ? cleanName : `${cleanName}${extension}`;
+}
+
+async function downloadMaterial(material: Material) {
+  const url = materialUrl(material);
+  if (!url) {
+    showToast("No downloadable file found", "error");
+    return;
+  }
+
+  try {
+    if (Platform.OS === "web") {
+      await Linking.openURL(url);
+      return;
+    }
+
+    const localUri = url.startsWith("file://")
+      ? url
+      : (await FileSystem.File.downloadFileAsync(
+          url,
+          new FileSystem.File(FileSystem.Paths.document, `${Date.now()}-${materialDownloadName(material, url)}`),
+          { idempotent: true }
+        )).uri;
+
+    await Share.share({
+      title: material.name,
+      message: material.name,
+      url: localUri,
+    });
+  } catch {
+    showToast("Could not download this asset", "error");
+  }
 }
 
 function MaterialVideoPreview({ source }: { source: string }) {
@@ -4145,9 +4207,9 @@ function SRow({ label, value }: { label: string; value: string }) {
 const W = Dimensions.get("window").width;
 
 const homeSt = StyleSheet.create({
-  topBar: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  propertyPicker: { maxWidth: 190, minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 16, borderRadius: 8, backgroundColor: "#f0f0f5" },
-  propertyPickerText: { flexShrink: 1, color: "#666", fontSize: 16, fontWeight: "700" },
+  topBar: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  propertyPicker: { minWidth: 164, maxWidth: 230, height: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 16, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 999, backgroundColor: "#fff" },
+  propertyPickerText: { flexShrink: 1, color: "#5f6673", fontSize: 16, lineHeight: 19, fontWeight: "800", textAlign: "center" },
   headerIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e2e2e2", borderRadius: 8, backgroundColor: "#fff" },
   profileCard: { overflow: "hidden", borderRadius: 28, backgroundColor: "#fff", shadowColor: "#101828", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 24, elevation: 4 },
   profileHeader: { height: 112, backgroundColor: "#111" },

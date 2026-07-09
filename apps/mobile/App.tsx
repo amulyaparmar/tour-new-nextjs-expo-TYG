@@ -3,7 +3,7 @@ import { Audio } from "expo-av";
 import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
-import { useVideoPlayer } from "expo-video";
+import { useVideoPlayer, VideoView } from "expo-video";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppProviders } from "./src/components/app-providers";
 import {
@@ -20,6 +20,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -588,8 +589,8 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
           <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
             {error && <ErrorBanner message={error} onRetry={load} />}
             {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} onSession={onSession} onProfile={onProfile} onCheckIn={() => setCheckInOpen(true)} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} userEmail={authSession.workspace.user.email} property={property} />}
-            {tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={load} />}
-            {tab === "materials" && <MaterialsScreen materials={materials} loading={loading} onReload={load} />}
+            {tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={load} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
+            {tab === "materials" && <MaterialsScreen materials={materials} loading={loading} onCreate={onCreate} onReload={load} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
             {tab === "settings" && <SettingsScreen session={authSession} onSessionChange={onAuthSession} onRubrics={onRubrics} onSignOut={onSignOut} />}
           </ScrollView>
         </ScreenTransition>
@@ -597,7 +598,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
 
       {tab === "sessions" && (
         <ScreenTransition transitionKey="tab:sessions" direction={tabTransitionDirection}>
-          <SessionsListScreen onBack={() => handleTabPress("home")} onSession={onSession} />
+          <SessionsListScreen onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} onSession={onSession} property={property} />
         </ScreenTransition>
       )}
 
@@ -982,7 +983,7 @@ const SORT_OPTS: { value: SortOption; label: string; icon: keyof typeof Ionicons
 
 const SESSIONS_PAGE_SIZE = 20;
 
-function SessionsListScreen({ onBack, onSession }: { onBack: () => void; onSession: (id: string) => void }) {
+function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: { onBack: () => void; onCommunityPress: () => void; onSession: (id: string) => void; property: string }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -1105,7 +1106,10 @@ function SessionsListScreen({ onBack, onSession }: { onBack: () => void; onSessi
         <Pressable accessibilityLabel="Back to home" onPress={onBack} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
           <Ionicons name="arrow-back" size={22} color={C.text} />
         </Pressable>
-        <View style={homeSt.propertyPicker}><Text style={homeSt.propertyPickerText}>Sessions</Text></View>
+        <Pressable accessibilityLabel="Switch community" onPress={onCommunityPress} style={({ pressed }) => [homeSt.propertyPicker, pressed && st.pressed]}>
+          <Text style={homeSt.propertyPickerText} numberOfLines={1}>{property}</Text>
+          <Ionicons name="chevron-down" size={15} color="#7b8496" />
+        </Pressable>
         <Pressable onPress={() => setShowSearch((value) => !value)} style={homeSt.headerIcon}>
           <Ionicons name={showSearch ? "close" : "search"} size={19} color={C.text} />
         </Pressable>
@@ -1165,7 +1169,7 @@ function SessionsListScreen({ onBack, onSession }: { onBack: () => void; onSessi
         </View>
       )}
     </View>
-  ), [averageScore, onBack, search, sessionMetrics.averageScore, sort, showSort, showSearch, statusFilter]);
+  ), [averageScore, onBack, onCommunityPress, property, search, sessionMetrics.averageScore, sort, showSort, showSearch, statusFilter]);
 
   const ListFooter = useMemo(() => {
     if (loadingMore) return <ActivityIndicator style={{ paddingVertical: 20 }} color={C.brand} />;
@@ -1284,12 +1288,16 @@ function CalendarScreen({
   entrataEvents,
   onSession,
   onReload,
+  onCommunityPress,
+  property,
 }: {
   sessions: SessionSummary[];
   upcomingSessions: SessionSummary[];
   entrataEvents: CalendarEvent[];
   onSession: (id: string) => void;
   onReload: () => Promise<void>;
+  onCommunityPress: () => void;
+  property: string;
 }) {
   const today = new Date();
   const [monthOffset, setMonthOffset] = useState(0);
@@ -1352,14 +1360,21 @@ function CalendarScreen({
 
   return (
     <View style={st.page}>
+      <View style={homeSt.topBar}>
+        <TourLogo width={62} />
+        <Pressable accessibilityLabel="Switch community" onPress={onCommunityPress} style={({ pressed }) => [homeSt.propertyPicker, pressed && st.pressed]}>
+          <Text style={homeSt.propertyPickerText} numberOfLines={1}>{property}</Text>
+          <Ionicons name="chevron-down" size={15} color="#7b8496" />
+        </Pressable>
+        <Pressable onPress={() => void runSync()} disabled={syncing} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
+          {syncing ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="sync" size={18} color={C.text} />}
+        </Pressable>
+      </View>
       <View style={st.pageHeadingRow}>
         <View style={st.flex1}>
           <Text style={st.pageTitle}>Calendar</Text>
           <Text style={st.pageHeadingSub}>{entrataEvents.length} Entrata tours · {sessions.length} sessions</Text>
         </View>
-        <Pressable onPress={() => void runSync()} disabled={syncing} style={({ pressed }) => [st.iconButton, pressed && st.pressed]}>
-          {syncing ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="sync" size={19} color={C.brand} />}
-        </Pressable>
       </View>
 
       <View style={st.integrationStrip}>
@@ -1484,10 +1499,38 @@ function formatEntrataClock(value: string | null) {
 // Materials
 // ═══════════════════════════════════════
 
-function MaterialsScreen({ materials, loading, onReload }: { materials: Material[]; loading: boolean; onReload: () => Promise<void> }) {
-  const typeIcon: Record<string, keyof typeof Ionicons.glyphMap> = { rubric: "clipboard-outline", training: "book-outline", recording: "mic-outline", other: "document-outline" };
-  const typeColor: Record<string, string> = { rubric: C.brand, training: C.purple, recording: C.green, other: C.textSec };
+const assetSt = StyleSheet.create({
+  header: { gap: 14 },
+  recordButton: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderWidth: 1, borderColor: "#d7dee8", borderRadius: 999, backgroundColor: "#fff" },
+  recordButtonText: { color: C.text, fontSize: 14, fontWeight: "900" },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
+  card: { width: "47.8%", gap: 8 },
+  thumb: { aspectRatio: 1, alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: 18, backgroundColor: "#eef4ff" },
+  thumbImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+  thumbOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15,23,42,0.08)" },
+  playBadge: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "rgba(255,255,255,0.9)", borderRadius: 15, backgroundColor: "rgba(15,23,42,0.86)" },
+  fallbackIcon: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 16, backgroundColor: "#fff" },
+  cardTitle: { color: C.text, fontSize: 14, fontWeight: "900" },
+  cardMeta: { color: C.textSec, fontSize: 11, fontWeight: "700" },
+  modalScrim: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,0.42)" },
+  modalSheet: { maxHeight: "88%", gap: 14, padding: 18, paddingBottom: Platform.OS === "ios" ? 34 : 20, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: "#fff" },
+  modalHandle: { alignSelf: "center", width: 42, height: 5, borderRadius: 3, backgroundColor: "#d1d5db" },
+  modalHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  modalTitle: { color: C.text, fontSize: 22, fontWeight: "900" },
+  modalMeta: { color: C.textSec, fontSize: 12, fontWeight: "700", marginTop: 2, textTransform: "capitalize" },
+  modalPreview: { minHeight: 250, overflow: "hidden", borderRadius: 20, backgroundColor: "#eef4ff" },
+  modalImage: { width: "100%", height: 250 },
+  modalFallback: { height: 250, alignItems: "center", justifyContent: "center" },
+  modalActions: { flexDirection: "row", gap: 10 },
+  modalPrimary: { flex: 1, minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, backgroundColor: C.brand },
+  modalPrimaryText: { color: "#fff", fontSize: 14, fontWeight: "900" },
+  modalSecondary: { minWidth: 98, minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 14, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 16, backgroundColor: "#fff" },
+  modalSecondaryText: { color: C.text, fontSize: 13, fontWeight: "900" },
+});
+
+function MaterialsScreen({ materials, loading, onCreate, onReload, onCommunityPress, property }: { materials: Material[]; loading: boolean; onCreate: () => void; onReload: () => Promise<void>; onCommunityPress: () => void; property: string }) {
   const [uploading, setUploading] = useState(false);
+  const [selected, setSelected] = useState<Material | null>(null);
 
   async function addAsset() {
     try {
@@ -1510,46 +1553,137 @@ function MaterialsScreen({ materials, loading, onReload }: { materials: Material
 
   return (
     <View style={st.page}>
-      <View style={st.pageHeadingRow}>
-        <View style={st.flex1}>
+      <View style={assetSt.header}>
+        <View style={homeSt.topBar}>
+          <TourLogo width={62} />
+          <Pressable accessibilityLabel="Switch community" onPress={onCommunityPress} style={({ pressed }) => [homeSt.propertyPicker, pressed && st.pressed]}>
+            <Text style={homeSt.propertyPickerText} numberOfLines={1}>{property}</Text>
+            <Ionicons name="chevron-down" size={15} color="#7b8496" />
+          </Pressable>
+          <Pressable onPress={() => void addAsset()} disabled={uploading} style={({ pressed }) => [homeSt.headerIcon, pressed && st.pressed]}>
+            {uploading ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="add" size={21} color={C.text} />}
+          </Pressable>
+        </View>
+        <View>
           <Text style={st.pageTitle}>Assets</Text>
           <Text style={st.pageHeadingSub}>{materials.length} community resources</Text>
         </View>
-        <Pressable onPress={() => void addAsset()} disabled={uploading} style={({ pressed }) => [st.iconButton, pressed && st.pressed]}>
-          {uploading ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="add" size={22} color={C.brand} />}
+        <Pressable onPress={onCreate} style={({ pressed }) => [assetSt.recordButton, pressed && st.pressed]}>
+          <Ionicons name="radio-button-on-outline" size={16} color={C.purple} />
+          <Text style={assetSt.recordButtonText}>Record Projects</Text>
         </Pressable>
       </View>
-      <View style={st.assetSummary}>
-        <View style={st.assetSummaryIcon}><Ionicons name="folder-open-outline" size={19} color={C.brand} /></View>
-        <View style={st.flex1}>
-          <Text style={st.integrationTitle}>Community library</Text>
-          <Text style={st.integrationSub}>Use these during recordings and prospect follow-up.</Text>
-        </View>
-      </View>
-      {loading ? <LoadingBox /> : materials.length === 0 ? <EmptyState icon="folder-open-outline" title="No materials" subtitle="Rubrics, training docs, and recordings appear here" /> : (
-        <View style={st.card}>
-          {materials.map((m, i) => (
-            <Pressable
-              key={m.id}
-              disabled={!materialUrl(m)}
-              onPress={() => { const url = materialUrl(m); if (url) void Linking.openURL(url); }}
-              style={({ pressed }) => [st.materialRow, i < materials.length - 1 && st.rowBorder, pressed && st.pressed]}
-            >
-              <View style={[st.materialIcon, { backgroundColor: (typeColor[m.type] ?? C.textSec) + "12" }]}>
-                <Ionicons name={typeIcon[m.type] ?? "document-outline"} size={18} color={typeColor[m.type] ?? C.textSec} />
-              </View>
-              <View style={st.flex1}>
-                <Text style={st.materialName} numberOfLines={1}>{m.name}</Text>
-                <Text style={st.materialDesc} numberOfLines={2}>{m.description}</Text>
-                <Text style={st.materialMeta}>{m.type} \u00B7 {fmtDate(m.createdAt)}</Text>
-              </View>
-              {materialUrl(m) && <Ionicons name="open-outline" size={17} color={C.textMuted} />}
-            </Pressable>
-          ))}
+
+      {loading ? <LoadingBox /> : materials.length === 0 ? <EmptyState icon="folder-open-outline" title="No materials" subtitle="Tour videos and community resources will appear here" /> : (
+        <View style={assetSt.grid}>
+          {materials.map((material) => {
+            const previewUrl = materialPreviewUrl(material);
+            const canPlay = Boolean(materialUrl(material));
+            return (
+              <MotionPressable
+                key={material.id}
+                onPress={() => setSelected(material)}
+                haptic="selection"
+                style={assetSt.card}
+              >
+                <View style={assetSt.thumb}>
+                  {previewUrl ? (
+                    <>
+                      <Image source={{ uri: previewUrl }} style={assetSt.thumbImage} resizeMode="cover" />
+                      <View style={assetSt.thumbOverlay} />
+                    </>
+                  ) : (
+                    <View style={assetSt.fallbackIcon}>
+                      <Ionicons name={canPlay ? "play" : "document-outline"} size={22} color={C.brand} />
+                    </View>
+                  )}
+                  {canPlay && (
+                    <View style={assetSt.playBadge}>
+                      <Ionicons name="play" size={13} color="#fff" />
+                    </View>
+                  )}
+                </View>
+                <Text style={assetSt.cardTitle} numberOfLines={1}>{material.name}</Text>
+                <Text style={assetSt.cardMeta} numberOfLines={1}>{material.type} · {fmtDate(material.createdAt)}</Text>
+              </MotionPressable>
+            );
+          })}
         </View>
       )}
+
+      <MaterialPreviewModal material={selected} onClose={() => setSelected(null)} />
     </View>
   );
+}
+
+function MaterialPreviewModal({ material, onClose }: { material: Material | null; onClose: () => void }) {
+  const url = material ? materialUrl(material) : null;
+  const previewUrl = material ? materialPreviewUrl(material) : null;
+  const videoUrl = material?.media?.videoUrl ?? null;
+
+  async function shareSelected() {
+    if (!material) return;
+    try {
+      await Share.share({
+        title: material.name,
+        message: url ? `${material.name}\n${url}` : material.name,
+        url: url ?? undefined,
+      });
+    } catch {
+      showToast("Could not open share sheet", "error");
+    }
+  }
+
+  return (
+    <Modal visible={Boolean(material)} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={assetSt.modalScrim} onPress={onClose}>
+        <Pressable onPress={(event) => event.stopPropagation()} style={assetSt.modalSheet}>
+          <View style={assetSt.modalHandle} />
+          <View style={assetSt.modalHeader}>
+            <View style={st.flex1}>
+              <Text style={assetSt.modalTitle} numberOfLines={2}>{material?.name}</Text>
+              <Text style={assetSt.modalMeta}>{material ? `${material.type} · ${fmtDate(material.createdAt)}` : ""}</Text>
+            </View>
+            <Pressable accessibilityLabel="Close media preview" onPress={onClose} style={homeSt.headerIcon}>
+              <Ionicons name="close" size={19} color={C.text} />
+            </Pressable>
+          </View>
+
+          <View style={assetSt.modalPreview}>
+            {videoUrl ? (
+              <MaterialVideoPreview source={videoUrl} />
+            ) : previewUrl ? (
+              <Image source={{ uri: previewUrl }} style={assetSt.modalImage} resizeMode="cover" />
+            ) : (
+              <View style={assetSt.modalFallback}>
+                <Ionicons name={url ? "play-circle-outline" : "document-outline"} size={52} color={C.brand} />
+              </View>
+            )}
+          </View>
+
+          <Text style={st.materialDesc}>{material?.description}</Text>
+
+          <View style={assetSt.modalActions}>
+            <Pressable disabled={!url} onPress={() => material && void openMaterial(material)} style={({ pressed }) => [assetSt.modalPrimary, !url && { opacity: 0.55 }, pressed && st.pressed]}>
+              <Ionicons name="play" size={16} color="#fff" />
+              <Text style={assetSt.modalPrimaryText}>Play video</Text>
+            </Pressable>
+            <Pressable onPress={() => void shareSelected()} style={({ pressed }) => [assetSt.modalSecondary, pressed && st.pressed]}>
+              <Ionicons name="share-social-outline" size={16} color={C.text} />
+              <Text style={assetSt.modalSecondaryText}>Share</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function MaterialVideoPreview({ source }: { source: string }) {
+  const player = useVideoPlayer(source, (vp) => {
+    vp.loop = false;
+  });
+  return <VideoView player={player} style={assetSt.modalImage} contentFit="cover" nativeControls />;
 }
 
 // ═══════════════════════════════════════
@@ -3402,9 +3536,7 @@ function RubricsScreen({
   const [selected, setSelected] = useState<Rubric | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const canManage = session.workspace.membership.role !== "member";
 
   const load = useCallback(async () => {
     setError(null);
@@ -3433,33 +3565,12 @@ function RubricsScreen({
     setRefreshing(false);
   }
 
-  async function pickRubricFile() {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ["application/pdf", "text/*", "application/json", "text/csv"],
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled || !result.assets?.[0]) return;
-      const file = result.assets[0];
-      setUploading(true);
-      const rubric = await uploadRubric(
-        file.uri,
-        file.mimeType ?? "application/octet-stream",
-        file.name ?? "rubric-template.pdf"
-      );
-      await load();
-      setSelected(rubric);
-      showToast("Rubric extracted and added", "success");
-    } catch (caught) {
-      showToast(caught instanceof Error ? caught.message : "Rubric upload failed", "error");
-    } finally {
-      setUploading(false);
-    }
-  }
-
   function applicationsFor(rubricId: string) {
     return sessions.filter((item) => item.rubricId === rubricId);
   }
+
+  const defaultRubric = rubrics.find((rubric) => rubric.isDefault) ?? rubrics[0] ?? null;
+  const otherRubrics = defaultRubric ? rubrics.filter((rubric) => rubric.id !== defaultRubric.id) : rubrics;
 
   return (
     <View style={st.flex1}>
@@ -3469,66 +3580,63 @@ function RubricsScreen({
         contentContainerStyle={st.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={C.brand} />}
       >
-        <View style={st.page}>
-          <View style={st.pageHeadingRow}>
-            <BackBtn label="Settings" onPress={onBack} />
-            <View style={st.flex1} />
-            {canManage && (
-              <Pressable
-                accessibilityLabel="Upload rubric"
-                disabled={uploading}
-                onPress={() => void pickRubricFile()}
-                style={({ pressed }) => [st.iconButton, pressed && st.pressed]}
-              >
-                {uploading ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="cloud-upload-outline" size={20} color={C.brand} />}
-              </Pressable>
-            )}
-          </View>
-          <View>
-            <Text style={st.pageTitle}>Rubrics</Text>
-            <Text style={st.pageHeadingSub}>{session.workspace.community.name}</Text>
-          </View>
-          {error && <ErrorBanner message={error} onRetry={load} />}
-          {canManage && (
-            <Pressable onPress={() => void pickRubricFile()} disabled={uploading} style={({ pressed }) => [st.rubricUploadCard, pressed && st.pressed]}>
-              <View style={st.rubricUploadIcon}>
-                {uploading ? <ActivityIndicator color={C.brand} /> : <Ionicons name="document-attach-outline" size={22} color={C.brand} />}
-              </View>
-              <View style={st.flex1}>
-                <Text style={st.cardRowTitle}>{uploading ? "Extracting rubric..." : "Upload rubric template"}</Text>
-                <Text style={st.cardRowSub}>PDF, TXT, Markdown, CSV, or JSON</Text>
-              </View>
-              {!uploading && <Ionicons name="chevron-forward" size={18} color={C.textMuted} />}
-            </Pressable>
-          )}
+          <View style={st.page}>
+            <View style={st.pageHeadingRow}>
+              <BackBtn label="Settings" onPress={onBack} />
+              <View style={st.flex1} />
+            </View>
+            <View>
+              <Text style={st.pageTitle}>Rubrics</Text>
+              <Text style={st.pageHeadingSub}>{session.workspace.community.name}</Text>
+            </View>
+            {error && <ErrorBanner message={error} onRetry={load} />}
           {loading ? <LoadingBox /> : rubrics.length === 0 ? (
-            <EmptyState icon="clipboard-outline" title="No rubrics" subtitle="Upload the first evaluation template for this community" />
+            <EmptyState icon="clipboard-outline" title="No rubrics" subtitle="Evaluation templates will appear here" />
           ) : (
-            <View style={st.card}>
-              {rubrics.map((rubric, index) => {
+            <>
+              {defaultRubric && (
+                <MotionPressable onPress={() => setSelected(defaultRubric)} haptic="selection" style={st.defaultRubricCard}>
+                  <View style={st.defaultRubricIcon}>
+                    <Ionicons name="clipboard-outline" size={23} color={C.purple} />
+                  </View>
+                  <View style={st.flex1}>
+                    <View style={st.rubricTitleRow}>
+                      <Text style={st.defaultRubricTitle} numberOfLines={2}>{defaultRubric.name}</Text>
+                      <View style={st.defaultBadge}><Text style={st.defaultBadgeText}>Default</Text></View>
+                    </View>
+                    <Text style={st.materialMeta}>
+                      {defaultRubric.definition.sections.length} sections · {rubricItemCount(defaultRubric.definition)} items · {rubricTotalPoints(defaultRubric.definition)} pts
+                    </Text>
+                    <Text style={st.rubricAppliedText}>{applicationsFor(defaultRubric.id).length} session{applicationsFor(defaultRubric.id).length === 1 ? "" : "s"}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+                </MotionPressable>
+              )}
+
+              <Text style={st.sectionTitle}>All rubrics</Text>
+              <View style={st.rubricGrid}>
+              {otherRubrics.map((rubric) => {
                 const applications = applicationsFor(rubric.id);
                 return (
-                  <Pressable
+                  <MotionPressable
                     key={rubric.id}
                     onPress={() => setSelected(rubric)}
-                    style={({ pressed }) => [st.rubricRow, index < rubrics.length - 1 && st.rowBorder, pressed && st.pressed]}
+                    haptic="selection"
+                    style={st.rubricCard}
                   >
                     <View style={st.rubricListIcon}><Ionicons name="clipboard-outline" size={19} color={C.purple} /></View>
-                    <View style={st.flex1}>
-                      <View style={st.rubricTitleRow}>
-                        <Text style={st.materialName} numberOfLines={1}>{rubric.name}</Text>
-                        {rubric.isDefault && <View style={st.defaultBadge}><Text style={st.defaultBadgeText}>Default</Text></View>}
-                      </View>
-                      <Text style={st.materialMeta}>
-                        {rubric.definition.sections.length} sections · {rubricItemCount(rubric.definition)} items · {rubricTotalPoints(rubric.definition)} pts
+                    <View style={st.rubricCardBody}>
+                      <Text style={st.rubricCardTitle} numberOfLines={2}>{rubric.name}</Text>
+                      <Text style={st.materialMeta} numberOfLines={1}>
+                        {rubric.definition.sections.length} sections · {rubricItemCount(rubric.definition)} items
                       </Text>
                       <Text style={st.rubricAppliedText}>{applications.length} session{applications.length === 1 ? "" : "s"}</Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
-                  </Pressable>
+                  </MotionPressable>
                 );
               })}
-            </View>
+              </View>
+            </>
           )}
         </View>
       </ScrollView>
@@ -4180,8 +4288,13 @@ const st = StyleSheet.create({
   pickerOptionTitle: { color: C.text, fontSize: 13, fontWeight: "800" },
   defaultBadge: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3, backgroundColor: C.greenBg },
   defaultBadgeText: { color: C.green, fontSize: 9, fontWeight: "900", textTransform: "uppercase" },
-  rubricUploadCard: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderWidth: 1, borderColor: "#bfdbfe", borderRadius: 8, backgroundColor: "#f7fbff" },
-  rubricUploadIcon: { width: 42, height: 42, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#eaf2ff" },
+  defaultRubricCard: { minHeight: 118, flexDirection: "row", alignItems: "center", gap: 13, padding: 16, borderWidth: 1, borderColor: "#e9d5ff", borderRadius: 18, backgroundColor: "#fbf7ff" },
+  defaultRubricIcon: { width: 50, height: 50, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: C.purpleBg },
+  defaultRubricTitle: { flex: 1, color: C.text, fontSize: 17, fontWeight: "900" },
+  rubricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  rubricCard: { width: "48%", minHeight: 146, justifyContent: "space-between", gap: 12, padding: 13, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 16, backgroundColor: "#fff" },
+  rubricCardBody: { gap: 4 },
+  rubricCardTitle: { color: C.text, fontSize: 13, lineHeight: 17, fontWeight: "900" },
   rubricRow: { minHeight: 82, flexDirection: "row", alignItems: "center", gap: 11, padding: 13 },
   rubricListIcon: { width: 40, height: 40, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: C.purpleBg },
   rubricTitleRow: { flexDirection: "row", alignItems: "center", gap: 7 },

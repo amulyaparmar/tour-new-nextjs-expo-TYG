@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dimensions,
+  KeyboardAvoidingView,
   Modal,
   PanResponder,
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -14,6 +16,7 @@ import Reanimated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withSpring,
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,7 +24,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const DEFAULT_SHEET_HEIGHT = Math.round(Dimensions.get("window").height * 0.72);
 const DISMISS_DISTANCE = 88;
 const DISMISS_VELOCITY = 0.85;
+const UPWARD_RESISTANCE = 0.18;
+const MAX_UPWARD_OVERDRAG = 34;
 const SHEET_EASING = Easing.out(Easing.cubic);
+const SHEET_SPRING = { damping: 22, stiffness: 260, mass: 0.8 };
 const AnimatedView = Reanimated.View;
 
 type BottomSheetModalProps = {
@@ -32,6 +38,7 @@ type BottomSheetModalProps = {
   sheetHeight?: number;
   dismissDisabled?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
+  keyboardAvoiding?: boolean;
 };
 
 export function BottomSheetModal({
@@ -42,6 +49,7 @@ export function BottomSheetModal({
   sheetHeight = DEFAULT_SHEET_HEIGHT,
   dismissDisabled = false,
   contentStyle,
+  keyboardAvoiding = false,
 }: BottomSheetModalProps) {
   const insets = useSafeAreaInsets();
   const [rendered, setRendered] = useState(visible);
@@ -95,9 +103,14 @@ export function BottomSheetModal({
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_event, gesture) =>
-          !dismissDisabled && gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+          !dismissDisabled && Math.abs(gesture.dy) > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
         onPanResponderMove: (_event, gesture) => {
-          if (dismissDisabled || gesture.dy < 0) return;
+          if (dismissDisabled) return;
+          if (gesture.dy < 0) {
+            translateY.value = Math.max(-MAX_UPWARD_OVERDRAG, gesture.dy * UPWARD_RESISTANCE);
+            backdropOpacity.value = 1;
+            return;
+          }
           translateY.value = gesture.dy;
           backdropOpacity.value = Math.max(0, 1 - gesture.dy / sheetHeight);
         },
@@ -107,11 +120,11 @@ export function BottomSheetModal({
             animateDismiss(true);
             return;
           }
-          translateY.value = withTiming(0, { duration: 200, easing: SHEET_EASING });
+          translateY.value = withSpring(0, SHEET_SPRING);
           backdropOpacity.value = withTiming(1, { duration: 160, easing: SHEET_EASING });
         },
         onPanResponderTerminate: () => {
-          translateY.value = withTiming(0, { duration: 200, easing: SHEET_EASING });
+          translateY.value = withSpring(0, SHEET_SPRING);
           backdropOpacity.value = withTiming(1, { duration: 160, easing: SHEET_EASING });
         },
       }),
@@ -138,22 +151,28 @@ export function BottomSheetModal({
           />
         </AnimatedView>
 
-        <AnimatedView
-          style={[
-            styles.sheet,
-            sheetStyle,
-            {
-              height: sheetHeight,
-              paddingBottom: Math.max(insets.bottom, 16),
-            },
-          ]}
+        <KeyboardAvoidingView
+          behavior={keyboardAvoiding && Platform.OS === "ios" ? "padding" : undefined}
+          pointerEvents="box-none"
+          style={styles.keyboardAvoiding}
         >
-          <View style={styles.dragRegion} {...panResponder.panHandlers}>
-            <View style={styles.handle} />
-            {header}
-          </View>
-          <View style={[styles.body, contentStyle]}>{children}</View>
-        </AnimatedView>
+          <AnimatedView
+            style={[
+              styles.sheet,
+              sheetStyle,
+              {
+                height: sheetHeight,
+                paddingBottom: Math.max(insets.bottom, 16),
+              },
+            ]}
+          >
+            <View style={styles.dragRegion} {...panResponder.panHandlers}>
+              <View style={styles.handle} />
+              {header}
+            </View>
+            <View style={[styles.body, contentStyle]}>{children}</View>
+          </AnimatedView>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -167,6 +186,10 @@ const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(16,24,40,0.52)",
+  },
+  keyboardAvoiding: {
+    flex: 1,
+    justifyContent: "flex-end",
   },
   sheet: {
     borderTopLeftRadius: 18,

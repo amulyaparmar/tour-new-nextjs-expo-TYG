@@ -17,7 +17,6 @@ import {
   KeyboardAvoidingView,
   Linking,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   RefreshControl,
@@ -126,6 +125,7 @@ import {
   TourStatusBadge,
 } from "./src/components/tour";
 import { CommunityPickerModal } from "@/components/community-picker-modal";
+import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text as UiText } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
@@ -853,6 +853,7 @@ const CHECK_IN_REP = { slug: "alex", name: "Alex Johnson", firstName: "Alex" };
 const CHECK_IN_PROPERTY = "27 North";
 const CHECK_IN_URL = "https://tour.you/p/alex?check-in=true";
 const CHECK_IN_QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=12&format=png&data=${encodeURIComponent(CHECK_IN_URL)}`;
+const CHECK_IN_SHEET_HEIGHT = Math.round(Dimensions.get("window").height * 0.86);
 const CHECK_IN_QUESTIONS: MobileCheckInQuestion[] = [
   {
     id: "hear_about",
@@ -921,15 +922,6 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   const closeSheet = useCallback(() => {
     onClose();
   }, [onClose]);
-  const sheetPanResponder = useMemo(
-    () => PanResponder.create({
-      onMoveShouldSetPanResponder: (_event, gesture) => gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
-      onPanResponderRelease: (_event, gesture) => {
-        if (gesture.dy > 48 || gesture.vy > 0.85) closeSheet();
-      },
-    }),
-    [closeSheet],
-  );
 
   useEffect(() => {
     if (!visible) return;
@@ -1045,13 +1037,13 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={closeSheet}>
-      <Pressable style={homeSt.sheetScrim} onPress={closeSheet} />
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={homeSt.sheetKeyboard}>
-        <Pressable onPress={(event) => event.stopPropagation()} style={homeSt.checkInSheet}>
-          <View style={homeSt.sheetHandleHitbox} {...sheetPanResponder.panHandlers}>
-            <View style={homeSt.sheetHandle} />
-          </View>
+    <BottomSheetModal
+      visible={visible}
+      onClose={closeSheet}
+      sheetHeight={CHECK_IN_SHEET_HEIGHT}
+      keyboardAvoiding
+      contentStyle={homeSt.checkInSheetBody}
+    >
           <View style={homeSt.sheetTabs}>
             <Pressable onPress={() => setMode("checkin")} style={[homeSt.sheetTab, mode === "checkin" && homeSt.sheetTabActive]}>
               <Ionicons name="send-outline" size={16} color={mode === "checkin" ? C.brand : C.textMuted} />
@@ -1253,9 +1245,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               </Pressable>
             </View>
           ) : null}
-        </Pressable>
-      </KeyboardAvoidingView>
-    </Modal>
+    </BottomSheetModal>
   );
 }
 
@@ -4513,6 +4503,7 @@ const homeSt = StyleSheet.create({
   sheetTabActive: { backgroundColor: "#fff", shadowColor: "#101828", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 1 },
   sheetTabText: { color: C.textMuted, fontSize: 13, fontWeight: "900" },
   sheetTabTextActive: { color: C.brand },
+  checkInSheetBody: { gap: 8 },
   checkInScroll: { flexShrink: 1, maxHeight: "100%" },
   checkInForm: { gap: 10, paddingBottom: 14 },
   skipButton: { alignSelf: "flex-end", paddingHorizontal: 8, paddingVertical: 2 },

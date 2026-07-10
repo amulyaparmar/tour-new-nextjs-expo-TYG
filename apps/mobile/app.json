@@ -20,7 +20,10 @@
       "bundleIdentifier": "com.leasemagnets.tournewtouryou.tyg",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
+        "NSLocalNetworkUsageDescription": "Tour needs local network access to reach your development server on this Mac.",
+        "NSBonjourServices": ["_http._tcp", "_expo._tcp"],
         "NSMicrophoneUsageDescription": "Allow Tour to record leasing conversations for session analysis and coaching.",
+        "NSSpeechRecognitionUsageDescription": "Allow Tour to transcribe leasing conversations live for in-tour coaching.",
         "UIBackgroundModes": [
           "audio"
         ]
@@ -42,6 +45,13 @@
         {
           "microphonePermission": "Allow Tour to record leasing conversations for session analysis and coaching.",
           "enableBackgroundRecording": true
+        }
+      ],
+      [
+        "expo-speech-transcriber",
+        {
+          "speechRecognitionPermission": "Allow Tour to transcribe leasing conversations live for in-tour coaching.",
+          "microphonePermission": "Allow Tour to listen during a tour so it can show live transcription and coaching prompts."
         }
       ],
       "expo-live-activity",

@@ -1,4 +1,3 @@
-import { formatElapsed } from "./formatElapsed";
 import { supportsLiveActivities } from "../runtime";
 
 type LiveActivityModule = typeof import("expo-live-activity");
@@ -17,6 +16,8 @@ const TOUR_LIVE_ACTIVITY = {
     subtitleColor: "FFFFFFCC",
     progressViewTint: "FFFFFF",
     progressViewLabelColor: "FFFFFF",
+    // Open Tour back to the live recording experience from Lock Screen / Dynamic Island.
+    deepLinkUrl: "tournewtouryoutyg://recording",
     timerType: "digital" as const,
     imagePosition: "right" as const,
     imageAlign: "center" as const,
@@ -36,16 +37,9 @@ function getLiveActivity(): LiveActivityModule | null {
   }
 }
 
-function liveActivityState(elapsed: number, isPaused: boolean, finished = false) {
-  const subtitle = finished
-    ? `Saved · ${formatElapsed(elapsed)}`
-    : isPaused
-      ? `Paused · ${formatElapsed(elapsed)}`
-      : `Recording · ${formatElapsed(elapsed)}`;
-
+function liveActivityState(_elapsed: number, isPaused: boolean, finished = false) {
   const state: import("expo-live-activity").LiveActivityState = {
-    title: "Tour",
-    subtitle,
+    title: finished ? "Saved" : isPaused ? "Paused" : "Recording",
     imageName: TOUR_LIVE_ACTIVITY.imageName,
     dynamicIslandImageName: TOUR_LIVE_ACTIVITY.dynamicIslandImageName,
   };

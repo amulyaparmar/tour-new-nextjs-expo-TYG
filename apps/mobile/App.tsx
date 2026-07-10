@@ -46,6 +46,7 @@ import Reanimated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import Swipeable, { type SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import {
   type AnalysisResult,
   type ConversationPhaseSegmentation,
@@ -71,6 +72,7 @@ import {
   type CalendarEvent,
   type SessionComment,
   deleteComment,
+  deleteSession,
   fetchActions,
   fetchAnalysis,
   fetchAudioInsights,
@@ -97,15 +99,23 @@ import { computeDashboardMetrics } from "./src/dashboard";
 import { type MobileAuthSession, authenticatedFetch, clearSession, restoreSession, switchCommunity } from "./src/auth";
 import { LoginScreen } from "./src/LoginScreen";
 import { TourLogo, TourMark } from "./src/components/TourLogo";
-import { LiveActivityBanner, RecordingExperience, RecordingProvider, useRecording } from "./src/recording";
+import {
+  LiveRecordingCard,
+  LiveRecordingDock,
+  RecordingExperienceHost,
+  RecordingProvider,
+  formatElapsed,
+  useRecording,
+  type LiveSessionSnapshot,
+} from "./src/recording";
 import { MotionBlock, MotionPressable, AnimatedTabContent } from "./src/components/ui/motion";
 import {
+  CollapsibleSection,
   RubricTab,
   ScoreHero,
-  SectionScoreOverview,
   SessionAiChatScreen,
+  SessionAiFab,
   SessionAudioInsightsScreen,
-  SessionInsightCards,
   SessionModeTabs,
   SessionPlayer,
   SessionReviewSkeleton,
@@ -130,7 +140,6 @@ import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text as UiText } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
-import { Clock3, ListTodo, Mic } from "lucide-react-native";
 
 const loginBackground = require("./assets/videos/login-bg.mp4");
 
@@ -142,6 +151,7 @@ type Screen =
   | { type: "session-ai-chat"; sessionId: string; sessionTitle?: string; prospectName?: string }
   | { type: "session-audio-insights"; sessionId: string; sessionTitle?: string; initialStatus?: AudioInsightsStatus; initialInsights?: AudioInsights | null }
   | { type: "create-session" }
+  | { type: "audio-test" }
   | { type: "rubrics" }
   | { type: "profile" }
   | { type: "tour" };
@@ -259,6 +269,29 @@ function LoadingShimmer({ rows = 3 }: { rows?: number }) {
         <Reanimated.View key={index} style={[st.shimmerCard, animatedStyle]}>
           <View style={[st.shimmerBar, { width: index % 2 === 0 ? "68%" : "52%" }]} />
           <View style={[st.shimmerBar, { width: index % 2 === 0 ? "44%" : "72%", height: 8 }]} />
+        </Reanimated.View>
+      ))}
+    </View>
+  );
+}
+
+function LibraryShimmer({ tiles = 3 }: { tiles?: number }) {
+  const shimmer = useSharedValue(0.35);
+  useEffect(() => {
+    shimmer.value = withRepeat(withSequence(
+      withTiming(1, { duration: 760 }),
+      withTiming(0.35, { duration: 760 })
+    ), -1, true);
+  }, [shimmer]);
+  const animatedStyle = useAnimatedStyle(() => ({ opacity: shimmer.value }));
+
+  return (
+    <View style={homeSt.mediaRow}>
+      {Array.from({ length: tiles }).map((_, index) => (
+        <Reanimated.View key={index} style={[homeSt.mediaTileWrap, homeSt.libraryShimmerTile, animatedStyle]}>
+          <View style={homeSt.libraryShimmerThumb} />
+          <View style={[st.shimmerBar, { width: "78%", height: 8 }]} />
+          <View style={[st.shimmerBar, { width: "52%", height: 8 }]} />
         </Reanimated.View>
       ))}
     </View>
@@ -436,7 +469,6 @@ export default function App() {
       <StatusBar style="dark" />
       <RecordingProvider onNotify={showToast}>
         <ToastProvider>
-          <LiveActivityBanner />
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={st.flex1}>
             <ScreenTransition transitionKey={routeKey} direction={transitionDirection}>
               {screen.type === "main" && (
@@ -446,6 +478,7 @@ export default function App() {
                   onTab={(t) => nav({ type: "main", tab: t })}
                   onSession={(id) => nav({ type: "session-detail", sessionId: id })}
                   onCreate={() => nav({ type: "create-session" })}
+                  onAudioTest={() => nav({ type: "audio-test" })}
                   onGuestRegistration={() => {
                     setTourStep("contact");
                     nav({ type: "tour" });
@@ -486,7 +519,15 @@ export default function App() {
                   onBack={() => nav({ type: "session-detail", sessionId: screen.sessionId })}
                 />
               )}
-              {screen.type === "create-session" && <CreateSessionScreen onBack={() => nav({ type: "main", tab: "sessions" })} onCreated={(id) => nav({ type: "session-detail", sessionId: id })} />}
+              {screen.type === "create-session" && (
+                <CreateSessionScreen
+                  onBack={() => nav({ type: "main", tab: "sessions" })}
+                  onCreated={(id) => nav({ type: "session-detail", sessionId: id })}
+                  onLiveRecordingOpened={() => nav({ type: "main", tab: "home" })}
+                  agentName={agentName}
+                />
+              )}
+              {screen.type === "audio-test" && <AudioTestScreen onBack={() => nav({ type: "main", tab: "home" })} />}
               {screen.type === "rubrics" && <RubricsScreen session={authSession} onBack={() => nav({ type: "main", tab: "settings" })} onSession={(id) => nav({ type: "session-detail", sessionId: id })} />}
               {screen.type === "profile" && (
                 <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
@@ -499,6 +540,8 @@ export default function App() {
                 </ScrollView>
               )}
             </ScreenTransition>
+            <RecordingExperienceHost />
+            <LiveRecordingDock />
           </KeyboardAvoidingView>
         </ToastProvider>
       </RecordingProvider>
@@ -548,14 +591,15 @@ const TAB_ITEMS: Array<{ id: MainTab; label: string; icon: keyof typeof Ionicons
   { id: "settings", label: "Settings", icon: "settings-outline", iconActive: "settings" },
 ];
 
-function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProfile, onRubrics, onSignOut, authSession, onAuthSession, agentName, property }: {
-  tab: MainTab; onTab: (t: MainTab) => void; onSession: (id: string) => void; onCreate: () => void; onGuestRegistration: () => void; onProfile: () => void; onRubrics: () => void; onSignOut: () => void; authSession: MobileAuthSession; onAuthSession: (session: MobileAuthSession) => void; agentName: string; property: string;
+function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistration, onProfile, onRubrics, onSignOut, authSession, onAuthSession, agentName, property }: {
+  tab: MainTab; onTab: (t: MainTab) => void; onSession: (id: string) => void; onCreate: () => void; onAudioTest: () => void; onGuestRegistration: () => void; onProfile: () => void; onRubrics: () => void; onSignOut: () => void; authSession: MobileAuthSession; onAuthSession: (session: MobileAuthSession) => void; agentName: string; property: string;
 }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [upcomingSessions, setUpcomingSessions] = useState<SessionSummary[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [materialsLoading, setMaterialsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [communityPickerOpen, setCommunityPickerOpen] = useState(false);
@@ -564,18 +608,28 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
   const [tabTransitionDirection, setTabTransitionDirection] = useState<SlideDirection>("forward");
   const [checkInOpen, setCheckInOpen] = useState(false);
 
+  const loadMaterials = useCallback(async () => {
+    setMaterialsLoading(true);
+    try {
+      const matData = await fetchMaterials();
+      setMaterials(Array.isArray(matData.materials) ? matData.materials : []);
+    } catch {
+      setMaterials([]);
+    } finally {
+      setMaterialsLoading(false);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [sessData, upcomingData, matData, calendarData] = await Promise.all([
+      const [sessData, upcomingData, calendarData] = await Promise.all([
         fetchSessions({ limit: 100 }),
         fetchSessions({ limit: 10, upcoming: true, sort: "scheduled_asc" }),
-        fetchMaterials().catch(() => ({ materials: [] as Material[] })),
         fetchCalendarEvents().catch(() => ({ events: [] as CalendarEvent[] })),
       ]);
       setSessions(sessData.sessions);
       setUpcomingSessions(upcomingData.sessions);
-      setMaterials(matData.materials);
       setCalendarEvents(calendarData.events);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load data");
@@ -584,9 +638,16 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void load();
+    void loadMaterials();
+  }, [load, loadMaterials]);
 
-  const onRefresh = useCallback(async () => { setRefreshing(true); await load(); setRefreshing(false); }, [load]);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([load(), loadMaterials()]);
+    setRefreshing(false);
+  }, [load, loadMaterials]);
 
   const chooseCommunity = useCallback(async (communityId: string) => {
     if (communityId === authSession.workspace.community.id) {
@@ -600,12 +661,14 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
       setCommunityPickerOpen(false);
       setCommunityQuery("");
       showToast(`Switched to ${nextSession.workspace.community.name}`, "success");
+      void load();
+      void loadMaterials();
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : "Could not switch community", "error");
     } finally {
       setSwitchingCommunityId(null);
     }
-  }, [authSession.workspace.community.id, onAuthSession]);
+  }, [authSession.workspace.community.id, load, loadMaterials, onAuthSession]);
 
   const showScrollView = tab !== "sessions";
   const handleTabPress = useCallback((nextTab: MainTab) => {
@@ -621,9 +684,9 @@ function MainTabs({ tab, onTab, onSession, onCreate, onGuestRegistration, onProf
         <ScreenTransition transitionKey={`tab:${tab}`} direction={tabTransitionDirection}>
           <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.mainScroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
             {error && <ErrorBanner message={error} onRetry={load} />}
-            {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} onSession={onSession} onProfile={onProfile} onCheckIn={() => setCheckInOpen(true)} onAssets={() => handleTabPress("materials")} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} userEmail={authSession.workspace.user.email} property={property} />}
+            {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} materialsLoading={materialsLoading} onSession={onSession} onProfile={onProfile} onCheckIn={() => setCheckInOpen(true)} onCreate={onCreate} onAudioTest={onAudioTest} onAssets={() => handleTabPress("materials")} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} userEmail={authSession.workspace.user.email} property={property} />}
             {tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={load} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
-            {tab === "materials" && <MaterialsScreen materials={materials} loading={loading} onCreate={onCreate} onReload={load} onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
+            {tab === "materials" && <MaterialsScreen materials={materials} loading={materialsLoading} onCreate={onCreate} onReload={async () => { await loadMaterials(); }} onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
             {tab === "settings" && <SettingsScreen session={authSession} onSessionChange={onAuthSession} onRubrics={onRubrics} onSignOut={onSignOut} />}
           </ScrollView>
         </ScreenTransition>
@@ -700,14 +763,17 @@ const errorBannerSt = StyleSheet.create({
 // Dashboard
 // ═══════════════════════════════════════
 
-function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSession, onProfile, onCheckIn, onAssets, onCommunityPress, agentName, userEmail, property }: {
+function DashboardScreen({ sessions, upcomingSessions, materials, loading, materialsLoading, onSession, onProfile, onCheckIn, onCreate, onAudioTest, onAssets, onCommunityPress, agentName, userEmail, property }: {
   sessions: SessionSummary[];
   upcomingSessions: SessionSummary[];
   materials: Material[];
   loading: boolean;
+  materialsLoading: boolean;
   onSession: (id: string) => void;
   onProfile: () => void;
   onCheckIn: () => void;
+  onCreate: () => void;
+  onAudioTest: () => void;
   onAssets: () => void;
   onCommunityPress: () => void;
   agentName: string;
@@ -757,10 +823,18 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
         </View>
       </MotionBlock>
 
-      <MotionPressable onPress={onCheckIn} haptic="medium" entering={FadeInDown.delay(90)} style={homeSt.checkInPill}>
-        <Ionicons name="navigate" size={22} color="#fff" />
-        <Text style={homeSt.checkInPillText}>Check-In</Text>
-      </MotionPressable>
+      <LiveRecordingCard />
+
+      <View style={homeSt.actionPillRow}>
+        <MotionPressable onPress={onCheckIn} haptic="medium" entering={FadeInDown.delay(90)} style={homeSt.checkInPill}>
+          <Ionicons name="navigate" size={21} color="#fff" />
+          <Text style={homeSt.checkInPillText}>Check-In</Text>
+        </MotionPressable>
+        <MotionPressable onPress={onCreate} haptic="medium" entering={FadeInDown.delay(120)} style={[homeSt.checkInPill, homeSt.newSessionPill]}>
+          <Ionicons name="mic" size={21} color="#fff" />
+          <Text style={homeSt.checkInPillText}>New Session</Text>
+        </MotionPressable>
+      </View>
 
       {todayTours.length > 0 && (
         <HomeSection title="Ready Today">
@@ -781,35 +855,39 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, onSes
         </HomeSection>
       )}
 
-      <HomeSection title="Library" showLogo action={materials.length ? "See All" : undefined} onAction={materials.length ? onAssets : undefined}>
-        <View style={homeSt.mediaRow}>
-          {materials.slice(0, 3).map((material) => {
-            const previewUrl = materialPreviewUrl(material);
-            const canOpen = Boolean(materialUrl(material));
-            return (
-              <View key={material.id} style={homeSt.mediaTileWrap}>
-              <Pressable onPress={() => setSelectedMaterial(material)} style={({ pressed }) => [homeSt.mediaTile, pressed && st.pressed]}>
-                <View style={homeSt.mediaThumb}>
-                  {previewUrl ? (
-                    <Image source={{ uri: previewUrl }} style={homeSt.mediaPreviewImage} resizeMode="cover" />
-                  ) : (
-                    <View style={homeSt.mediaFallbackIcon}>
-                      <Ionicons name={canOpen ? "play" : "document-outline"} size={canOpen ? 18 : 23} color={C.brand} />
-                    </View>
-                  )}
-                  {canOpen && (
-                    <View style={homeSt.mediaPlayBadge}>
-                      <Ionicons name="play" size={11} color="#fff" />
-                    </View>
-                  )}
+      <HomeSection title="Library" showLogo action={!materialsLoading && materials.length ? "See All" : undefined} onAction={!materialsLoading && materials.length ? onAssets : undefined}>
+        {materialsLoading && materials.length === 0 ? (
+          <LibraryShimmer />
+        ) : (
+          <View style={homeSt.mediaRow}>
+            {materials.slice(0, 3).map((material) => {
+              const previewUrl = materialPreviewUrl(material);
+              const canOpen = Boolean(materialUrl(material));
+              return (
+                <View key={material.id} style={homeSt.mediaTileWrap}>
+                <Pressable onPress={() => setSelectedMaterial(material)} style={({ pressed }) => [homeSt.mediaTile, pressed && st.pressed]}>
+                  <View style={homeSt.mediaThumb}>
+                    {previewUrl ? (
+                      <Image source={{ uri: previewUrl }} style={homeSt.mediaPreviewImage} resizeMode="cover" />
+                    ) : (
+                      <View style={homeSt.mediaFallbackIcon}>
+                        <Ionicons name={canOpen ? "play" : "document-outline"} size={canOpen ? 18 : 23} color={C.brand} />
+                      </View>
+                    )}
+                    {canOpen && (
+                      <View style={homeSt.mediaPlayBadge}>
+                        <Ionicons name="play" size={11} color="#fff" />
+                      </View>
+                    )}
+                  </View>
+                  <Text style={homeSt.mediaLabel} numberOfLines={2}>{material.name}</Text>
+                </Pressable>
                 </View>
-                <Text style={homeSt.mediaLabel} numberOfLines={2}>{material.name}</Text>
-              </Pressable>
-              </View>
-            );
-          })}
-          {materials.length === 0 && <Text style={homeSt.emptyInline}>Reusable tour assets will appear here.</Text>}
-        </View>
+              );
+            })}
+            {!materialsLoading && materials.length === 0 && <Text style={homeSt.emptyInline}>Reusable tour assets will appear here.</Text>}
+          </View>
+        )}
       </HomeSection>
       <MaterialPreviewModal material={selectedMaterial} onClose={() => setSelectedMaterial(null)} />
     </View>
@@ -1470,6 +1548,103 @@ const SORT_OPTS: { value: SortOption; label: string; icon: keyof typeof Ionicons
 
 const SESSIONS_PAGE_SIZE = 20;
 
+const SESSION_SWIPE_DELETE_WIDTH = 88;
+
+function SessionListSwipeRow({
+  session,
+  isDeleting,
+  onOpen,
+  onDelete,
+  onSwipeOpen,
+  onSwipeClose,
+  onCloseOpen,
+  isAnyOpen,
+}: {
+  session: SessionSummary;
+  isDeleting: boolean;
+  onOpen: () => void;
+  onDelete: () => void;
+  onSwipeOpen: (methods: SwipeableMethods) => void;
+  onSwipeClose: (methods: SwipeableMethods) => void;
+  onCloseOpen: () => void;
+  isAnyOpen: () => boolean;
+}) {
+  const swipeableRef = useRef<SwipeableMethods | null>(null);
+  const needsReview = ["uploaded", "failed", "analysis_ready"].includes(session.status);
+
+  return (
+    <Swipeable
+      ref={swipeableRef}
+      friction={2}
+      rightThreshold={40}
+      overshootRight={false}
+      containerStyle={slst.swipeContainer}
+      onSwipeableOpenStartDrag={() => {
+        if (swipeableRef.current) onSwipeOpen(swipeableRef.current);
+      }}
+      onSwipeableOpen={() => {
+        if (swipeableRef.current) onSwipeOpen(swipeableRef.current);
+      }}
+      onSwipeableClose={() => {
+        if (swipeableRef.current) onSwipeClose(swipeableRef.current);
+      }}
+      renderRightActions={() => (
+        <View style={slst.swipeActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Delete ${session.title}`}
+            disabled={isDeleting}
+            onPress={() => {
+              impactHaptic();
+              onDelete();
+            }}
+            style={({ pressed }) => [slst.deleteAction, (pressed || isDeleting) && slst.deleteActionPressed]}
+          >
+            {isDeleting ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <>
+                <Ionicons name="trash-outline" size={20} color="#fff" />
+                <Text style={slst.deleteActionText}>Delete</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+      )}
+    >
+      <MotionPressable
+        onPress={() => {
+          if (isAnyOpen()) {
+            onCloseOpen();
+            return;
+          }
+          onOpen();
+        }}
+        haptic="selection"
+        entering={FadeInDown.duration(260).springify()}
+        style={[slst.sessionCard, isDeleting && slst.sessionCardDeleting]}
+        disabled={isDeleting}
+      >
+        <View style={st.flex1}>
+          <View style={slst.sessionNameRow}>
+            {session.status === "in_progress" && <PulseDot color="#f04438" />}
+            <Text style={slst.sessionName} numberOfLines={1}>{session.title}</Text>
+          </View>
+          <Text style={slst.sessionMeta} numberOfLines={1}>
+            {[session.location, session.scheduledAt ? `${fmtDate(session.scheduledAt)}, ${fmtTime(session.scheduledAt)}` : null].filter(Boolean).join(" · ") || session.prospectName || "Session details pending"}
+          </Text>
+        </View>
+        <View style={slst.sessionRight}>
+          <View style={[slst.syncBadge, needsReview && slst.reviewBadge]}>
+            <Text style={[slst.syncText, needsReview && slst.reviewText]}>{needsReview ? "REVIEW" : session.status === "in_progress" ? "LIVE" : "SYNCED"}</Text>
+          </View>
+          {session.overallScore !== null && <Text style={slst.sessionScore}>{session.overallScore}</Text>}
+        </View>
+      </MotionPressable>
+    </Swipeable>
+  );
+}
+
 function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: { onBack: () => void; onCommunityPress: () => void; onSession: (id: string) => void; property: string }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -1478,6 +1653,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -1486,6 +1662,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
   const [showSearch, setShowSearch] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const openSwipeableRef = useRef<SwipeableMethods | null>(null);
 
   const fetchPageData = useCallback(async (p: number, replace: boolean) => {
     if (replace) setLoading(true);
@@ -1525,6 +1702,59 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
     if (hasMore && !loadingMore && !loading) fetchPageData(page + 1, false);
   }, [hasMore, loadingMore, loading, page, fetchPageData]);
 
+  const closeOpenSwipeable = useCallback(() => {
+    openSwipeableRef.current?.close();
+    openSwipeableRef.current = null;
+  }, []);
+
+  const handleSwipeOpen = useCallback((methods: SwipeableMethods) => {
+    if (openSwipeableRef.current && openSwipeableRef.current !== methods) {
+      openSwipeableRef.current.close();
+    }
+    openSwipeableRef.current = methods;
+  }, []);
+
+  const handleSwipeClose = useCallback((methods: SwipeableMethods) => {
+    if (openSwipeableRef.current === methods) {
+      openSwipeableRef.current = null;
+    }
+  }, []);
+
+  const removeSessionLocally = useCallback((sessionId: string) => {
+    setSessions((prev) => prev.filter((session) => session.id !== sessionId));
+    setTotal((prev) => Math.max(0, prev - 1));
+  }, []);
+
+  const performDeleteSession = useCallback(async (sessionId: string) => {
+    if (deletingId) return;
+    setDeletingId(sessionId);
+    closeOpenSwipeable();
+    try {
+      await deleteSession(sessionId);
+      removeSessionLocally(sessionId);
+      showToast("Session deleted", "success");
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not delete session", "error");
+    } finally {
+      setDeletingId(null);
+    }
+  }, [closeOpenSwipeable, deletingId, removeSessionLocally]);
+
+  const confirmDeleteSession = useCallback((session: SessionSummary) => {
+    Alert.alert(
+      "Delete session?",
+      `Delete “${session.title}” and its generated analysis? This can’t be undone.`,
+      [
+        { text: "Cancel", style: "cancel", onPress: closeOpenSwipeable },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => void performDeleteSession(session.id),
+        },
+      ],
+    );
+  }, [closeOpenSwipeable, performDeleteSession]);
+
   type SessionListItem =
     | { kind: "header"; id: string; label: string; count: number }
     | { kind: "session"; id: string; session: SessionSummary };
@@ -1561,27 +1791,19 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
       );
     }
     const session = item.session;
-    const needsReview = ["uploaded", "failed", "analysis_ready"].includes(session.status);
     return (
-      <MotionPressable onPress={() => onSession(session.id)} haptic="selection" entering={FadeInDown.duration(260).springify()} style={slst.sessionCard}>
-        <View style={st.flex1}>
-          <View style={slst.sessionNameRow}>
-            {session.status === "in_progress" && <PulseDot color="#f04438" />}
-            <Text style={slst.sessionName} numberOfLines={1}>{session.title}</Text>
-          </View>
-          <Text style={slst.sessionMeta} numberOfLines={1}>
-            {[session.location, session.scheduledAt ? `${fmtDate(session.scheduledAt)}, ${fmtTime(session.scheduledAt)}` : null].filter(Boolean).join(" · ") || session.prospectName || "Session details pending"}
-          </Text>
-        </View>
-        <View style={slst.sessionRight}>
-          <View style={[slst.syncBadge, needsReview && slst.reviewBadge]}>
-            <Text style={[slst.syncText, needsReview && slst.reviewText]}>{needsReview ? "REVIEW" : session.status === "in_progress" ? "LIVE" : "SYNCED"}</Text>
-          </View>
-          {session.overallScore !== null && <Text style={slst.sessionScore}>{session.overallScore}</Text>}
-        </View>
-      </MotionPressable>
+      <SessionListSwipeRow
+        session={session}
+        isDeleting={deletingId === session.id}
+        onOpen={() => onSession(session.id)}
+        onDelete={() => confirmDeleteSession(session)}
+        onSwipeOpen={handleSwipeOpen}
+        onSwipeClose={handleSwipeClose}
+        onCloseOpen={closeOpenSwipeable}
+        isAnyOpen={() => openSwipeableRef.current !== null}
+      />
     );
-  }, [onSession]);
+  }, [closeOpenSwipeable, confirmDeleteSession, deletingId, handleSwipeClose, handleSwipeOpen, onSession]);
 
   const keyExtractor = useCallback((item: SessionListItem) => item.id, []);
   const sessionMetrics = useMemo(() => computeDashboardMetrics(sessions), [sessions]);
@@ -1688,7 +1910,12 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
       data={groupedRows}
       renderItem={renderItem}
       keyExtractor={keyExtractor}
-      ListHeaderComponent={ListHeader}
+      ListHeaderComponent={
+        <View style={{ gap: 12 }}>
+          {ListHeader}
+          <LiveRecordingCard />
+        </View>
+      }
       ListFooterComponent={ListFooter}
       ListEmptyComponent={ListEmpty}
       onEndReached={onEndReached}
@@ -1750,7 +1977,20 @@ const slst = StyleSheet.create({
   groupLabel: { color: "#9ca3af", fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
   groupCount: { minWidth: 18, height: 18, borderRadius: 4, backgroundColor: "#e5e7eb", alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
   groupCountText: { color: C.textSec, fontSize: 10, fontWeight: "900" },
-  sessionCard: { minHeight: 74, flexDirection: "row", alignItems: "center", gap: 12, padding: 15, marginBottom: 10, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, backgroundColor: "#fff" },
+  swipeContainer: { marginBottom: 10, borderRadius: 12, overflow: "hidden" },
+  swipeActions: { width: SESSION_SWIPE_DELETE_WIDTH },
+  deleteAction: {
+    flex: 1,
+    width: SESSION_SWIPE_DELETE_WIDTH,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    backgroundColor: "#ef4444",
+  },
+  deleteActionPressed: { backgroundColor: "#dc2626", opacity: 0.92 },
+  deleteActionText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  sessionCard: { minHeight: 74, flexDirection: "row", alignItems: "center", gap: 12, padding: 15, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, backgroundColor: "#fff" },
+  sessionCardDeleting: { opacity: 0.55 },
   sessionNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   sessionName: { flex: 1, color: "#1a1a1a", fontSize: 15, fontWeight: "900" },
   sessionMeta: { color: "#666", fontSize: 12, marginTop: 5 },
@@ -2234,13 +2474,214 @@ function MaterialVideoPreview({ source }: { source: string }) {
 }
 
 // ═══════════════════════════════════════
+// Audio Diagnostics
+// ═══════════════════════════════════════
+
+function AudioTestScreen({ onBack }: { onBack: () => void }) {
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [uri, setUri] = useState<string | null>(null);
+  const [fileSize, setFileSize] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [status, setStatus] = useState("Ready to test your microphone.");
+  const [busy, setBusy] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(() => {
+    if (!recording) return undefined;
+    const startedAt = Date.now();
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 250);
+    return () => clearInterval(timer);
+  }, [recording]);
+
+  useEffect(() => () => {
+    void recording?.stopAndUnloadAsync().catch(() => {});
+    void sound?.unloadAsync().catch(() => {});
+  }, [recording, sound]);
+
+  async function startTestRecording() {
+    if (busy || recording) return;
+    setBusy(true);
+    try {
+      await sound?.unloadAsync().catch(() => {});
+      setSound(null);
+      setIsPlaying(false);
+      setUri(null);
+      setFileSize(null);
+      setElapsed(0);
+
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        setStatus("Microphone permission was denied. Reset it in Simulator or iOS Settings and try again.");
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+
+      const created = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      setRecording(created.recording);
+      setStatus("Recording. Speak for a few seconds, then stop and play it back.");
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (caught) {
+      setStatus(caught instanceof Error ? caught.message : "Could not start audio test.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopTestRecording() {
+    if (!recording || busy) return;
+    setBusy(true);
+    try {
+      await recording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      const nextUri = recording.getURI();
+      setRecording(null);
+      setUri(nextUri);
+      setStatus(nextUri ? "Recording saved. Play it back below." : "Recording stopped, but no file URI was returned.");
+
+      if (nextUri) {
+        const file = new FileSystem.File(nextUri);
+        setFileSize(file.exists ? file.size : null);
+      }
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (caught) {
+      setStatus(caught instanceof Error ? caught.message : "Could not stop the recording.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function playOrPause() {
+    if (!uri || busy) return;
+    setBusy(true);
+    try {
+      if (sound && isPlaying) {
+        await sound.pauseAsync();
+        setIsPlaying(false);
+        setStatus("Playback paused.");
+        return;
+      }
+
+      const currentSound = sound ?? (await Audio.Sound.createAsync({ uri }, { shouldPlay: false })).sound;
+      if (!sound) {
+        currentSound.setOnPlaybackStatusUpdate((playbackStatus) => {
+          if (playbackStatus.isLoaded && playbackStatus.didJustFinish) {
+            setIsPlaying(false);
+            setStatus("Playback finished.");
+          }
+        });
+        setSound(currentSound);
+      }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      await currentSound.playAsync();
+      setIsPlaying(true);
+      setStatus("Playing recorded audio.");
+    } catch (caught) {
+      setStatus(caught instanceof Error ? caught.message : "Could not play this recording.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetTest() {
+    if (busy) return;
+    await sound?.unloadAsync().catch(() => {});
+    if (recording) await recording.stopAndUnloadAsync().catch(() => {});
+    await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true }).catch(() => {});
+    setSound(null);
+    setRecording(null);
+    setUri(null);
+    setFileSize(null);
+    setElapsed(0);
+    setIsPlaying(false);
+    setStatus("Ready to test your microphone.");
+  }
+
+  const canPlay = Boolean(uri) && !recording;
+  const sizeLabel = fileSize === null ? "Not measured" : fileSize < 1024 ? `${fileSize} B` : `${(fileSize / 1024).toFixed(1)} KB`;
+
+  return (
+    <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
+      <View style={st.page}>
+        <BackBtn label="Home" onPress={onBack} />
+        <Text style={st.pageTitle}>Audio Test</Text>
+        <Text style={st.pageSub}>Check microphone capture and playback before using live transcription.</Text>
+
+        <View style={audioTestSt.hero}>
+          <View style={[audioTestSt.micRing, recording && audioTestSt.micRingRecording]}>
+            <Ionicons name={recording ? "radio" : "mic-outline"} size={42} color={recording ? C.red : C.brand} />
+          </View>
+          <Text style={audioTestSt.timer}>{formatElapsed(elapsed)}</Text>
+          <Text style={audioTestSt.status}>{status}</Text>
+        </View>
+
+        <View style={audioTestSt.controls}>
+          {recording ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Stop test recording" disabled={busy} onPress={stopTestRecording} style={({ pressed }) => [audioTestSt.stopButton, pressed && st.pressed, busy && { opacity: 0.5 }]}>
+              <Ionicons name="stop" size={22} color="#fff" />
+              <Text style={audioTestSt.primaryText}>Stop</Text>
+            </Pressable>
+          ) : (
+            <Pressable accessibilityRole="button" accessibilityLabel="Start test recording" disabled={busy} onPress={startTestRecording} style={({ pressed }) => [audioTestSt.recordButton, pressed && st.pressed, busy && { opacity: 0.5 }]}>
+              <Ionicons name="mic" size={22} color="#fff" />
+              <Text style={audioTestSt.primaryText}>Record Test Clip</Text>
+            </Pressable>
+          )}
+
+          <Pressable accessibilityRole="button" accessibilityLabel={isPlaying ? "Pause test playback" : "Play test recording"} disabled={!canPlay || busy} onPress={playOrPause} style={({ pressed }) => [audioTestSt.secondaryButton, (!canPlay || busy) && { opacity: 0.5 }, pressed && st.pressed]}>
+            <Ionicons name={isPlaying ? "pause" : "play"} size={20} color={C.brand} />
+            <Text style={audioTestSt.secondaryText}>{isPlaying ? "Pause" : "Play Back"}</Text>
+          </Pressable>
+        </View>
+
+        <View style={audioTestSt.infoCard}>
+          <AudioTestRow label="Captured file" value={uri ? "Created" : "None yet"} />
+          <AudioTestRow label="File size" value={sizeLabel} />
+          <AudioTestRow label="URI" value={uri ?? "Record a clip first"} />
+        </View>
+
+        <Pressable accessibilityRole="button" accessibilityLabel="Reset audio test" onPress={resetTest} style={({ pressed }) => [audioTestSt.resetButton, pressed && st.pressed]}>
+          <Ionicons name="refresh" size={18} color={C.textSec} />
+          <Text style={audioTestSt.resetText}>Reset test</Text>
+        </Pressable>
+      </View>
+    </ScrollView>
+  );
+}
+
+function AudioTestRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={audioTestSt.infoRow}>
+      <Text style={audioTestSt.infoLabel}>{label}</Text>
+      <Text style={audioTestSt.infoValue} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
+
+// ═══════════════════════════════════════
 // Create Session
 // ═══════════════════════════════════════
 
-function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCreated: (id: string) => void }) {
+function CreateSessionScreen({
+  onBack,
+  onCreated,
+  onLiveRecordingOpened,
+  agentName,
+}: {
+  onBack: () => void;
+  onCreated: (id: string) => void;
+  onLiveRecordingOpened: () => void;
+  agentName?: string | null;
+}) {
   const rec = useRecording();
 
-  const [phase, setPhase] = useState<"choose" | "recording" | "uploading" | "details">("choose");
+  const [phase, setPhase] = useState<"choose" | "uploading" | "details">("choose");
   const [progress, setProgress] = useState(0);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
@@ -2273,40 +2714,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
       .catch(() => { /* rubric picker optional */ });
   }, []);
 
-  async function startRecording() {
-    try {
-      const started = await rec.start();
-      if (!started) return;
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      setPhase("recording");
-    } catch {
-      showToast("Could not start recording", "error");
-    }
-  }
-
-  async function stopRecording() {
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const result = await rec.stop();
-    if (result?.uri) {
-      await uploadFile(result.uri, "audio/m4a", `tour-${Date.now()}.m4a`, undefined, result.durationSec);
-    } else {
-      showToast("Failed to save recording", "error");
-      setPhase("choose");
-    }
-  }
-
-  async function pickFile() {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({ type: ["video/*", "audio/*"], copyToCacheDirectory: true });
-      if (result.canceled || !result.assets?.[0]) return;
-      const file = result.assets[0];
-      await uploadFile(file.uri, file.mimeType ?? "video/mp4", file.name ?? "recording.mp4", file.size);
-    } catch {
-      showToast("Could not select file", "error");
-    }
-  }
-
-  async function uploadFile(uri: string, mimeType: string, name: string, size?: number | null, durationSec?: number) {
+  async function uploadFile(uri: string, mimeType: string, name: string, size?: number | null, durationSec?: number, existingSessionId?: string | null, draftNotes?: string) {
     setFileName(name);
     setFileSizeMB(size ? (size / 1024 / 1024).toFixed(1) : null);
     setPhase("uploading");
@@ -2314,10 +2722,20 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
 
     try {
       const defaultTitle = name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
-      const sessionData = await createSession({ title: defaultTitle });
-      const sid = sessionData.session.id;
-      setSessionId(sid);
-      setTitle(defaultTitle);
+      let sid = existingSessionId ?? sessionId;
+      if (!sid) {
+        const sessionData = await createSession({
+          title: title.trim() || defaultTitle,
+          prospectName: prospect.trim() || null,
+          location: location.trim() || null,
+          notes: (draftNotes ?? notes).trim() || null,
+          rubricId,
+        });
+        sid = sessionData.session.id;
+        setSessionId(sid);
+      }
+      if (!title.trim()) setTitle(defaultTitle);
+      if (draftNotes !== undefined) setNotes(draftNotes);
 
       const interval = setInterval(() => setProgress((p) => Math.min(p + 6, 90)), 300);
       try {
@@ -2331,6 +2749,77 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Upload failed", "error");
       setPhase("choose");
+    }
+  }
+
+  function startRecording() {
+    rec.openExperience({
+      meta: {
+        sessionId: null,
+        title: title.trim() || "Tour conversation",
+        prospectName: prospect.trim() || null,
+        propertyName: location.trim() || null,
+        agentName: agentName?.trim() || null,
+        source: "create-session",
+      },
+      draft: {
+        notes,
+        assets,
+        selectedAssetIds,
+        prospect,
+        location,
+        rubricId,
+      },
+      onBeforeRecordingStart: () => {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      },
+      onMinimize: onLiveRecordingOpened,
+      onCancel: async (snapshot) => {
+        await snapshot.stop();
+        snapshot.clearLiveSession();
+        showToast("Recording cancelled", "info");
+      },
+      onFinish: async (snapshot) => {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        const result = await snapshot.stop();
+        const meta = snapshot.meta;
+        const draft = snapshot.draft;
+        snapshot.clearLiveSession();
+        if (!result?.uri) {
+          showToast("Failed to save recording", "error");
+          return;
+        }
+        try {
+          const defaultTitle = `tour-${Date.now()}`;
+          let sid = meta.sessionId;
+          if (!sid) {
+            const sessionData = await createSession({
+              title: meta.title.trim() || defaultTitle,
+              prospectName: draft.prospect.trim() || null,
+              location: draft.location.trim() || null,
+              notes: draft.notes.trim() || null,
+              rubricId: draft.rubricId,
+            });
+            sid = sessionData.session.id;
+          }
+          await uploadRecording(sid, result.uri, "audio/m4a", `tour-${Date.now()}.m4a`, result.durationSec);
+          showToast("Recording uploaded", "success");
+          onCreated(sid);
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : "Upload failed", "error");
+        }
+      },
+    });
+  }
+
+  async function pickFile() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: ["video/*", "audio/*"], copyToCacheDirectory: true });
+      if (result.canceled || !result.assets?.[0]) return;
+      const file = result.assets[0];
+      await uploadFile(file.uri, file.mimeType ?? "video/mp4", file.name ?? "recording.mp4", file.size);
+    } catch {
+      showToast("Could not select file", "error");
     }
   }
 
@@ -2358,14 +2847,6 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
     onCreated(sessionId);
   }
 
-  function addAsset(asset: Material) {
-    if (selectedAssetIds.includes(asset.id)) return;
-    const snippet = assetNoteSnippet(asset);
-    setNotes((current) => (current.trim() ? `${current.trim()}\n\n${snippet}` : snippet));
-    setSelectedAssetIds((current) => [...current, asset.id]);
-    void Haptics.selectionAsync();
-  }
-
   // ── Choose: Record or Upload ──
   if (phase === "choose") {
     return (
@@ -2381,7 +2862,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
               </View>
               <View style={st.flex1}>
                 <Text style={{ fontSize: 17, fontWeight: "900", color: C.text }}>Record Audio</Text>
-                <Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec, marginTop: 2 }}>Record your tour conversation in the background</Text>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec, marginTop: 2 }}>Record your tour conversation — navigate freely while live</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={C.textMuted} />
             </Pressable>
@@ -2399,25 +2880,6 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
           </View>
         </View>
       </ScrollView>
-    );
-  }
-
-  // ── Audio recording (works in background) ──
-  if (phase === "recording") {
-    return (
-      <RecordingExperience
-        title={title || "Tour conversation"}
-        notes={notes}
-        onNotesChange={setNotes}
-        assets={assets}
-        selectedAssetIds={selectedAssetIds}
-        onAddAsset={addAsset}
-        onCancel={async () => {
-          await rec.stop();
-          setPhase("choose");
-        }}
-        onFinish={stopRecording}
-      />
     );
   }
 
@@ -2468,20 +2930,22 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
                 <Pressable onPress={() => setRubricOpen((o) => !o)} style={({ pressed }) => [st.inputWrap, pressed && st.pressed]}>
                   <Ionicons name="clipboard-outline" size={18} color={C.textMuted} />
                   <Text style={[st.inputField, { flex: 1, paddingVertical: 0 }]} numberOfLines={1}>
-                    {rubrics.find((r) => r.id === rubricId)?.name ?? "Select rubric"}
+                    {rubrics.find((r) => r.id === rubricId)?.name ?? "Select a rubric"}
                   </Text>
-                  <Ionicons name={rubricOpen ? "chevron-up" : "chevron-down"} size={18} color={C.textMuted} />
+                  <Ionicons name={rubricOpen ? "chevron-up" : "chevron-down"} size={16} color={C.textMuted} />
                 </Pressable>
                 {rubricOpen && (
-                  <View style={{ marginTop: 8, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, overflow: "hidden" }}>
-                    {rubrics.map((rubric, i) => (
+                  <View style={{ marginTop: 8, gap: 6 }}>
+                    {rubrics.map((rubric) => (
                       <Pressable
                         key={rubric.id}
-                        onPress={() => { setRubricId(rubric.id); setRubricOpen(false); }}
-                        style={({ pressed }) => [{ padding: 14, backgroundColor: rubricId === rubric.id ? C.brand + "10" : "#fff", borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "#e2e8f0" }, pressed && st.pressed]}
+                        onPress={() => {
+                          setRubricId(rubric.id);
+                          setRubricOpen(false);
+                        }}
+                        style={({ pressed }) => [{ padding: 12, borderRadius: 12, backgroundColor: rubric.id === rubricId ? C.brand + "12" : C.bg }, pressed && st.pressed]}
                       >
-                        <Text style={{ fontSize: 14, fontWeight: "800", color: C.text }}>{rubric.name}{rubric.isDefault ? " (default)" : ""}</Text>
-                        <Text style={{ fontSize: 12, fontWeight: "600", color: C.textSec, marginTop: 2 }}>{rubricTotalPoints(rubric.definition)} pts · {rubricItemCount(rubric.definition)} items</Text>
+                        <Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{rubric.name}</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -2489,10 +2953,7 @@ function CreateSessionScreen({ onBack, onCreated }: { onBack: () => void; onCrea
               </View>
             )}
             <Input placeholder="Notes or focus areas" value={notes} onChangeText={setNotes} icon="document-text-outline" multiline />
-            <PrimaryBtn label={submitting ? "Saving..." : "Save & Analyze"} onPress={submitAndProcess} disabled={submitting} icon="analytics-outline" />
-            <Pressable onPress={() => { if (sessionId) onCreated(sessionId); }} style={({ pressed }) => [pressed && st.pressed]}>
-              <Text style={{ textAlign: "center", fontSize: 13, fontWeight: "700", color: C.textMuted, paddingVertical: 6 }}>Skip, process now</Text>
-            </Pressable>
+            <PrimaryBtn label={submitting ? "Opening..." : "Continue"} onPress={() => void submitAndProcess()} icon="arrow-forward" disabled={submitting} />
           </View>
         </View>
       </View>
@@ -2599,8 +3060,6 @@ function SessionDetailScreen({
         phases={phases}
         comments={comments}
         actions={actions}
-        audioInsightsStatus={audioInsightsStatus}
-        audioInsights={audioInsights}
         sessionId={sessionId}
         onBack={onBack}
         onReload={load}
@@ -2647,6 +3106,9 @@ function SessionDetailScreen({
             status={session.status}
             rubricId={session.rubricId}
             sessionTitle={session.title}
+            prospectName={session.prospectName}
+            agentName={session.agentName}
+            propertyName={session.location || session.title}
             onDone={load}
           />
         )}
@@ -2689,8 +3151,6 @@ function SessionReviewExperience({
   phases,
   comments,
   actions,
-  audioInsightsStatus,
-  audioInsights,
   sessionId,
   onBack,
   onReload,
@@ -2703,8 +3163,6 @@ function SessionReviewExperience({
   phases: ConversationPhaseSegmentation | null;
   comments: SessionComment[];
   actions: FollowUpAction[];
-  audioInsightsStatus: AudioInsightsStatus;
-  audioInsights: AudioInsights | null;
   sessionId: string;
   onBack: () => void;
   onReload: () => void;
@@ -2839,6 +3297,11 @@ function SessionReviewExperience({
 
   const pct = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
   const openActionCount = localActions.filter((action) => action.status === "open").length;
+  const focusSection = useMemo(() => {
+    const sections = analysis.sectionScores;
+    if (!sections.length) return null;
+    return sections.reduce((min, sec) => (sec.score < min.score ? sec : min)).section;
+  }, [analysis.sectionScores]);
   const coachingMoments = useMemo(() => {
     return analysis.exactMoments
       .map((moment, index) => ({
@@ -2849,6 +3312,14 @@ function SessionReviewExperience({
       .filter((moment) => moment.seconds !== null)
       .sort((left, right) => (left.seconds ?? 0) - (right.seconds ?? 0));
   }, [analysis.exactMoments]);
+
+  function openSessionMoreMenu() {
+    Alert.alert("Session options", undefined, [
+      { text: "Audio insights", onPress: onOpenAudioInsights },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }
+
   const transcriptGroups = useMemo(() => {
     if (!transcript.length) return [] as Array<{ id: string; label: string; startTime: number; color: string; segments: any[] }>;
     if (!phases?.spans.length) {
@@ -2875,7 +3346,7 @@ function SessionReviewExperience({
         style={reviewSt.scrollBody}
         contentContainerStyle={reviewSt.scrollContent}
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[3]}
+        stickyHeaderIndices={[2]}
         scrollEventThrottle={16}
         onScrollBeginDrag={() => {
           if (reviewMode === "transcript") userDragging.current = true;
@@ -2897,14 +3368,15 @@ function SessionReviewExperience({
         <TourScreenHeader
           onBack={onBack}
           title={session.title}
-          subtitle={session.prospectName || "Recorded tour"}
-          meta={[
-            ...(duration ? [{ icon: Clock3, label: fmtSec(duration) }] : []),
-            { icon: Mic, label: "Call review" },
-            ...(openActionCount > 0
-              ? [{ icon: ListTodo, label: `${openActionCount} actions` }]
-              : []),
-          ]}
+          subtitle={[
+            session.prospectName || "Recorded tour",
+            duration ? fmtSec(duration) : null,
+            openActionCount > 0 ? `${openActionCount} actions` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          onMorePress={openSessionMoreMenu}
+          moreAccessibilityLabel="Session options"
         />
 
         <SessionSummaryStrip
@@ -2912,15 +3384,8 @@ function SessionReviewExperience({
           pointsEarned={analysis.totalPointsEarned}
           pointsPossible={analysis.totalPointsPossible}
           openActionCount={openActionCount}
+          focusSection={focusSection}
           onCoachingPress={() => setReviewMode("coaching")}
-        />
-
-        <SessionInsightCards
-          analysis={analysis}
-          audioInsightsStatus={audioInsightsStatus}
-          audioInsights={audioInsights}
-          onOpenAiChat={onOpenAiChat}
-          onOpenAudioInsights={onOpenAudioInsights}
         />
 
         <View style={reviewSt.tabSticky}>
@@ -2935,42 +3400,39 @@ function SessionReviewExperience({
         {reviewMode === "rubric" && (
           <AnimatedTabContent tabKey="rubric">
             <View style={{ gap: 12 }}>
-              <InfoCard title="Executive Summary" icon="document-text-outline">{analysis.summary}</InfoCard>
-              <SectionScoreOverview analysis={analysis} />
+              {focusSection ? (
+                <View style={reviewSt.focusBanner}>
+                  <Text style={reviewSt.focusBannerLabel}>Focus area</Text>
+                  <Text style={reviewSt.focusBannerValue}>{focusSection}</Text>
+                </View>
+              ) : null}
               <RubricTab analysis={analysis} />
-              <View style={[st.card, { padding: 14, gap: 8, borderLeftWidth: 3, borderLeftColor: C.green }]}>
-                <Text style={[st.cardTitle, { color: C.green }]}>Strengths</Text>
-                {analysis.strengths.map((strength, index) => <BulletItem key={index} text={strength} color={C.green} />)}
-              </View>
+              <CollapsibleSection title="Analysis summary">
+                <Text style={{ fontSize: 14, fontWeight: "600", color: C.textSec, lineHeight: 21 }}>
+                  {analysis.summary}
+                </Text>
+              </CollapsibleSection>
+              {analysis.strengths.length > 0 ? (
+                <CollapsibleSection
+                  title="Strengths"
+                  defaultOpen={analysis.overallScore >= 70}
+                >
+                  {analysis.strengths.map((strength, index) => (
+                    <BulletItem key={index} text={strength} color={C.textSec} />
+                  ))}
+                </CollapsibleSection>
+              ) : null}
             </View>
           </AnimatedTabContent>
         )}
         {reviewMode === "coaching" && (
           <AnimatedTabContent tabKey="coaching">
-          <View style={{ gap: 12 }}>
             <ActionsTab
               actions={localActions}
               sessionId={sessionId}
               onUpdate={onReload}
               onActionsChange={setLocalActions}
             />
-            <View style={[st.card, { padding: 14, gap: 8, borderLeftWidth: 3, borderLeftColor: C.amber }]}>
-              <Text style={[st.cardTitle, { color: C.amber }]}>Where points were lost</Text>
-              {analysis.opportunities.map((opportunity, index) => <BulletItem key={index} text={opportunity} color={C.amber} />)}
-            </View>
-            {coachingMoments.length > 0 ? (
-              <View style={{ gap: 10 }}>
-                <Text style={st.sectionTitle}>Coachable moments</Text>
-                {coachingMoments.map((moment) => (
-                  <CoachingMomentCard
-                    key={moment.id}
-                    moment={moment}
-                    onSeek={() => void seekToSeconds(moment.seconds ?? 0, true)}
-                  />
-                ))}
-              </View>
-            ) : null}
-          </View>
           </AnimatedTabContent>
         )}
         {reviewMode === "transcript" && transcript.length === 0 && (
@@ -3058,6 +3520,7 @@ function SessionReviewExperience({
         </View>
       </ScrollView>
 
+      <SessionAiFab onPress={onOpenAiChat} bottomOffset={Platform.OS === "ios" ? 118 : 104} />
       <SessionPlayer
         position={position}
         duration={duration}
@@ -3114,11 +3577,6 @@ function CoachingMomentCard({
       {!compact && moment.transcriptQuote ? (
         <Text style={reviewSt.coachingQuote} numberOfLines={2}>"{moment.transcriptQuote}"</Text>
       ) : null}
-      <View style={reviewSt.coachingMomentActions}>
-        <Text style={reviewSt.coachingMomentAction}>Save</Text>
-        <Text style={reviewSt.coachingMomentAction}>Practice</Text>
-        <Text style={reviewSt.coachingMomentAction}>Copy suggestion</Text>
-      </View>
     </MotionPressable>
   );
 }
@@ -3213,12 +3671,18 @@ function UploadProcessCard({
   status,
   rubricId: initialRubricId,
   sessionTitle,
+  prospectName,
+  agentName,
+  propertyName,
   onDone,
 }: {
   sessionId: string;
   status: string;
   rubricId: string | null;
   sessionTitle?: string;
+  prospectName?: string | null;
+  agentName?: string | null;
+  propertyName?: string | null;
   onDone: () => void;
 }) {
   const rec = useRecording();
@@ -3234,7 +3698,6 @@ function UploadProcessCard({
   const [dProspect, setDProspect] = useState("");
   const [dLocation, setDLocation] = useState("");
   const [dNotes, setDNotes] = useState("");
-  const [recordingOpen, setRecordingOpen] = useState(false);
   const [assets, setAssets] = useState<Material[]>([]);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
@@ -3293,57 +3756,87 @@ function UploadProcessCard({
     }
   }
 
-  async function startSessionRecording() {
-    try {
-      const started = await rec.start();
-      if (!started) return;
-      try {
-        await authenticatedFetch(`/api/sessions/${sessionId}`, {
+  function startSessionRecording() {
+    rec.openExperience({
+      meta: {
+        sessionId,
+        title: dTitle.trim() || sessionTitle?.trim() || "Tour conversation",
+        prospectName: dProspect.trim() || prospectName?.trim() || null,
+        propertyName: dLocation.trim() || propertyName?.trim() || null,
+        agentName: agentName?.trim() || null,
+        source: "session-detail",
+      },
+      draft: {
+        notes: dNotes,
+        assets,
+        selectedAssetIds,
+        prospect: dProspect.trim() || prospectName?.trim() || "",
+        location: dLocation.trim() || propertyName?.trim() || "",
+        rubricId,
+      },
+      onBeforeRecordingStart: async () => {
+        const response = await authenticatedFetch(`/api/sessions/${sessionId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: "in_progress" }),
         });
-      } catch {
-        await rec.stop();
-        throw new Error("Could not activate the tour session");
-      }
-      setRecordingOpen(true);
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch (caught) {
-      showToast(caught instanceof Error ? caught.message : "Could not start recording", "error");
-    }
-  }
-
-  async function stopSessionRecording() {
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const result = await rec.stop();
-    setRecordingOpen(false);
-    if (!result?.uri) {
-      showToast("Failed to save recording", "error");
-      return;
-    }
-    setPickedFile({ uri: result.uri, mimeType: "audio/m4a", name: `tour-${Date.now()}.m4a` });
-    setPhase("uploading");
-    setProgress(0);
-    const interval = setInterval(() => setProgress((value) => Math.min(value + 8, 90)), 300);
-    try {
-      await uploadRecording(sessionId, result.uri, "audio/m4a", `tour-${Date.now()}.m4a`, result.durationSec);
-      setProgress(100);
-      setPhase("details");
-      showToast("Recording uploaded", "success");
-    } catch (caught) {
-      setPhase("error");
-      setErrMsg(caught instanceof Error ? caught.message : "Upload failed");
-    } finally {
-      clearInterval(interval);
-    }
+        if (!response.ok) throw new Error("Could not activate the tour session");
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      },
+      onCancel: async (snapshot) => {
+        setCancelling(true);
+        try {
+          await snapshot.stop();
+          snapshot.clearLiveSession();
+          setSelectedAssetIds([]);
+          const response = await authenticatedFetch(`/api/sessions/${sessionId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "scheduled" }),
+          });
+          if (!response.ok) throw new Error("Could not reset the session");
+          showToast("Recording cancelled. Session returned to scheduled.", "success");
+          await onDone();
+        } catch (caught) {
+          showToast(caught instanceof Error ? caught.message : "Could not cancel the session", "error");
+        } finally {
+          setCancelling(false);
+        }
+      },
+      onFinish: async (snapshot) => {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        const result = await snapshot.stop();
+        const notes = snapshot.draft.notes;
+        snapshot.clearLiveSession();
+        if (!result?.uri) {
+          showToast("Failed to save recording", "error");
+          return;
+        }
+        setDNotes(notes);
+        setPickedFile({ uri: result.uri, mimeType: "audio/m4a", name: `tour-${Date.now()}.m4a` });
+        setPhase("uploading");
+        setProgress(0);
+        const interval = setInterval(() => setProgress((value) => Math.min(value + 8, 90)), 300);
+        try {
+          await uploadRecording(sessionId, result.uri, "audio/m4a", `tour-${Date.now()}.m4a`, result.durationSec);
+          setProgress(100);
+          setPhase("details");
+          showToast("Recording uploaded", "success");
+        } catch (caught) {
+          setPhase("error");
+          setErrMsg(caught instanceof Error ? caught.message : "Upload failed");
+        } finally {
+          clearInterval(interval);
+        }
+      },
+    });
   }
 
   async function cancelSessionRecording() {
     setCancelling(true);
     try {
-      if (rec.isRecording) await rec.stop();
-      setRecordingOpen(false);
+      await rec.stop();
+      rec.clearLiveSession();
       setSelectedAssetIds([]);
       const response = await authenticatedFetch(`/api/sessions/${sessionId}`, {
         method: "PATCH",
@@ -3488,21 +3981,6 @@ function UploadProcessCard({
             <Text style={st.cancelSessionText}>{cancelling ? "Cancelling..." : "Cancel active session"}</Text>
           </Pressable>
         )}
-        <Modal visible={recordingOpen} animationType="slide" onRequestClose={() => {}}>
-          <RecordingExperience
-            title={dTitle || sessionTitle || "Tour conversation"}
-            caption="Recording to this session"
-            notes={dNotes}
-            onNotesChange={setDNotes}
-            assets={assets}
-            selectedAssetIds={selectedAssetIds}
-            onAddAsset={addRecordingAsset}
-            cancelIcon="close"
-            cancelDisabled={cancelling}
-            onCancel={confirmCancelSession}
-            onFinish={stopSessionRecording}
-          />
-        </Modal>
       </View>
     );
   }
@@ -3858,7 +4336,10 @@ function ActionsTab({
   onActionsChange?: (next: FollowUpAction[] | ((prev: FollowUpAction[]) => FollowUpAction[])) => void;
 }) {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const open = actions.filter((a) => a.status === "open");
+  const priorityRank = { high: 0, medium: 1, low: 2 } as const;
+  const open = actions
+    .filter((a) => a.status === "open")
+    .sort((left, right) => (priorityRank[left.priority] ?? 1) - (priorityRank[right.priority] ?? 1));
   const done = actions.filter((a) => a.status !== "open");
 
   async function handleStatus(id: string, status: "completed" | "dismissed") {
@@ -3888,6 +4369,14 @@ function ActionsTab({
 
   return (
     <View style={{ gap: 12 }}>
+      {actions.length > 0 ? (
+        <View style={reviewSt.focusBanner}>
+          <Text style={reviewSt.focusBannerLabel}>Progress</Text>
+          <Text style={reviewSt.focusBannerValue}>
+            {done.length} of {actions.length} complete
+          </Text>
+        </View>
+      ) : null}
       {open.length > 0 && open.map((a) => {
         const pi = priorityIcon[a.priority] ?? defaultPi;
         return (
@@ -3918,15 +4407,16 @@ function ActionsTab({
           </View>
         );
       })}
-      {done.length > 0 && <Text style={st.sectionTitle}>Completed</Text>}
-      {done.map((a) => (
-        <View key={a.id} style={[st.card, { opacity: 0.55 }]}>
-          <View style={{ padding: 14, flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Ionicons name={a.status === "completed" ? "checkmark-circle" : "close-circle"} size={18} color={a.status === "completed" ? C.green : C.textMuted} />
-            <Text style={{ flex: 1, fontSize: 14, fontWeight: "700", color: C.text }} numberOfLines={1}>{a.title}</Text>
-          </View>
-        </View>
-      ))}
+      {done.length > 0 ? (
+        <CollapsibleSection title={`Completed (${done.length})`}>
+          {done.map((a) => (
+            <View key={a.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, opacity: 0.7 }}>
+              <Ionicons name={a.status === "completed" ? "checkmark-circle" : "close-circle"} size={18} color={a.status === "completed" ? C.green : C.textMuted} />
+              <Text style={{ flex: 1, fontSize: 14, fontWeight: "700", color: C.text }} numberOfLines={1}>{a.title}</Text>
+            </View>
+          ))}
+        </CollapsibleSection>
+      ) : null}
     </View>
   );
 }
@@ -4427,6 +4917,26 @@ function SRow({ label, value }: { label: string; value: string }) {
 
 const W = Dimensions.get("window").width;
 
+const audioTestSt = StyleSheet.create({
+  hero: { alignItems: "center", gap: 12, padding: 22, borderWidth: 1, borderColor: C.border, borderRadius: 20, backgroundColor: "#fff" },
+  micRing: { width: 104, height: 104, borderRadius: 52, alignItems: "center", justifyContent: "center", backgroundColor: C.brand + "10" },
+  micRingRecording: { backgroundColor: C.red + "12" },
+  timer: { color: C.text, fontSize: 42, lineHeight: 48, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  status: { color: C.textSec, fontSize: 14, lineHeight: 20, fontWeight: "700", textAlign: "center" },
+  controls: { gap: 10 },
+  recordButton: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, paddingHorizontal: 18, borderRadius: 29, backgroundColor: C.red },
+  stopButton: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, paddingHorizontal: 18, borderRadius: 29, backgroundColor: C.red },
+  primaryText: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  secondaryButton: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, paddingHorizontal: 16, borderWidth: 1, borderColor: "#dbeafe", borderRadius: 27, backgroundColor: "#f5f9ff" },
+  secondaryText: { color: C.brand, fontSize: 15, fontWeight: "900" },
+  infoCard: { borderWidth: 1, borderColor: C.border, borderRadius: 16, backgroundColor: "#fff", overflow: "hidden" },
+  infoRow: { minHeight: 58, gap: 5, paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" },
+  infoLabel: { color: C.textMuted, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  infoValue: { color: C.text, fontSize: 13, lineHeight: 18, fontWeight: "700" },
+  resetButton: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 23 },
+  resetText: { color: C.textSec, fontSize: 13, fontWeight: "800" },
+});
+
 const homeSt = StyleSheet.create({
   topBar: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8 },
   topBarSide: { width: 44, alignItems: "flex-start", justifyContent: "center" },
@@ -4447,8 +4957,14 @@ const homeSt = StyleSheet.create({
   profileContactRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 14 },
   profileContactIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#f1f1f1" },
   profileContactText: { flex: 1, color: "#252a32", fontSize: 14, fontWeight: "600" },
-  checkInPill: { alignSelf: "center", minWidth: 210, minHeight: 62, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 30, borderRadius: 31, backgroundColor: "#2f343c", shadowColor: "#111827", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.16, shadowRadius: 18, elevation: 5 },
-  checkInPillText: { color: "#fff", fontSize: 21, fontWeight: "900" },
+  actionPillRow: { flexDirection: "row", gap: 10 },
+  checkInPill: { flex: 1, minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, paddingHorizontal: 14, borderRadius: 29, backgroundColor: "#2f343c", shadowColor: "#111827", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.16, shadowRadius: 18, elevation: 5 },
+  newSessionPill: { backgroundColor: C.brand },
+  checkInPillText: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  audioTestCard: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 12, padding: 13, borderWidth: 1, borderColor: "#dbeafe", borderRadius: 18, backgroundColor: "#f5f9ff" },
+  audioTestIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#eaf2ff" },
+  audioTestTitle: { color: C.text, fontSize: 14, fontWeight: "900" },
+  audioTestSub: { color: C.textSec, fontSize: 12, fontWeight: "700", marginTop: 2 },
   businessCard: { padding: 16, gap: 14, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 20, backgroundColor: "#fff", shadowColor: "#101828", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.07, shadowRadius: 12, elevation: 2 },
   profileRow: { flexDirection: "row", alignItems: "center", gap: 11 },
   profileAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: C.brand },
@@ -4491,6 +5007,19 @@ const homeSt = StyleSheet.create({
   mediaTileWrap: { width: (W - 56) / 3 },
   mediaTile: { minHeight: 132, justifyContent: "space-between", gap: 8, padding: 8, borderRadius: 12, backgroundColor: "#eef4ff" },
   mediaThumb: { flex: 1, minHeight: 82, alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden", borderRadius: 10, backgroundColor: "rgba(255,255,255,0.55)" },
+  libraryShimmerTile: {
+    minHeight: 132,
+    gap: 8,
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: "#eef4ff",
+  },
+  libraryShimmerThumb: {
+    flex: 1,
+    minHeight: 82,
+    borderRadius: 10,
+    backgroundColor: "#e8eef7",
+  },
   mediaPreviewImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
   mediaFallbackIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, backgroundColor: "#fff" },
   mediaPlayBadge: { position: "absolute", right: 7, bottom: 7, width: 24, height: 24, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "rgba(255,255,255,0.86)", borderRadius: 12, backgroundColor: "rgba(15,23,42,0.88)" },
@@ -4608,6 +5137,26 @@ const reviewSt = StyleSheet.create({
   scrollContent: { paddingBottom: 150 },
   tabSticky: { backgroundColor: tourColors.bg, zIndex: 2 },
   tabBody: { gap: 13, paddingHorizontal: SESSION_PAGE_PADDING, paddingTop: 8 },
+  focusBanner: {
+    gap: 2,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    backgroundColor: "#eff6ff",
+  },
+  focusBannerLabel: {
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    color: "#667085",
+  },
+  focusBannerValue: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#101828",
+  },
   header: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
   headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e6eaf0", borderRadius: 12, backgroundColor: "#fff" },
   propertyPicker: { maxWidth: 210, minHeight: 36, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#eef2f7" },

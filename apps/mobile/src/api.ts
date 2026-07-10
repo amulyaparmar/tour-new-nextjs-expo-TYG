@@ -1,6 +1,8 @@
 import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionDetail, SessionSummary } from "@tour/shared";
+import { fetch as expoFetch } from "expo/fetch";
 
-import { authenticatedFetch } from "./auth";
+import { authenticatedFetch, getCurrentSession } from "./auth";
+import { getApiBaseUrl } from "./config";
 import { uploadLocalFileWithPresign } from "./presignedUpload";
 
 export type FetchSessionsParams = {
@@ -91,6 +93,15 @@ export async function fetchSession(sessionId: string) {
     analysis?: AnalysisResult | null;
     phases?: ConversationPhaseSegmentation | null;
   };
+}
+
+export async function deleteSession(sessionId: string) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? "Failed to delete session.");
+  }
+  return (await res.json().catch(() => ({ ok: true }))) as { ok?: boolean };
 }
 
 export async function fetchRubrics() {
@@ -375,6 +386,129 @@ export async function startAudioInsights(sessionId: string) {
     throw new Error(body?.error ?? "Failed to start audio insights.");
   }
   return body ?? { status: "processing" as const };
+}
+
+export type LiveSessionChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+function liveChatAuthHeaders(): Record<string, string> {
+  const session = getCurrentSession();
+  if (!session) throw new Error("Sign in is required.");
+  return {
+    Authorization: `Bearer ${session.accessToken}`,
+    "x-admin-community-id": session.workspace.community.id,
+    "x-tour-client": "mobile",
+    "Content-Type": "application/json",
+    Accept: "application/octet-stream, text/plain, */*",
+  };
+}
+
+function decodeStreamChunk(value: unknown, decoder: TextDecoder): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Uint8Array) return decoder.decode(value, { stream: true });
+  if (value instanceof ArrayBuffer) return decoder.decode(new Uint8Array(value), { stream: true });
+  if (ArrayBuffer.isView(value)) {
+    return decoder.decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength), { stream: true });
+  }
+  return "";
+}
+
+/** Streams Tour AI live-chat tokens via expo/fetch (ReadableStream-capable). */
+export async function streamLiveSessionChat(
+  sessionId: string,
+  payload: {
+    messages: LiveSessionChatMessage[];
+    liveTranscript?: string;
+    propertyContext?: string;
+  },
+  onChunk: (text: string) => void,
+): Promise<string> {
+  const response = await expoFetch(`${getApiBaseUrl()}/api/sessions/${sessionId}/live-chat`, {
+    method: "POST",
+    headers: liveChatAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let message = "Tour AI could not answer right now.";
+    try {
+      const body = (await response.json()) as { error?: string };
+      if (body?.error) message = body.error;
+    } catch {
+      try {
+        const text = await response.text();
+        if (text.trim()) message = text.trim();
+      } catch {
+        // keep default
+      }
+    }
+    throw new Error(message);
+  }
+
+  const body = response.body;
+  const reader = body && typeof (body as { getReader?: unknown }).getReader === "function"
+    ? (body as ReadableStream<Uint8Array>).getReader()
+    : null;
+
+  if (!reader) {
+    const text = await response.text();
+    const reply = text.trim();
+    if (reply) onChunk(reply);
+    return reply;
+  }
+
+  const decoder = new TextDecoder();
+  let full = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decodeStreamChunk(value, decoder);
+    if (!chunk) continue;
+    full += chunk;
+    onChunk(full);
+  }
+  const trailing = decoder.decode();
+  if (trailing) {
+    full += trailing;
+    onChunk(full);
+  }
+  return full.trim();
+}
+
+export async function sendLiveSessionChat(
+  sessionId: string,
+  payload: {
+    messages: LiveSessionChatMessage[];
+    liveTranscript?: string;
+    propertyContext?: string;
+  }
+) {
+  const reply = await streamLiveSessionChat(sessionId, payload, () => {});
+  return { reply };
+}
+
+export async function fetchLiveSessionSuggestions(
+  sessionId: string,
+  payload: {
+    liveTranscript?: string;
+    propertyContext?: string;
+  } = {}
+) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/live-suggestions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => null) as { suggestions?: string[]; error?: string } | null;
+  if (!res.ok) {
+    throw new Error(body?.error ?? "Could not load live suggestions.");
+  }
+  const suggestions = Array.isArray(body?.suggestions)
+    ? body.suggestions.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  return { suggestions };
 }
 
 export async function sendSessionFollowUp(

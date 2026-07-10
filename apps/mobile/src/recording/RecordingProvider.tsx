@@ -7,6 +7,7 @@ import {
   type RecordingOptions,
   type RecordingStatus,
 } from "expo-audio";
+import type { Material } from "../api";
 import {
   startRecordingLiveActivity,
   stopRecordingLiveActivity,
@@ -14,23 +15,99 @@ import {
 } from "./recordingLiveActivity";
 import { supportsBackgroundRecording } from "../runtime";
 
+export type LiveRecordingMeta = {
+  sessionId: string | null;
+  title: string;
+  prospectName: string | null;
+  propertyName: string | null;
+  agentName: string | null;
+  source: "create-session" | "session-detail";
+};
+
+export type LiveRecordingDraft = {
+  notes: string;
+  assets: Material[];
+  selectedAssetIds: string[];
+  /** Create-session only — used when uploading after stop. */
+  prospect: string;
+  location: string;
+  rubricId: string | null;
+};
+
+export type LiveSessionSnapshot = {
+  draft: LiveRecordingDraft;
+  meta: LiveRecordingMeta;
+  stop: () => Promise<{ uri: string; durationSec: number } | null>;
+  clearLiveSession: () => void;
+};
+
+export type OpenLiveExperienceInput = {
+  meta: LiveRecordingMeta;
+  draft: LiveRecordingDraft;
+  onBeforeRecordingStart?: () => void | Promise<void>;
+  onMinimize?: () => void;
+  onCancel: (snapshot: LiveSessionSnapshot) => void | Promise<void>;
+  onFinish: (snapshot: LiveSessionSnapshot) => void | Promise<void>;
+};
+
 export type RecordingCtx = {
   isRecording: boolean;
   isPaused: boolean;
   elapsed: number;
+  experienceVisible: boolean;
+  liveMeta: LiveRecordingMeta | null;
+  draft: LiveRecordingDraft | null;
+  transcriptPreview: string;
   start: () => Promise<boolean>;
   togglePause: () => Promise<void>;
   stop: () => Promise<{ uri: string; durationSec: number } | null>;
+  openExperience: (input: OpenLiveExperienceInput) => void;
+  minimizeExperience: () => void;
+  expandExperience: () => void;
+  clearLiveSession: () => void;
+  setLiveSessionId: (sessionId: string) => void;
+  setTranscriptPreview: (text: string) => void;
+  setDraftNotes: (notes: string) => void;
+  addDraftAsset: (asset: Material, snippet: string) => void;
+  runBeforeRecordingStart: () => void | Promise<void>;
+  requestCancel: () => void;
+  requestFinish: () => void;
 };
 
-const RecordingContext = React.createContext<RecordingCtx>({
+const EMPTY_DRAFT: LiveRecordingDraft = {
+  notes: "",
+  assets: [],
+  selectedAssetIds: [],
+  prospect: "",
+  location: "",
+  rubricId: null,
+};
+
+const EMPTY_CTX: RecordingCtx = {
   isRecording: false,
   isPaused: false,
   elapsed: 0,
+  experienceVisible: false,
+  liveMeta: null,
+  draft: null,
+  transcriptPreview: "",
   start: async () => false,
   togglePause: async () => {},
   stop: async () => null,
-});
+  openExperience: () => {},
+  minimizeExperience: () => {},
+  expandExperience: () => {},
+  clearLiveSession: () => {},
+  setLiveSessionId: () => {},
+  setTranscriptPreview: () => {},
+  setDraftNotes: () => {},
+  addDraftAsset: () => {},
+  runBeforeRecordingStart: async () => {},
+  requestCancel: () => {},
+  requestFinish: () => {},
+};
+
+const RecordingContext = React.createContext<RecordingCtx>(EMPTY_CTX);
 
 const RECORDING_OPTIONS: RecordingOptions = {
   ...RecordingPresets.HIGH_QUALITY,
@@ -49,7 +126,9 @@ async function configureRecordingAudioMode(active: boolean) {
     allowsRecording: active,
     shouldPlayInBackground: active,
     playsInSilentMode: true,
-    interruptionMode: "doNotMix" as const,
+    // mixWithOthers so live speech recognition can share the mic session
+    // with expo-audio recording (doNotMix blocks SFSpeechRecognizer).
+    interruptionMode: "mixWithOthers" as const,
   };
 
   if (supportsBackgroundRecording()) {
@@ -77,6 +156,10 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [experienceVisible, setExperienceVisible] = useState(false);
+  const [liveMeta, setLiveMeta] = useState<LiveRecordingMeta | null>(null);
+  const [draft, setDraft] = useState<LiveRecordingDraft | null>(null);
+  const [transcriptPreview, setTranscriptPreviewState] = useState("");
 
   const startingRef = useRef(false);
   const stoppingRef = useRef(false);
@@ -85,21 +168,44 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   const elapsedRef = useRef(0);
   const isPausedRef = useRef(false);
   const recorderRef = useRef<ReturnType<typeof useAudioRecorder> | null>(null);
+  const beforeStartHandlerRef = useRef<(() => void | Promise<void>) | null>(null);
+  const minimizeHandlerRef = useRef<(() => void) | null>(null);
+  const cancelHandlerRef = useRef<((snapshot: LiveSessionSnapshot) => void | Promise<void>) | null>(null);
+  const finishHandlerRef = useRef<((snapshot: LiveSessionSnapshot) => void | Promise<void>) | null>(null);
+  const liveMetaRef = useRef<LiveRecordingMeta | null>(null);
+  const draftRef = useRef<LiveRecordingDraft | null>(null);
 
-  const handleExternalStop = useCallback((status: RecordingStatus) => {
-    if (!status.isFinished || stoppingRef.current) return;
-
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = undefined;
-
-    stopRecordingLiveActivity(elapsedRef.current);
-    setIsRecording(false);
-    setIsPaused(false);
-    setElapsed(0);
-    elapsedRef.current = 0;
-    isPausedRef.current = false;
-    void configureRecordingAudioMode(false).catch(() => {});
+  const resetLiveUi = useCallback(() => {
+    setExperienceVisible(false);
+    setLiveMeta(null);
+    setDraft(null);
+    setTranscriptPreviewState("");
+    beforeStartHandlerRef.current = null;
+    minimizeHandlerRef.current = null;
+    cancelHandlerRef.current = null;
+    finishHandlerRef.current = null;
+    liveMetaRef.current = null;
+    draftRef.current = null;
   }, []);
+
+  const handleExternalStop = useCallback(
+    (status: RecordingStatus) => {
+      if (!status.isFinished || stoppingRef.current) return;
+
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = undefined;
+
+      stopRecordingLiveActivity(elapsedRef.current);
+      setIsRecording(false);
+      setIsPaused(false);
+      setElapsed(0);
+      elapsedRef.current = 0;
+      isPausedRef.current = false;
+      resetLiveUi();
+      void configureRecordingAudioMode(false).catch(() => {});
+    },
+    [resetLiveUi],
+  );
 
   const recorder = useAudioRecorder(RECORDING_OPTIONS, handleExternalStop);
   recorderRef.current = recorder;
@@ -115,6 +221,14 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   useEffect(() => {
     isPausedRef.current = isPaused;
   }, [isPaused]);
+
+  useEffect(() => {
+    liveMetaRef.current = liveMeta;
+  }, [liveMeta]);
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
 
   const start = useCallback(async () => {
     const activeRecorder = recorderRef.current;
@@ -210,6 +324,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setIsPaused(false);
       setElapsed(0);
       elapsedRef.current = 0;
+      setExperienceVisible(false);
       return uri ? { uri, durationSec } : null;
     } catch {
       await configureRecordingAudioMode(false).catch(() => {});
@@ -217,15 +332,148 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setIsPaused(false);
       setElapsed(0);
       elapsedRef.current = 0;
+      setExperienceVisible(false);
       return null;
     } finally {
       stoppingRef.current = false;
     }
   }, [isRecording]);
 
+  const clearLiveSession = useCallback(() => {
+    resetLiveUi();
+  }, [resetLiveUi]);
+
+  const buildSnapshot = useCallback((): LiveSessionSnapshot | null => {
+    const meta = liveMetaRef.current;
+    const currentDraft = draftRef.current;
+    if (!meta || !currentDraft) return null;
+    return {
+      meta,
+      draft: currentDraft,
+      stop,
+      clearLiveSession,
+    };
+  }, [clearLiveSession, stop]);
+
+  const openExperience = useCallback((input: OpenLiveExperienceInput) => {
+    liveMetaRef.current = input.meta;
+    draftRef.current = input.draft;
+    setLiveMeta(input.meta);
+    setDraft(input.draft);
+    beforeStartHandlerRef.current = input.onBeforeRecordingStart ?? null;
+    minimizeHandlerRef.current = input.onMinimize ?? null;
+    cancelHandlerRef.current = input.onCancel;
+    finishHandlerRef.current = input.onFinish;
+    setExperienceVisible(true);
+  }, []);
+
+  const minimizeExperience = useCallback(() => {
+    setExperienceVisible(false);
+    minimizeHandlerRef.current?.();
+  }, []);
+
+  const expandExperience = useCallback(() => {
+    if (!liveMeta && !isRecording) return;
+    setExperienceVisible(true);
+  }, [isRecording, liveMeta]);
+
+  const setLiveSessionId = useCallback((sessionId: string) => {
+    setLiveMeta((current) => {
+      const next = current ? { ...current, sessionId } : current;
+      liveMetaRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const setTranscriptPreview = useCallback((text: string) => {
+    setTranscriptPreviewState(text.trim());
+  }, []);
+
+  const setDraftNotes = useCallback((notes: string) => {
+    setDraft((current) => {
+      const next = current ? { ...current, notes } : current;
+      draftRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const addDraftAsset = useCallback((asset: Material, snippet: string) => {
+    setDraft((current) => {
+      if (!current || current.selectedAssetIds.includes(asset.id)) return current;
+      const notes = current.notes.trim() ? `${current.notes.trim()}\n\n${snippet}` : snippet;
+      const next = {
+        ...current,
+        notes,
+        selectedAssetIds: [...current.selectedAssetIds, asset.id],
+      };
+      draftRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const runBeforeRecordingStart = useCallback(async () => {
+    await beforeStartHandlerRef.current?.();
+  }, []);
+
+  const requestCancel = useCallback(() => {
+    const snapshot = buildSnapshot();
+    if (!snapshot) return;
+    void cancelHandlerRef.current?.(snapshot);
+  }, [buildSnapshot]);
+
+  const requestFinish = useCallback(() => {
+    const snapshot = buildSnapshot();
+    if (!snapshot) return;
+    void finishHandlerRef.current?.(snapshot);
+  }, [buildSnapshot]);
+
   const ctx = useMemo(
-    () => ({ isRecording, isPaused, elapsed, start, togglePause, stop }),
-    [isRecording, isPaused, elapsed, start, togglePause, stop]
+    () => ({
+      isRecording,
+      isPaused,
+      elapsed,
+      experienceVisible,
+      liveMeta,
+      draft,
+      transcriptPreview,
+      start,
+      togglePause,
+      stop,
+      openExperience,
+      minimizeExperience,
+      expandExperience,
+      clearLiveSession,
+      setLiveSessionId,
+      setTranscriptPreview,
+      setDraftNotes,
+      addDraftAsset,
+      runBeforeRecordingStart,
+      requestCancel,
+      requestFinish,
+    }),
+    [
+      isRecording,
+      isPaused,
+      elapsed,
+      experienceVisible,
+      liveMeta,
+      draft,
+      transcriptPreview,
+      start,
+      togglePause,
+      stop,
+      openExperience,
+      minimizeExperience,
+      expandExperience,
+      clearLiveSession,
+      setLiveSessionId,
+      setTranscriptPreview,
+      setDraftNotes,
+      addDraftAsset,
+      runBeforeRecordingStart,
+      requestCancel,
+      requestFinish,
+    ],
   );
 
   return <RecordingContext.Provider value={ctx}>{children}</RecordingContext.Provider>;
@@ -234,3 +482,5 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
 export function useRecording() {
   return React.useContext(RecordingContext);
 }
+
+export { EMPTY_DRAFT };

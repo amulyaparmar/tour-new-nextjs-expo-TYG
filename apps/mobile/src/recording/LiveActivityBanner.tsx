@@ -1,40 +1,80 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useRef } from "react";
-import { Animated, Platform, StyleSheet, Text, View } from "react-native";
+import React, { useEffect } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import Reanimated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 import { formatElapsed } from "./formatElapsed";
 import { useRecording } from "./RecordingProvider";
-import { supportsBackgroundRecording } from "../runtime";
 
-const C = { red: "#b91c1c" } as const;
+const C = {
+  red: "#b91c1c",
+  redSoft: "rgba(255,255,255,0.18)",
+  text: "#fff",
+} as const;
 
-export function LiveActivityBanner() {
-  const { isRecording, elapsed } = useRecording();
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+type LiveActivityBannerProps = {
+  /** Extra top inset when the banner sits under the status bar. */
+  topInset?: number;
+  /** Keep visible even if provider briefly reports not recording. */
+  forceVisible?: boolean;
+  onStop?: () => void;
+};
+
+/**
+ * Compact in-app recording strip used on the AI Chat tab.
+ * Lock Screen / Dynamic Island still use Live Activity separately.
+ */
+export function LiveActivityBanner({ topInset = 0, forceVisible = false, onStop }: LiveActivityBannerProps) {
+  const { isRecording, isPaused, elapsed, togglePause } = useRecording();
+  const pulse = useSharedValue(1);
 
   useEffect(() => {
-    if (!isRecording) return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
-      ])
+    if ((!isRecording && !forceVisible) || isPaused) {
+      pulse.value = 1;
+      return;
+    }
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(0.35, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+      ),
+      -1,
+      false,
     );
-    loop.start();
-    return () => loop.stop();
-  }, [isRecording, pulseAnim]);
+  }, [forceVisible, isPaused, isRecording, pulse]);
 
-  if (!isRecording) return null;
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
+  if (!isRecording && !forceVisible) return null;
+
+  const statusLabel = isPaused ? "Paused" : "Recording";
 
   return (
-    <View style={laSt.banner}>
-      <Animated.View style={[laSt.dot, { opacity: pulseAnim }]} />
-      <Ionicons name="mic" size={16} color="#fff" />
-      <Text style={laSt.label}>Recording</Text>
+    <View style={[laSt.banner, topInset > 0 && { paddingTop: Math.max(topInset, 10) }]} accessibilityRole="summary">
+      <Reanimated.View style={[laSt.dot, pulseStyle, isPaused && laSt.dotPaused]} />
+      <Ionicons name={isPaused ? "pause" : "mic"} size={16} color={C.text} />
+      <Text style={laSt.label}>{statusLabel}</Text>
       <Text style={laSt.timer}>{formatElapsed(elapsed)}</Text>
       <View style={laSt.spacer} />
-      <Text style={laSt.activeLabel}>
-        {supportsBackgroundRecording() ? "Continues in background" : "Expo Go — foreground only"}
-      </Text>
+      <Pressable
+        accessibilityLabel={isPaused ? "Resume recording" : "Pause recording"}
+        hitSlop={8}
+        onPress={() => void togglePause()}
+        style={laSt.control}
+      >
+        <Ionicons name={isPaused ? "play" : "pause"} size={16} color={C.text} />
+      </Pressable>
+      {onStop ? (
+        <Pressable accessibilityLabel="Stop recording" hitSlop={8} onPress={onStop} style={laSt.stopControl}>
+          <View style={laSt.stopSquare} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -45,9 +85,8 @@ const laSt = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     backgroundColor: C.red,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    paddingTop: Platform.OS === "ios" ? 54 : 10,
   },
   dot: {
     width: 8,
@@ -55,17 +94,41 @@ const laSt = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "#fff",
   },
+  dotPaused: {
+    backgroundColor: "#FDBA74",
+  },
   label: {
     fontSize: 13,
     fontWeight: "800",
-    color: "#fff",
+    color: C.text,
   },
   timer: {
     fontSize: 15,
     fontWeight: "900",
-    color: "#fff",
+    color: C.text,
     fontVariant: ["tabular-nums"],
   },
-  spacer: { flex: 1 },
-  activeLabel: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.86)" },
+  spacer: { flex: 1, minWidth: 8 },
+  control: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.redSoft,
+  },
+  stopControl: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.22)",
+  },
+  stopSquare: {
+    width: 11,
+    height: 11,
+    borderRadius: 2,
+    backgroundColor: C.text,
+  },
 });

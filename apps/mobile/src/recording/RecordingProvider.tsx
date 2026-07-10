@@ -232,6 +232,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   recorderRef.current = recorder;
   const recorderState = useAudioRecorderState(recorder, 80);
   const metering = normalizeMetering(recorderState.metering);
+  const meteringRef = useRef(0);
+  meteringRef.current = metering;
 
   useEffect(() => {
     void configureRecordingAudioMode(false).catch(() => {});
@@ -369,19 +371,23 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   }, [isRecording]);
 
   useEffect(() => {
-    if (!isRecording || isPaused) {
-      if (!isRecording) {
-        waveformLevelsRef.current = EMPTY_WAVEFORM;
-        setWaveformLevels(EMPTY_WAVEFORM);
-      }
-      return;
+    if (!isRecording) {
+      waveformLevelsRef.current = EMPTY_WAVEFORM;
+      setWaveformLevels(EMPTY_WAVEFORM);
+      return undefined;
     }
 
-    const nextLevel = Math.max(0.06, Math.min(1, metering * 0.92 + 0.08));
-    const next = [...waveformLevelsRef.current.slice(1), nextLevel];
-    waveformLevelsRef.current = next;
-    setWaveformLevels(next);
-  }, [isPaused, isRecording, metering]);
+    const timer = setInterval(() => {
+      const level = isPaused
+        ? 0.08
+        : Math.max(0.06, Math.min(1, meteringRef.current * 0.92 + 0.08));
+      const next = [...waveformLevelsRef.current.slice(1), level];
+      waveformLevelsRef.current = next;
+      setWaveformLevels(next);
+    }, 70);
+
+    return () => clearInterval(timer);
+  }, [isPaused, isRecording]);
 
   const clearLiveSession = useCallback(() => {
     resetLiveUi();

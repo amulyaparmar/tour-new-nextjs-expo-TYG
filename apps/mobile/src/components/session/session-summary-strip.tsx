@@ -15,12 +15,14 @@ export function SessionSummaryStrip({
   pointsEarned,
   pointsPossible,
   openActionCount,
+  focusSection,
   onCoachingPress,
 }: {
   score: number;
   pointsEarned?: number;
   pointsPossible?: number;
   openActionCount: number;
+  focusSection?: string | null;
   onCoachingPress: () => void;
 }) {
   const color = scoreColor(score);
@@ -46,7 +48,9 @@ export function SessionSummaryStrip({
             <Text style={styles.actionsTitle}>
               {openActionCount} coaching {openActionCount === 1 ? "action" : "actions"}
             </Text>
-            <Text style={styles.actionsLink}>View next steps</Text>
+            <Text style={styles.actionsLink} numberOfLines={1}>
+              {focusSection ? `Focus: ${focusSection}` : "View next steps"}
+            </Text>
           </View>
           <Icon as={ChevronRight} size={17} color="#8a94a6" />
         </View>

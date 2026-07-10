@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react-native";
-import { ArrowLeft } from "lucide-react-native";
+import { ArrowLeft, MoreHorizontal } from "lucide-react-native";
 import React from "react";
 import { StyleSheet, View } from "react-native";
 import Reanimated, { FadeInDown } from "react-native-reanimated";
@@ -18,11 +18,15 @@ export function TourScreenHeader({
   title,
   subtitle,
   meta,
+  onMorePress,
+  moreAccessibilityLabel = "More options",
 }: {
   onBack: () => void;
   title?: string;
   subtitle?: string;
   meta?: Array<{ icon: LucideIcon; label: string }>;
+  onMorePress?: () => void;
+  moreAccessibilityLabel?: string;
 }) {
   return (
     <Reanimated.View entering={FadeInDown.duration(280).springify()} style={styles.root}>
@@ -34,7 +38,19 @@ export function TourScreenHeader({
           <TourMark size={18} />
           <Text style={styles.brandText}>Tour</Text>
         </View>
-        <View style={styles.navSpacer} />
+        {onMorePress ? (
+          <Button
+            accessibilityLabel={moreAccessibilityLabel}
+            variant="outline"
+            size="icon"
+            onPress={onMorePress}
+            style={styles.backBtn}
+          >
+            <Icon as={MoreHorizontal} size={20} color={UIColors.foreground} />
+          </Button>
+        ) : (
+          <View style={styles.navSpacer} />
+        )}
       </View>
 
       {title ? (

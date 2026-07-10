@@ -60,6 +60,10 @@
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Allow Tour to record leasing conversations for session analysis and coaching.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Allow Tour to save tour media and shared assets to your photo library when you request it.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Allow Tour to choose photos or videos from your library for tour media and community assets.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Allow Tour to transcribe leasing conversations live for in-tour coaching.</string>
 	<key>NSSupportsLiveActivities</key>

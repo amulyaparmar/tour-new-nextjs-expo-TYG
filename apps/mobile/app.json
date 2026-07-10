@@ -23,6 +23,8 @@
         "NSLocalNetworkUsageDescription": "Tour needs local network access to reach your development server on this Mac.",
         "NSBonjourServices": ["_http._tcp", "_expo._tcp"],
         "NSMicrophoneUsageDescription": "Allow Tour to record leasing conversations for session analysis and coaching.",
+        "NSPhotoLibraryUsageDescription": "Allow Tour to choose photos or videos from your library for tour media and community assets.",
+        "NSPhotoLibraryAddUsageDescription": "Allow Tour to save tour media and shared assets to your photo library when you request it.",
         "NSSpeechRecognitionUsageDescription": "Allow Tour to transcribe leasing conversations live for in-tour coaching.",
         "UIBackgroundModes": [
           "audio"

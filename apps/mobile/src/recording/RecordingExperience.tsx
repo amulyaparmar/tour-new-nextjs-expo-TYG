@@ -34,7 +34,7 @@ import { ChatTypingIndicator, LiveChatMarkdown } from "./LiveChatMarkdown";
 import { supportsBackgroundRecording } from "../runtime";
 import { formatElapsed } from "./formatElapsed";
 import { LiveActivityBanner } from "./LiveActivityBanner";
-import { useRecording } from "./RecordingProvider";
+import { useRecording, WAVEFORM_BAR_COUNT } from "./RecordingProvider";
 
 const C = {
   bg: "#F7F8FB",
@@ -59,7 +59,8 @@ const DEFAULT_PROMPTS = [
   "Mention pet policy",
   "Offer floor plan options",
 ] as const;
-const WAVE_BARS = Array.from({ length: 52 }, (_, index) => index);
+const WAVE_MIN_HEIGHT = 4;
+const WAVE_MAX_HEIGHT = 28;
 const PERMISSION_TIP_KEY = "tour.recording.permissionTip.dismissed";
 const SUGGESTION_REFRESH_MS = 18_000;
 
@@ -348,7 +349,6 @@ export function RecordingExperience({
   const [transcriptionStatus, setTranscriptionStatus] = useState<string | null>(null);
   const [transcriptionRequested, setTranscriptionRequested] = useState(false);
   const [finalTranscriptLines, setFinalTranscriptLines] = useState<LiveTranscriptLine[]>([]);
-  const [waveTick, setWaveTick] = useState(0);
   const [permissionTipVisible, setPermissionTipVisible] = useState(false);
   const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(sessionId ?? null);
   const listRef = useRef<FlatList<LiveTranscriptLine>>(null);
@@ -393,12 +393,6 @@ export function RecordingExperience({
       hide.remove();
     };
   }, []);
-
-  useEffect(() => {
-    if (!hasStarted || sessionPaused) return undefined;
-    const timer = setInterval(() => setWaveTick((current) => current + 1), 120);
-    return () => clearInterval(timer);
-  }, [hasStarted, sessionPaused]);
 
   useEffect(() => {
     if (!transcriptionRequested) return;
@@ -620,21 +614,20 @@ export function RecordingExperience({
   }, [chatFocused, propertyContext, resolvedSessionId, transcriptSnapshot]);
 
   const waveformBars = useMemo(() => {
-    const speechIsActive = liveSpeech.isRecording || liveSpeech.text.trim().length > 0;
-    const activity = !hasStarted ? 0.2 : sessionPaused ? 0.32 : speechIsActive ? 1 : 0.72;
-    const center = (WAVE_BARS.length - 1) / 2;
+    const levels = rec.waveformLevels;
+    const center = (WAVEFORM_BAR_COUNT - 1) / 2;
+    const activity = !hasStarted ? 0.22 : sessionPaused ? 0.28 : 1;
 
-    return WAVE_BARS.map((index) => {
+    return Array.from({ length: WAVEFORM_BAR_COUNT }, (_, index) => {
+      const level = levels[index] ?? 0.08;
       const distanceFromCenter = Math.abs(index - center) / center;
-      const centerWeight = 1 - distanceFromCenter * 0.34;
-      const phase = waveTick * 0.45 + index * 0.62;
-      const pulse = (Math.sin(phase) + 1) / 2;
-      const shimmer = (Math.sin(phase * 0.47 + index * 1.7) + 1) / 2;
-      const base = hasStarted ? 5 : 4;
-      const height = base + (pulse * 15 + shimmer * 9) * activity * centerWeight;
-      return Math.max(4, Math.round(height));
+      const centerWeight = 1 - distanceFromCenter * 0.28;
+      const height =
+        WAVE_MIN_HEIGHT +
+        (WAVE_MAX_HEIGHT - WAVE_MIN_HEIGHT) * level * activity * centerWeight;
+      return Math.max(WAVE_MIN_HEIGHT, Math.round(height));
     });
-  }, [hasStarted, liveSpeech.isRecording, liveSpeech.text, sessionPaused, waveTick]);
+  }, [hasStarted, rec.waveformLevels, sessionPaused]);
 
   const statusCaption =
     caption ??

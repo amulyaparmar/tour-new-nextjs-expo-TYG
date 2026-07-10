@@ -4,6 +4,7 @@ import {
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioRecorder,
+  useAudioRecorderState,
   type RecordingOptions,
   type RecordingStatus,
 } from "expo-audio";
@@ -50,10 +51,14 @@ export type OpenLiveExperienceInput = {
   onFinish: (snapshot: LiveSessionSnapshot) => void | Promise<void>;
 };
 
+export const WAVEFORM_BAR_COUNT = 52;
+
 export type RecordingCtx = {
   isRecording: boolean;
   isPaused: boolean;
   elapsed: number;
+  metering: number;
+  waveformLevels: number[];
   experienceVisible: boolean;
   liveMeta: LiveRecordingMeta | null;
   draft: LiveRecordingDraft | null;
@@ -83,10 +88,14 @@ const EMPTY_DRAFT: LiveRecordingDraft = {
   rubricId: null,
 };
 
+const EMPTY_WAVEFORM = Array.from({ length: WAVEFORM_BAR_COUNT }, () => 0.08);
+
 const EMPTY_CTX: RecordingCtx = {
   isRecording: false,
   isPaused: false,
   elapsed: 0,
+  metering: 0,
+  waveformLevels: EMPTY_WAVEFORM,
   experienceVisible: false,
   liveMeta: null,
   draft: null,
@@ -111,6 +120,7 @@ const RecordingContext = React.createContext<RecordingCtx>(EMPTY_CTX);
 
 const RECORDING_OPTIONS: RecordingOptions = {
   ...RecordingPresets.HIGH_QUALITY,
+  isMeteringEnabled: true,
   numberOfChannels: 1,
   bitRate: 48000,
   android: RecordingPresets.HIGH_QUALITY.android,
@@ -120,6 +130,13 @@ const RECORDING_OPTIONS: RecordingOptions = {
     bitsPerSecond: 48000,
   },
 };
+
+/** Map expo-audio dB metering (~-160..0) into a 0..1 speech-friendly level. */
+function normalizeMetering(db: number | undefined): number {
+  if (db == null || !Number.isFinite(db)) return 0;
+  const clamped = Math.max(-55, Math.min(0, db));
+  return Math.pow((clamped + 55) / 55, 1.35);
+}
 
 async function configureRecordingAudioMode(active: boolean) {
   const baseMode = {
@@ -156,6 +173,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [waveformLevels, setWaveformLevels] = useState<number[]>(EMPTY_WAVEFORM);
   const [experienceVisible, setExperienceVisible] = useState(false);
   const [liveMeta, setLiveMeta] = useState<LiveRecordingMeta | null>(null);
   const [draft, setDraft] = useState<LiveRecordingDraft | null>(null);
@@ -167,6 +185,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   const liveActivityTickRef = useRef(0);
   const elapsedRef = useRef(0);
   const isPausedRef = useRef(false);
+  const waveformLevelsRef = useRef<number[]>(EMPTY_WAVEFORM);
   const recorderRef = useRef<ReturnType<typeof useAudioRecorder> | null>(null);
   const beforeStartHandlerRef = useRef<(() => void | Promise<void>) | null>(null);
   const minimizeHandlerRef = useRef<(() => void) | null>(null);
@@ -201,6 +220,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setElapsed(0);
       elapsedRef.current = 0;
       isPausedRef.current = false;
+      waveformLevelsRef.current = EMPTY_WAVEFORM;
+      setWaveformLevels(EMPTY_WAVEFORM);
       resetLiveUi();
       void configureRecordingAudioMode(false).catch(() => {});
     },
@@ -209,6 +230,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
 
   const recorder = useAudioRecorder(RECORDING_OPTIONS, handleExternalStop);
   recorderRef.current = recorder;
+  const recorderState = useAudioRecorderState(recorder, 80);
+  const metering = normalizeMetering(recorderState.metering);
 
   useEffect(() => {
     void configureRecordingAudioMode(false).catch(() => {});
@@ -250,6 +273,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setIsPaused(false);
       setElapsed(0);
       elapsedRef.current = 0;
+      waveformLevelsRef.current = EMPTY_WAVEFORM;
+      setWaveformLevels(EMPTY_WAVEFORM);
       liveActivityTickRef.current = 0;
       startRecordingLiveActivity();
 
@@ -324,6 +349,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setIsPaused(false);
       setElapsed(0);
       elapsedRef.current = 0;
+      waveformLevelsRef.current = EMPTY_WAVEFORM;
+      setWaveformLevels(EMPTY_WAVEFORM);
       setExperienceVisible(false);
       return uri ? { uri, durationSec } : null;
     } catch {
@@ -332,12 +359,29 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setIsPaused(false);
       setElapsed(0);
       elapsedRef.current = 0;
+      waveformLevelsRef.current = EMPTY_WAVEFORM;
+      setWaveformLevels(EMPTY_WAVEFORM);
       setExperienceVisible(false);
       return null;
     } finally {
       stoppingRef.current = false;
     }
   }, [isRecording]);
+
+  useEffect(() => {
+    if (!isRecording || isPaused) {
+      if (!isRecording) {
+        waveformLevelsRef.current = EMPTY_WAVEFORM;
+        setWaveformLevels(EMPTY_WAVEFORM);
+      }
+      return;
+    }
+
+    const nextLevel = Math.max(0.06, Math.min(1, metering * 0.92 + 0.08));
+    const next = [...waveformLevelsRef.current.slice(1), nextLevel];
+    waveformLevelsRef.current = next;
+    setWaveformLevels(next);
+  }, [isPaused, isRecording, metering]);
 
   const clearLiveSession = useCallback(() => {
     resetLiveUi();
@@ -432,6 +476,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       isRecording,
       isPaused,
       elapsed,
+      metering,
+      waveformLevels,
       experienceVisible,
       liveMeta,
       draft,
@@ -455,6 +501,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       isRecording,
       isPaused,
       elapsed,
+      metering,
+      waveformLevels,
       experienceVisible,
       liveMeta,
       draft,

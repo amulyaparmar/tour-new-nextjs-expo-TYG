@@ -1,0 +1,17 @@
+.git
+.next
+.turbo
+.vercel
+**/.next
+**/.expo
+**/dist
+**/build
+**/coverage
+**/node_modules
+apps/mobile/android
+apps/mobile/ios
+node_modules
+output
+tmp
+*.log
+*.tsbuildinfo

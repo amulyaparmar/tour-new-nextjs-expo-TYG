@@ -424,6 +424,39 @@ function decodeStreamChunk(value: unknown, decoder: TextDecoder): string {
   return "";
 }
 
+function liveChatResponseError(response: Response, rawBody: string): string {
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  const trimmed = rawBody.trim();
+
+  if (contentType.includes("application/json") || trimmed.startsWith("{")) {
+    try {
+      const body = JSON.parse(trimmed) as { error?: unknown };
+      if (typeof body.error === "string" && body.error.trim()) {
+        return body.error.trim();
+      }
+    } catch {
+      // Fall through to the safe status-based message.
+    }
+  }
+
+  // A missing/misrouted Next.js API endpoint returns an HTML 404 document.
+  // Never surface that document as chat copy on the phone.
+  if (response.status === 404) {
+    return "Tour AI is temporarily unavailable. Please try again shortly.";
+  }
+  if (response.status === 401 || response.status === 403) {
+    return "Your session expired. Sign in again to use Tour AI.";
+  }
+  if (response.status >= 500) {
+    return "Tour AI could not answer right now. Please try again.";
+  }
+
+  const looksLikeMarkup = contentType.includes("text/html") || /^\s*</.test(trimmed);
+  return looksLikeMarkup || !trimmed
+    ? `Tour AI request failed (${response.status}). Please try again.`
+    : trimmed.slice(0, 240);
+}
+
 /** Streams Tour AI live-chat tokens via expo/fetch (ReadableStream-capable). */
 export async function streamLiveSessionChat(
   sessionId: string,
@@ -460,19 +493,8 @@ async function streamLiveSessionChatResponse(
   });
 
   if (!response.ok) {
-    let message = "Tour AI could not answer right now.";
-    try {
-      const body = (await response.json()) as { error?: string };
-      if (body?.error) message = body.error;
-    } catch {
-      try {
-        const text = await response.text();
-        if (text.trim()) message = text.trim();
-      } catch {
-        // keep default
-      }
-    }
-    throw new Error(message);
+    const raw = await response.text().catch(() => "");
+    throw new Error(liveChatResponseError(response, raw));
   }
 
   const body = response.body;
@@ -532,7 +554,7 @@ async function fetchLiveSessionChatJson(
     }
   }
   if (!response.ok) {
-    throw new Error(body?.error ?? (trimmed || "Tour AI could not answer right now."));
+    throw new Error(body?.error ?? liveChatResponseError(response, raw));
   }
   return typeof body?.reply === "string" ? body.reply.trim() : trimmed;
 }

@@ -148,6 +148,7 @@ type MainTab = "home" | "sessions" | "calendar" | "materials" | "settings";
 type Screen =
   | { type: "main"; tab: MainTab }
   | { type: "session-detail"; sessionId: string }
+  | { type: "session-comments"; sessionId: string; sessionTitle?: string }
   | { type: "session-ai-chat"; sessionId: string; sessionTitle?: string; prospectName?: string }
   | { type: "session-audio-insights"; sessionId: string; sessionTitle?: string; initialStatus?: AudioInsightsStatus; initialInsights?: AudioInsights | null }
   | { type: "create-session" }
@@ -315,6 +316,7 @@ function AnimatedProgressFill({ percent, color = C.brand }: { percent: number; c
 function screenKey(screen: Screen) {
   if (screen.type === "main") return `main:${screen.tab}`;
   if (screen.type === "session-detail") return `session:${screen.sessionId}`;
+  if (screen.type === "session-comments") return `session-comments:${screen.sessionId}`;
   if (screen.type === "session-ai-chat") return `session-ai:${screen.sessionId}`;
   if (screen.type === "session-audio-insights") return `session-audio:${screen.sessionId}`;
   return screen.type;
@@ -330,6 +332,7 @@ function screenRank(screen: Screen) {
   if (screen.type === "create-session") return 12;
   if (screen.type === "rubrics") return 12;
   if (screen.type === "session-detail") return 13;
+  if (screen.type === "session-comments") return 14;
   if (screen.type === "session-ai-chat") return 14;
   if (screen.type === "session-audio-insights") return 14;
   return 0;
@@ -498,8 +501,16 @@ export default function App() {
                 <SessionDetailScreen
                   sessionId={screen.sessionId}
                   onBack={() => nav({ type: "main", tab: "sessions" })}
+                  onOpenComments={(meta) => nav({ type: "session-comments", ...meta })}
                   onOpenAiChat={(meta) => nav({ type: "session-ai-chat", ...meta })}
                   onOpenAudioInsights={(meta) => nav({ type: "session-audio-insights", ...meta })}
+                />
+              )}
+              {screen.type === "session-comments" && (
+                <SessionCommentsScreen
+                  sessionId={screen.sessionId}
+                  sessionTitle={screen.sessionTitle}
+                  onBack={() => nav({ type: "session-detail", sessionId: screen.sessionId })}
                 />
               )}
               {screen.type === "session-ai-chat" && (
@@ -2970,11 +2981,13 @@ type DTab = "overview" | "rubric" | "transcript" | "actions" | "comments";
 function SessionDetailScreen({
   sessionId,
   onBack,
+  onOpenComments,
   onOpenAiChat,
   onOpenAudioInsights,
 }: {
   sessionId: string;
   onBack: () => void;
+  onOpenComments: (meta: { sessionId: string; sessionTitle?: string }) => void;
   onOpenAiChat: (meta: { sessionId: string; sessionTitle?: string; prospectName?: string }) => void;
   onOpenAudioInsights: (meta: {
     sessionId: string;
@@ -3063,6 +3076,12 @@ function SessionDetailScreen({
         sessionId={sessionId}
         onBack={onBack}
         onReload={load}
+        onOpenComments={() =>
+          onOpenComments({
+            sessionId,
+            sessionTitle: session.title,
+          })
+        }
         onOpenAiChat={() =>
           onOpenAiChat({
             sessionId,
@@ -3154,6 +3173,7 @@ function SessionReviewExperience({
   sessionId,
   onBack,
   onReload,
+  onOpenComments,
   onOpenAiChat,
   onOpenAudioInsights,
 }: {
@@ -3166,19 +3186,17 @@ function SessionReviewExperience({
   sessionId: string;
   onBack: () => void;
   onReload: () => void;
+  onOpenComments: () => void;
   onOpenAiChat: () => void;
   onOpenAudioInsights: () => void;
 }) {
   const [localActions, setLocalActions] = useState(actions);
-  const [localComments, setLocalComments] = useState(comments);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(transcript[0]?.id ?? null);
-  const [commentingOn, setCommentingOn] = useState<any | null>(null);
-  const [commentBody, setCommentBody] = useState("");
   const [reviewMode, setReviewMode] = useState<SessionReviewMode>("rubric");
   const scrollRef = useRef<ScrollView | null>(null);
   const segmentY = useRef<Record<string, number>>({});
@@ -3186,7 +3204,6 @@ function SessionReviewExperience({
   const lastAutoSegment = useRef<string | null>(null);
 
   useEffect(() => { setLocalActions(actions); }, [actions]);
-  useEffect(() => { setLocalComments(comments); }, [comments]);
 
   const playbackUrl = getRecordingPlaybackUrl(sessionId);
 
@@ -3259,42 +3276,6 @@ function SessionReviewExperience({
     setSpeed(next);
   }
 
-  async function postInlineComment() {
-    if (!commentingOn || !commentBody.trim()) return;
-    const body = commentBody.trim();
-    const timestampSec = commentingOn.startTime;
-    const tempId = `optimistic-${Date.now()}`;
-    const optimistic: SessionComment = {
-      id: tempId,
-      sessionId,
-      authorName: "You",
-      body,
-      timestampSec,
-      parentId: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setLocalComments((prev) => [...prev, optimistic]);
-    setCommentBody("");
-    setCommentingOn(null);
-    try {
-      const { comment } = await postComment(sessionId, { body, timestampSec });
-      setLocalComments((prev) => prev.map((item) => (item.id === tempId ? comment : item)));
-      showToast("Comment added at this moment", "success");
-    } catch {
-      setLocalComments((prev) => prev.filter((item) => item.id !== tempId));
-      showToast("Could not add comment", "error");
-    }
-  }
-
-  function commentsForSegment(segment: any) {
-    return localComments.filter((comment) =>
-      comment.timestampSec !== null &&
-      comment.timestampSec >= segment.startTime &&
-      comment.timestampSec < segment.endTime
-    );
-  }
-
   const pct = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
   const openActionCount = localActions.filter((action) => action.status === "open").length;
   const focusSection = useMemo(() => {
@@ -3315,6 +3296,7 @@ function SessionReviewExperience({
 
   function openSessionMoreMenu() {
     Alert.alert("Session options", undefined, [
+      { text: comments.length > 0 ? `Comments (${comments.length})` : "Comments", onPress: onOpenComments },
       { text: "Audio insights", onPress: onOpenAudioInsights },
       { text: "Cancel", style: "cancel" },
     ]);
@@ -3452,7 +3434,6 @@ function SessionReviewExperience({
               const isAgent = segment.speaker?.toLowerCase().includes("agent");
               const prev = group.segments[index - 1];
               const showInitial = !prev || prev.speaker !== segment.speaker;
-              const segmentComments = commentsForSegment(segment);
               const moments = coachingMoments.filter((moment) =>
                 moment.seconds !== null &&
                 moment.seconds >= segment.startTime &&
@@ -3482,10 +3463,6 @@ function SessionReviewExperience({
                       </View>
                       <Text style={reviewSt.turnText}>{segment.text}</Text>
                     </View>
-                    <View style={reviewSt.turnActions}>
-                      <Pressable accessibilityLabel="Add comment" onPress={() => setCommentingOn(segment)}><Ionicons name="chatbubble-outline" size={16} color={C.textSec} /></Pressable>
-                      <Pressable accessibilityLabel="Bookmark moment" onPress={() => selectionHaptic()}><Ionicons name="bookmark-outline" size={16} color={C.textSec} /></Pressable>
-                    </View>
                   </Pressable>
                   {moments.map((moment) => (
                     <CoachingMomentCard
@@ -3495,23 +3472,6 @@ function SessionReviewExperience({
                       onSeek={() => void seekToSeconds(moment.seconds ?? segment.startTime, true)}
                     />
                   ))}
-                  {segmentComments.map((comment) => (
-                    <Pressable key={comment.id} onPress={() => void seekToSeconds(comment.timestampSec ?? segment.startTime, true)} style={reviewSt.inlineComment}>
-                      <Ionicons name="chatbubble-ellipses-outline" size={13} color={C.brand} />
-                      <View style={st.flex1}>
-                        <Text style={reviewSt.inlineCommentAuthor}>{comment.authorName} · {fmtSec(comment.timestampSec ?? 0)}</Text>
-                        <Text style={reviewSt.inlineCommentBody}>{comment.body}</Text>
-                      </View>
-                    </Pressable>
-                  ))}
-                  {commentingOn?.id === segment.id && (
-                    <View style={reviewSt.inlineComposer}>
-                      <TextInput autoFocus value={commentBody} onChangeText={setCommentBody} placeholder={`Comment at ${fmtSec(segment.startTime)}`} placeholderTextColor={C.textMuted} style={reviewSt.inlineInput} />
-                      <Pressable disabled={!commentBody.trim()} onPress={postInlineComment} style={reviewSt.inlineSend}>
-                        <Ionicons name="send" size={16} color="#fff" />
-                      </Pressable>
-                    </View>
-                  )}
                 </Reanimated.View>
               );
             })}
@@ -4425,6 +4385,69 @@ function ActionsTab({
 // Comments Tab
 // ═══════════════════════════════════════
 
+function SessionCommentsScreen({
+  sessionId,
+  sessionTitle,
+  onBack,
+}: {
+  sessionId: string;
+  sessionTitle?: string;
+  onBack: () => void;
+}) {
+  const [title, setTitle] = useState(sessionTitle);
+  const [comments, setComments] = useState<SessionComment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const [commentData, sessionData] = await Promise.all([
+        fetchComments(sessionId),
+        title ? Promise.resolve(null) : fetchSession(sessionId).catch(() => null),
+      ]);
+      setComments(commentData.comments);
+      if (sessionData?.session?.title) setTitle(sessionData.session.title);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not load comments");
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionId, title]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function refresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
+
+  return (
+    <View style={reviewSt.root}>
+      <TourScreenHeader
+        onBack={onBack}
+        title="Comments"
+        subtitle={title ?? "Session feedback"}
+      />
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={C.brand} />}
+        contentContainerStyle={reviewSt.commentsPageContent}
+      >
+        {error ? <ErrorBanner message={error} onRetry={load} /> : null}
+        {loading ? (
+          <LoadingBox />
+        ) : (
+          <CommentsTab comments={comments} sessionId={sessionId} onUpdate={load} />
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
 function CommentsTab({ comments, sessionId, onUpdate }: { comments: SessionComment[]; sessionId: string; onUpdate: () => void }) {
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -5135,6 +5158,7 @@ const reviewSt = StyleSheet.create({
   root: { flex: 1, backgroundColor: tourColors.bg, paddingTop: Platform.OS === "ios" ? 50 : 18 },
   scrollBody: { flex: 1 },
   scrollContent: { paddingBottom: 150 },
+  commentsPageContent: { gap: 12, paddingHorizontal: SESSION_PAGE_PADDING, paddingTop: 12, paddingBottom: 130 },
   tabSticky: { backgroundColor: tourColors.bg, zIndex: 2 },
   tabBody: { gap: 13, paddingHorizontal: SESSION_PAGE_PADDING, paddingTop: 8 },
   focusBanner: {
@@ -5196,13 +5220,6 @@ const reviewSt = StyleSheet.create({
   turnSpeaker: { fontSize: 12, fontWeight: "900" },
   segmentTime: { color: "#98a2b3", fontSize: 11, fontWeight: "800", marginLeft: "auto" },
   turnText: { color: "#344054", fontSize: 14, lineHeight: 20, fontWeight: "600" },
-  turnActions: { width: 22, alignItems: "center", gap: 13, paddingTop: 2 },
-  inlineComment: { flexDirection: "row", alignItems: "flex-start", gap: 7, marginLeft: 36, marginRight: 8, marginBottom: 7, padding: 9, borderRadius: 10, backgroundColor: "#eef6ff" },
-  inlineCommentAuthor: { color: C.brand, fontSize: 10, fontWeight: "900" },
-  inlineCommentBody: { color: C.text, fontSize: 12, lineHeight: 17, marginTop: 2 },
-  inlineComposer: { flexDirection: "row", alignItems: "center", gap: 8, marginLeft: 36, marginRight: 8, marginBottom: 8 },
-  inlineInput: { flex: 1, minHeight: 38, paddingHorizontal: 11, borderWidth: 1, borderColor: "#d7dee8", borderRadius: 9, color: C.text, fontSize: 13 },
-  inlineSend: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, backgroundColor: C.brand },
   coachingMoment: { gap: 9, marginVertical: 6, padding: 12, borderWidth: 1, borderColor: "#e9d5ff", borderRadius: 14, backgroundColor: "#fbf7ff" },
   coachingMomentCompact: { marginLeft: 36, marginRight: 8, marginTop: 2 },
   coachingMomentHeader: { flexDirection: "row", alignItems: "center", gap: 7 },

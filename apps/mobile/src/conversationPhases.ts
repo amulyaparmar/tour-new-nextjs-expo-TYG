@@ -36,6 +36,6 @@ export function processingStatusMessage(status: string): string {
     case "analyzing":
       return "Scoring the tour against your rubric…";
     default:
-      return "Transcribing, segmenting, scoring, and generating insights…";
+      return "Preparing the recording for transcript, segments, and insights…";
   }
 }

@@ -3,7 +3,7 @@ import { fetch as expoFetch } from "expo/fetch";
 
 import { authenticatedFetch, getCurrentSession } from "./auth";
 import { getApiBaseUrl } from "./config";
-import { uploadLocalFileWithPresign } from "./presignedUpload";
+import { uploadLocalFileWithPresign, type UploadProgressInfo } from "./presignedUpload";
 
 export type FetchSessionsParams = {
   page?: number;
@@ -225,7 +225,14 @@ export async function fetchTranscript(sessionId: string) {
   };
 }
 
-export async function uploadRecording(sessionId: string, fileUri: string, mimeType: string, fileName: string, durationSec?: number) {
+export async function uploadRecording(
+  sessionId: string,
+  fileUri: string,
+  mimeType: string,
+  fileName: string,
+  durationSec?: number,
+  onProgress?: (progress: UploadProgressInfo) => void,
+) {
   return uploadLocalFileWithPresign<{ url: string; status: string }>({
     authenticatedFetch,
     presignPath: `/api/sessions/${sessionId}/upload/presign`,
@@ -236,6 +243,7 @@ export async function uploadRecording(sessionId: string, fileUri: string, mimeTy
     completeBody: () => ({
       ...(durationSec && durationSec > 0 ? { durationSec: Math.round(durationSec) } : {}),
     }),
+    onProgress,
   });
 }
 

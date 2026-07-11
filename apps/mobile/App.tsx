@@ -3,6 +3,7 @@ import { Audio } from "expo-av";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import * as Haptics from "expo-haptics";
+import * as SecureStore from "expo-secure-store";
 import { StatusBar } from "expo-status-bar";
 import { useVideoPlayer, VideoView } from "expo-video";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -96,6 +97,7 @@ import {
 } from "./src/api";
 import { getApiBaseUrl } from "./src/config";
 import { computeDashboardMetrics } from "./src/dashboard";
+import type { UploadProgressInfo } from "./src/presignedUpload";
 import { type MobileAuthSession, authenticatedFetch, clearSession, restoreSession, switchCommunity } from "./src/auth";
 import { LoginScreen } from "./src/LoginScreen";
 import { TourLogo, TourMark } from "./src/components/TourLogo";
@@ -159,6 +161,31 @@ type Screen =
 
 type TourStep = "contact" | "preferences" | "ready";
 type SlideDirection = "forward" | "back";
+type UploadPhase = "preparing" | "uploading" | "finalizing";
+type UploadStats = {
+  phase: UploadPhase;
+  percent: number;
+  loaded: number;
+  total: number | null;
+  bytesPerSecond: number | null;
+  etaSeconds: number | null;
+};
+type RecordingUploadFile = {
+  uri: string;
+  mimeType: string;
+  name: string;
+  size?: number;
+  durationSec?: number;
+};
+type PendingRecordingUpload = {
+  sessionId: string;
+  uri: string;
+  mimeType: string;
+  name: string;
+  size?: number;
+  durationSec?: number;
+  savedAt: number;
+};
 
 const AGENT = {
   name: "Alex Johnson",
@@ -206,6 +233,78 @@ const SESSION_PROCESS_STEPS = [
   { id: "segmenting", label: "Segments", icon: "git-branch-outline" },
   { id: "analyzing", label: "Analysis", icon: "sparkles-outline" },
 ] as const;
+
+function pendingUploadKey(sessionId: string) {
+  return `tour.pendingRecordingUpload.${sessionId}`;
+}
+
+async function savePendingRecordingUpload(upload: PendingRecordingUpload) {
+  try {
+    await SecureStore.setItemAsync(pendingUploadKey(upload.sessionId), JSON.stringify(upload));
+  } catch {
+    // Best-effort local retry metadata only.
+  }
+}
+
+async function loadPendingRecordingUpload(sessionId: string): Promise<PendingRecordingUpload | null> {
+  try {
+    const raw = await SecureStore.getItemAsync(pendingUploadKey(sessionId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PendingRecordingUpload;
+    return parsed?.uri && parsed?.mimeType && parsed?.name ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function clearPendingRecordingUpload(sessionId: string) {
+  try {
+    await SecureStore.deleteItemAsync(pendingUploadKey(sessionId));
+  } catch {
+    // Best-effort local retry metadata only.
+  }
+}
+
+function formatBytes(bytes?: number | null) {
+  if (!bytes || bytes <= 0) return "Unknown size";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
+}
+
+function formatUploadEta(seconds?: number | null) {
+  if (seconds == null || !Number.isFinite(seconds)) return "Calculating ETA";
+  if (seconds <= 1) return "Finishing now";
+  if (seconds < 60) return `${Math.ceil(seconds)} sec left`;
+  return `${Math.ceil(seconds / 60)} min left`;
+}
+
+function uploadStatsFromProgress(progress: UploadProgressInfo): UploadStats {
+  return {
+    phase: progress.percent >= 100 ? "finalizing" : "uploading",
+    percent: Math.max(0, Math.min(100, progress.percent)),
+    loaded: progress.loaded,
+    total: progress.total,
+    bytesPerSecond: progress.bytesPerSecond,
+    etaSeconds: progress.etaSeconds,
+  };
+}
+
+function initialUploadStats(total?: number | null): UploadStats {
+  return {
+    phase: "preparing",
+    percent: 0,
+    loaded: 0,
+    total: total ?? null,
+    bytesPerSecond: null,
+    etaSeconds: null,
+  };
+}
 
 function fmtDate(d: string | null) {
   if (!d) return "Unscheduled";
@@ -311,6 +410,75 @@ function AnimatedProgressFill({ percent, color = C.brand }: { percent: number; c
   }));
 
   return <Reanimated.View style={[st.progressFill, { backgroundColor: color }, animatedStyle]} />;
+}
+
+function UploadStatusCard({
+  title = "Uploading recording",
+  fileName,
+  fileSize,
+  stats,
+  error,
+  onRetry,
+  onChooseDifferent,
+}: {
+  title?: string;
+  fileName?: string | null;
+  fileSize?: number | null;
+  stats: UploadStats;
+  error?: string | null;
+  onRetry?: () => void;
+  onChooseDifferent?: () => void;
+}) {
+  const total = stats.total ?? fileSize ?? null;
+  const uploadedText = total ? `${formatBytes(stats.loaded)} of ${formatBytes(total)}` : formatBytes(fileSize);
+  const speedText = stats.bytesPerSecond ? `${formatBytes(stats.bytesPerSecond)}/s` : "Waiting for transfer";
+  const phaseLabel =
+    stats.phase === "preparing" ? "Preparing secure upload"
+      : stats.phase === "finalizing" ? "Finalizing recording"
+        : "Uploading recording";
+
+  return (
+    <View style={[st.card, { padding: 20, gap: 14 }]}>
+      <View style={{ alignItems: "center", gap: 10 }}>
+        <View style={[st.uploadRing, error && { backgroundColor: C.redBg }]}>
+          {error ? <Ionicons name="cloud-offline-outline" size={28} color={C.red} /> : <ActivityIndicator size="small" color={C.brand} />}
+        </View>
+        <Text style={st.formTitle}>{error ? "Upload Needs Retry" : title}</Text>
+        <Text style={[st.pageSub, { textAlign: "center", marginTop: -6 }]}>
+          {error || phaseLabel}
+        </Text>
+      </View>
+
+      <View style={st.uploadInfoPanel}>
+        <Text style={st.uploadFileName} numberOfLines={1}>{fileName || "Recording file"}</Text>
+        <View style={st.progressTrack}><AnimatedProgressFill percent={stats.percent} color={error ? C.red : C.brand} /></View>
+        <View style={st.uploadStatsRow}>
+          <Text style={st.uploadStatText}>{stats.percent}%</Text>
+          <Text style={st.uploadStatText}>{uploadedText}</Text>
+        </View>
+        <View style={st.uploadStatsRow}>
+          <Text style={st.uploadSubStatText}>{speedText}</Text>
+          <Text style={st.uploadSubStatText}>{formatUploadEta(stats.etaSeconds)}</Text>
+        </View>
+      </View>
+
+      {error && (onRetry || onChooseDifferent) ? (
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          {onRetry ? (
+            <Pressable onPress={onRetry} style={({ pressed }) => [st.primaryBtn, { flex: 1 }, pressed && st.pressed]}>
+              <Ionicons name="refresh" size={18} color="#fff" />
+              <Text style={st.primaryBtnText}>Retry Upload</Text>
+            </Pressable>
+          ) : null}
+          {onChooseDifferent ? (
+            <Pressable onPress={onChooseDifferent} style={({ pressed }) => [st.outlineBtn, { flex: 1 }, pressed && st.pressed]}>
+              <Text style={st.outlineBtnText}>Choose File</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 function screenKey(screen: Screen) {
@@ -2693,7 +2861,7 @@ function CreateSessionScreen({
   const rec = useRecording();
 
   const [phase, setPhase] = useState<"choose" | "uploading" | "details">("choose");
-  const [progress, setProgress] = useState(0);
+  const [uploadStats, setUploadStats] = useState<UploadStats>(initialUploadStats());
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
   const [fileSizeMB, setFileSizeMB] = useState<string | null>(null);
@@ -2729,11 +2897,11 @@ function CreateSessionScreen({
     setFileName(name);
     setFileSizeMB(size ? (size / 1024 / 1024).toFixed(1) : null);
     setPhase("uploading");
-    setProgress(0);
+    setUploadStats(initialUploadStats(size));
+    let sid = existingSessionId ?? sessionId;
 
     try {
       const defaultTitle = name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
-      let sid = existingSessionId ?? sessionId;
       if (!sid) {
         const sessionData = await createSession({
           title: title.trim() || defaultTitle,
@@ -2748,16 +2916,23 @@ function CreateSessionScreen({
       if (!title.trim()) setTitle(defaultTitle);
       if (draftNotes !== undefined) setNotes(draftNotes);
 
-      const interval = setInterval(() => setProgress((p) => Math.min(p + 6, 90)), 300);
-      try {
-        await uploadRecording(sid, uri, mimeType, name, durationSec);
-        setProgress(100);
-        showToast("Recording uploaded", "success");
-        setPhase("details");
-      } finally {
-        clearInterval(interval);
-      }
+      await uploadRecording(sid, uri, mimeType, name, durationSec, (next) => setUploadStats(uploadStatsFromProgress(next)));
+      await clearPendingRecordingUpload(sid);
+      setUploadStats((current) => ({ ...current, phase: "finalizing", percent: 100, etaSeconds: 0 }));
+      showToast("Recording uploaded", "success");
+      setPhase("details");
     } catch (err) {
+      if (sid) {
+        await savePendingRecordingUpload({
+          sessionId: sid,
+          uri,
+          mimeType,
+          name,
+          size: size ?? undefined,
+          durationSec,
+          savedAt: Date.now(),
+        });
+      }
       showToast(err instanceof Error ? err.message : "Upload failed", "error");
       setPhase("choose");
     }
@@ -2800,9 +2975,14 @@ function CreateSessionScreen({
           showToast("Failed to save recording", "error");
           return;
         }
+        let sid = meta.sessionId;
+        const recordingName = `tour-${Date.now()}.m4a`;
+        setFileName(recordingName);
+        setFileSizeMB(null);
+        setUploadStats(initialUploadStats());
+        setPhase("uploading");
         try {
           const defaultTitle = `tour-${Date.now()}`;
-          let sid = meta.sessionId;
           if (!sid) {
             const sessionData = await createSession({
               title: meta.title.trim() || defaultTitle,
@@ -2813,10 +2993,32 @@ function CreateSessionScreen({
             });
             sid = sessionData.session.id;
           }
-          await uploadRecording(sid, result.uri, "audio/m4a", `tour-${Date.now()}.m4a`, result.durationSec);
+          await uploadRecording(
+            sid,
+            result.uri,
+            "audio/m4a",
+            recordingName,
+            result.durationSec,
+            (next) => setUploadStats(uploadStatsFromProgress(next)),
+          );
+          await clearPendingRecordingUpload(sid);
+          setUploadStats((current) => ({ ...current, phase: "finalizing", percent: 100, etaSeconds: 0 }));
           showToast("Recording uploaded", "success");
           onCreated(sid);
         } catch (err) {
+          if (sid) {
+            await savePendingRecordingUpload({
+              sessionId: sid,
+              uri: result.uri,
+              mimeType: "audio/m4a",
+              name: recordingName,
+              durationSec: result.durationSec,
+              savedAt: Date.now(),
+            });
+            onCreated(sid);
+          } else {
+            setPhase("choose");
+          }
           showToast(err instanceof Error ? err.message : "Upload failed", "error");
         }
       },
@@ -2901,13 +3103,11 @@ function CreateSessionScreen({
         <View style={st.page}>
           <BackBtn label="Sessions" onPress={onBack} />
           <Text style={st.pageTitle}>New Session</Text>
-          <View style={[st.card, { padding: 24, gap: 12, alignItems: "center" }]}>
-            <ActivityIndicator size="large" color={C.brand} />
-            <Text style={st.formTitle}>Uploading...</Text>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec }} numberOfLines={1}>{fileName}</Text>
-            <View style={[st.progressTrack, { alignSelf: "stretch" }]}><AnimatedProgressFill percent={progress} /></View>
-            <Text style={st.pageSub}>{progress}%</Text>
-          </View>
+          <UploadStatusCard
+            fileName={fileName}
+            fileSize={fileSizeMB ? Number(fileSizeMB) * 1024 * 1024 : null}
+            stats={uploadStats}
+          />
         </View>
       </ScrollView>
     );
@@ -3622,6 +3822,21 @@ function ProcessingTimeline({ status }: { status: string }) {
   );
 }
 
+function processingTitle(status: string) {
+  switch (status) {
+    case "uploaded":
+      return "Preparing Your Tour";
+    case "transcribing":
+      return "Creating Transcript";
+    case "segmenting":
+      return "Organizing Tour Moments";
+    case "analyzing":
+      return "Scoring Conversation";
+    default:
+      return "Preparing Insights";
+  }
+}
+
 // ═══════════════════════════════════════
 // Upload & Process Card
 // ═══════════════════════════════════════
@@ -3649,9 +3864,11 @@ function UploadProcessCard({
   const [phase, setPhase] = useState<"idle" | "uploading" | "details" | "processing" | "done" | "error">(
     PROCESSING_STATUSES.has(status) ? "processing" : "idle"
   );
-  const [progress, setProgress] = useState(0);
+  const [uploadStats, setUploadStats] = useState<UploadStats>(initialUploadStats());
   const [errMsg, setErrMsg] = useState<string | null>(null);
-  const [pickedFile, setPickedFile] = useState<{ uri: string; mimeType: string; name: string; size?: number } | null>(null);
+  const [errorKind, setErrorKind] = useState<"upload" | "processing" | null>(null);
+  const [pickedFile, setPickedFile] = useState<RecordingUploadFile | null>(null);
+  const [pendingUploadChecked, setPendingUploadChecked] = useState(false);
 
   // Details form fields
   const [dTitle, setDTitle] = useState("");
@@ -3691,9 +3908,36 @@ function UploadProcessCard({
     if (status === "analysis_ready" || status === "reviewed") setPhase("done");
     if (status === "failed") {
       setErrMsg("Analysis did not complete. Retry when you have a stable connection.");
+      setErrorKind("processing");
       setPhase("error");
     }
   }, [status]);
+
+  useEffect(() => {
+    let mounted = true;
+    void loadPendingRecordingUpload(sessionId).then((pending) => {
+      if (!mounted) return;
+      if (!pending) {
+        setPendingUploadChecked(true);
+        return;
+      }
+      setPickedFile({
+        uri: pending.uri,
+        mimeType: pending.mimeType,
+        name: pending.name,
+        size: pending.size,
+        durationSec: pending.durationSec,
+      });
+      setUploadStats(initialUploadStats(pending.size));
+      setErrMsg("Upload did not finish. Retry when you have a stable connection.");
+      setErrorKind("upload");
+      setPhase("error");
+      setPendingUploadChecked(true);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [sessionId]);
 
   function addRecordingAsset(asset: Material) {
     if (selectedAssetIds.includes(asset.id)) return;
@@ -3713,6 +3957,42 @@ function UploadProcessCard({
     } catch (caught) {
       setRubricId(previous);
       showToast(caught instanceof Error ? caught.message : "Could not apply rubric", "error");
+    }
+  }
+
+  async function uploadPickedFile(file: RecordingUploadFile) {
+    setPickedFile(file);
+    setPhase("uploading");
+    setErrMsg(null);
+    setErrorKind(null);
+    setUploadStats(initialUploadStats(file.size));
+    try {
+      await uploadRecording(
+        sessionId,
+        file.uri,
+        file.mimeType,
+        file.name,
+        file.durationSec,
+        (next) => setUploadStats(uploadStatsFromProgress(next)),
+      );
+      await clearPendingRecordingUpload(sessionId);
+      setUploadStats((current) => ({ ...current, phase: "finalizing", percent: 100, etaSeconds: 0 }));
+      showToast("Recording uploaded", "success");
+      setPhase("details");
+    } catch (caught) {
+      await savePendingRecordingUpload({
+        sessionId,
+        uri: file.uri,
+        mimeType: file.mimeType,
+        name: file.name,
+        size: file.size,
+        durationSec: file.durationSec,
+        savedAt: Date.now(),
+      });
+      setPhase("error");
+      setErrorKind("upload");
+      setErrMsg(caught instanceof Error ? caught.message : "Upload failed");
+      showToast(caught instanceof Error ? caught.message : "Upload failed", "error");
     }
   }
 
@@ -3773,21 +4053,7 @@ function UploadProcessCard({
           return;
         }
         setDNotes(notes);
-        setPickedFile({ uri: result.uri, mimeType: "audio/m4a", name: `tour-${Date.now()}.m4a` });
-        setPhase("uploading");
-        setProgress(0);
-        const interval = setInterval(() => setProgress((value) => Math.min(value + 8, 90)), 300);
-        try {
-          await uploadRecording(sessionId, result.uri, "audio/m4a", `tour-${Date.now()}.m4a`, result.durationSec);
-          setProgress(100);
-          setPhase("details");
-          showToast("Recording uploaded", "success");
-        } catch (caught) {
-          setPhase("error");
-          setErrMsg(caught instanceof Error ? caught.message : "Upload failed");
-        } finally {
-          clearInterval(interval);
-        }
+        await uploadPickedFile({ uri: result.uri, mimeType: "audio/m4a", name: `tour-${Date.now()}.m4a`, durationSec: result.durationSec });
       },
     });
   }
@@ -3829,24 +4095,19 @@ function UploadProcessCard({
       const result = await DocumentPicker.getDocumentAsync({ type: ["video/*", "audio/*"], copyToCacheDirectory: true });
       if (result.canceled || !result.assets?.[0]) return;
       const file = result.assets[0];
-      setPickedFile({ uri: file.uri, mimeType: file.mimeType ?? "video/mp4", name: file.name ?? "recording.mp4", size: file.size ?? undefined });
-
-      // Upload immediately
-      setPhase("uploading");
-      setProgress(0);
-      const interval = setInterval(() => setProgress((p) => Math.min(p + 8, 90)), 300);
-      try {
-        await uploadRecording(sessionId, file.uri, file.mimeType ?? "video/mp4", file.name ?? "recording.mp4");
-        setProgress(100);
-        showToast("Recording uploaded", "success");
-        setPhase("details");
-      } finally {
-        clearInterval(interval);
-      }
+      await uploadPickedFile({
+        uri: file.uri,
+        mimeType: file.mimeType ?? "video/mp4",
+        name: file.name ?? "recording.mp4",
+        size: file.size ?? undefined,
+      });
     } catch (err) {
-      setPhase("error");
-      setErrMsg(err instanceof Error ? err.message : "Upload failed");
-      showToast(err instanceof Error ? err.message : "Upload failed", "error");
+      if (!pickedFile) {
+        setPhase("error");
+        setErrorKind("upload");
+        setErrMsg(err instanceof Error ? err.message : "Upload failed");
+        showToast(err instanceof Error ? err.message : "Upload failed", "error");
+      }
     }
   }
 
@@ -3871,6 +4132,7 @@ function UploadProcessCard({
     // Process the already-uploaded recording
     setPhase("processing");
     setErrMsg(null);
+    setErrorKind(null);
     try {
       await processSession(sessionId);
       setPhase("done");
@@ -3878,6 +4140,7 @@ function UploadProcessCard({
       setTimeout(onDone, 600);
     } catch (err) {
       setPhase("error");
+      setErrorKind("processing");
       setErrMsg(err instanceof Error ? err.message : "Processing failed");
       showToast(err instanceof Error ? err.message : "Processing failed", "error");
     }
@@ -3886,6 +4149,7 @@ function UploadProcessCard({
   async function startProcess() {
     setPhase("processing");
     setErrMsg(null);
+    setErrorKind(null);
     try {
       await processSession(sessionId);
       setPhase("done");
@@ -3893,6 +4157,7 @@ function UploadProcessCard({
       setTimeout(onDone, 600);
     } catch (err) {
       setPhase("error");
+      setErrorKind("processing");
       setErrMsg(err instanceof Error ? err.message : "Processing failed");
       showToast(err instanceof Error ? err.message : "Processing failed", "error");
     }
@@ -3900,15 +4165,16 @@ function UploadProcessCard({
 
   // Resume an uploaded session only after its evaluation rubric is resolved.
   useEffect(() => {
-    if (status !== "uploaded" || phase !== "idle" || !rubricsLoaded) return;
+    if (status !== "uploaded" || phase !== "idle" || !rubricsLoaded || !pendingUploadChecked) return;
     void (async () => {
       if (rubricId) await applyRubricToSession(sessionId, rubricId);
       await startProcess();
     })().catch((caught) => {
       setPhase("error");
+      setErrorKind("processing");
       setErrMsg(caught instanceof Error ? caught.message : "Processing failed");
     });
-  }, [phase, rubricId, rubricsLoaded, sessionId, status]);
+  }, [pendingUploadChecked, phase, rubricId, rubricsLoaded, sessionId, status]);
 
   // ── Idle: pick a file ──
   if (phase === "idle" && (status === "scheduled" || status === "in_progress")) {
@@ -3988,12 +4254,11 @@ function UploadProcessCard({
   // ── Uploading ──
   if (phase === "uploading") {
     return (
-      <View style={[st.card, { padding: 20, gap: 12, alignItems: "center" }]}>
-        <ActivityIndicator size="large" color={C.brand} />
-        <Text style={st.formTitle}>Uploading...</Text>
-        <View style={st.progressTrack}><AnimatedProgressFill percent={progress} /></View>
-        <Text style={st.pageSub}>{progress}% uploaded</Text>
-      </View>
+      <UploadStatusCard
+        fileName={pickedFile?.name}
+        fileSize={pickedFile?.size}
+        stats={uploadStats}
+      />
     );
   }
 
@@ -4002,7 +4267,7 @@ function UploadProcessCard({
     return (
       <View style={[st.card, { padding: 20, gap: 14, alignItems: "center" }]}>
         <ActivityIndicator size="large" color={C.brand} />
-        <Text style={st.formTitle}>Analyzing Your Tour</Text>
+        <Text style={st.formTitle}>{processingTitle(status)}</Text>
         <Text style={[st.pageSub, { textAlign: "center" }]}>{processingStatusMessage(status)}</Text>
         <ProcessingTimeline status={status} />
       </View>
@@ -4022,18 +4287,30 @@ function UploadProcessCard({
 
   // ── Error ──
   if (phase === "error") {
+    const uploadError = errorKind === "upload";
     return (
-      <View style={[st.card, { padding: 20, gap: 12 }]}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <Ionicons name="alert-circle" size={24} color={C.red} />
-          <Text style={[st.formTitle, { color: C.red }]}>Processing Failed</Text>
+      uploadError ? (
+        <UploadStatusCard
+          fileName={pickedFile?.name}
+          fileSize={pickedFile?.size}
+          stats={uploadStats}
+          error={errMsg ?? "Upload failed"}
+          onRetry={pickedFile ? () => void uploadPickedFile(pickedFile) : undefined}
+          onChooseDifferent={() => void pickAndUpload()}
+        />
+      ) : (
+        <View style={[st.card, { padding: 20, gap: 12 }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Ionicons name="alert-circle" size={24} color={C.red} />
+            <Text style={[st.formTitle, { color: C.red }]}>Processing Failed</Text>
+          </View>
+          {errMsg && <Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec }}>{errMsg}</Text>}
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <Pressable onPress={startProcess} style={({ pressed }) => [st.primaryBtn, { flex: 1 }, pressed && st.pressed]}><Text style={st.primaryBtnText}>Retry Analysis</Text></Pressable>
+            <Pressable onPress={pickAndUpload} style={({ pressed }) => [st.outlineBtn, { flex: 1 }, pressed && st.pressed]}><Text style={st.outlineBtnText}>Upload Different</Text></Pressable>
+          </View>
         </View>
-        {errMsg && <Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec }}>{errMsg}</Text>}
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          <Pressable onPress={startProcess} style={({ pressed }) => [st.primaryBtn, { flex: 1 }, pressed && st.pressed]}><Text style={st.primaryBtnText}>Retry</Text></Pressable>
-          <Pressable onPress={pickAndUpload} style={({ pressed }) => [st.outlineBtn, { flex: 1 }, pressed && st.pressed]}><Text style={st.outlineBtnText}>Upload Different</Text></Pressable>
-        </View>
-      </View>
+      )
     );
   }
 
@@ -5357,6 +5634,12 @@ const st = StyleSheet.create({
   // Progress
   progressTrack: { height: 6, borderRadius: 99, backgroundColor: "#f1f5f9", overflow: "hidden", alignSelf: "stretch" },
   progressFill: { height: "100%", borderRadius: 99, backgroundColor: C.brand },
+  uploadRing: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: C.brand + "10" },
+  uploadInfoPanel: { alignSelf: "stretch", gap: 9, padding: 14, borderWidth: 1, borderColor: C.border, borderRadius: 14, backgroundColor: "#f8fafc" },
+  uploadFileName: { color: C.text, fontSize: 14, lineHeight: 18, fontWeight: "900" },
+  uploadStatsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  uploadStatText: { color: C.text, fontSize: 12, fontWeight: "900" },
+  uploadSubStatText: { color: C.textSec, fontSize: 12, fontWeight: "800" },
 
   // Tabs
   tabsRow: { backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: C.border, padding: 4, flexGrow: 0 },

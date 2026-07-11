@@ -15,6 +15,7 @@ import {
   Dimensions,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -1111,9 +1112,9 @@ const CHECK_IN_REP = { slug: "alex", name: "Alex Johnson", firstName: "Alex" };
 const CHECK_IN_PROPERTY = "27 North";
 const CHECK_IN_URL = "https://tour.you/p/alex?check-in=true";
 const CHECK_IN_QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=12&format=png&data=${encodeURIComponent(CHECK_IN_URL)}`;
-const CHECK_IN_CONTACT_SHEET_RATIO = 0.72;
-const CHECK_IN_DETAIL_SHEET_RATIO = 0.76;
-const CHECK_IN_SHEET_MAX_HEIGHT = 650;
+const CHECK_IN_CONTACT_SHEET_RATIO = 0.68;
+const CHECK_IN_DETAIL_SHEET_RATIO = 0.75;
+const CHECK_IN_SHEET_MAX_HEIGHT = 620;
 const CHECK_IN_QUESTIONS: MobileCheckInQuestion[] = [
   {
     id: "hear_about",
@@ -1172,6 +1173,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   const [highlightedField, setHighlightedField] = useState<"firstName" | "email" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const checkInScrollRef = useRef<ScrollView>(null);
   const contactFieldOffsets = useRef<Record<string, number>>({});
   const firstNameRef = useRef<TextInput>(null);
@@ -1198,6 +1200,22 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
     setReason(`Tour ${propertyLabel}`);
     setError(null);
   }, [propertyLabel, visible]);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (event) => setKeyboardHeight(event.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboardHeight(0),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [visible]);
 
   async function submitLead() {
     setSubmitting(true);
@@ -1308,7 +1326,6 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
       visible={visible}
       onClose={closeSheet}
       sheetHeight={sheetHeight}
-      keyboardAvoiding
       contentStyle={homeSt.checkInSheetBody}
     >
           <View style={homeSt.sheetTabs}>
@@ -1357,7 +1374,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
             <ScrollView
               ref={checkInScrollRef}
               style={homeSt.checkInScroll}
-              contentContainerStyle={homeSt.checkInForm}
+              contentContainerStyle={[homeSt.checkInForm, keyboardHeight > 0 && homeSt.checkInFormKeyboard]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
@@ -1383,7 +1400,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
             <ScrollView
               ref={checkInScrollRef}
               style={homeSt.checkInScroll}
-              contentContainerStyle={homeSt.checkInForm}
+              contentContainerStyle={[homeSt.checkInForm, keyboardHeight > 0 && homeSt.checkInFormKeyboard]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
@@ -1497,7 +1514,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
           )}
 
           {mode === "checkin" && step !== "done" ? (
-            <View style={homeSt.floatingActionWrap}>
+            <View style={[homeSt.floatingActionWrap, keyboardHeight > 0 && { marginBottom: keyboardHeight }]}>
               {step === "questions" ? (
                 <Pressable onPress={goBackFromQuestions} style={({ pressed }) => [homeSt.floatingBackButton, pressed && st.pressed]}>
                   <Ionicons name="chevron-back" size={18} color={C.text} />
@@ -5345,9 +5362,10 @@ const homeSt = StyleSheet.create({
   sheetTabActive: { backgroundColor: "#fff", shadowColor: "#101828", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 1 },
   sheetTabText: { color: C.textMuted, fontSize: 13, fontWeight: "900" },
   sheetTabTextActive: { color: C.brand },
-  checkInSheetBody: { gap: 8 },
-  checkInScroll: { flexShrink: 1, maxHeight: "100%" },
+  checkInSheetBody: { flex: 1, minHeight: 0, gap: 8, overflow: "hidden" },
+  checkInScroll: { flex: 1, minHeight: 0 },
   checkInForm: { gap: 10, paddingBottom: 14 },
+  checkInFormKeyboard: { paddingBottom: 110 },
   skipButton: { alignSelf: "flex-end", paddingHorizontal: 8, paddingVertical: 2 },
   skipText: { color: "#0b0b0c", fontSize: 21, fontWeight: "900" },
   checkInHead: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 2 },

@@ -513,11 +513,20 @@ async function fetchLiveSessionChatJson(
     },
     body: JSON.stringify({ ...payload, responseMode: "json" }),
   });
-  const body = await response.json().catch(() => null) as { reply?: string; error?: string } | null;
-  if (!response.ok) {
-    throw new Error(body?.error ?? "Tour AI could not answer right now.");
+  const raw = await response.text().catch(() => "");
+  const trimmed = raw.trim();
+  let body: { reply?: string; error?: string } | null = null;
+  if (trimmed.startsWith("{")) {
+    try {
+      body = JSON.parse(trimmed) as { reply?: string; error?: string };
+    } catch {
+      body = null;
+    }
   }
-  return typeof body?.reply === "string" ? body.reply.trim() : "";
+  if (!response.ok) {
+    throw new Error(body?.error ?? (trimmed || "Tour AI could not answer right now."));
+  }
+  return typeof body?.reply === "string" ? body.reply.trim() : trimmed;
 }
 
 export async function sendLiveSessionChat(

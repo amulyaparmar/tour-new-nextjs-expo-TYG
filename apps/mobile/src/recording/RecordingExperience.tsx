@@ -23,7 +23,6 @@ import Reanimated, {
   FadeOut,
   FadeOutUp,
   LinearTransition,
-  SlideInLeft,
   SlideInRight,
   SlideOutRight,
 } from "react-native-reanimated";
@@ -33,7 +32,6 @@ import { createSession, fetchLiveSessionSuggestions, streamLiveSessionChat } fro
 import { ChatTypingIndicator, LiveChatMarkdown } from "./LiveChatMarkdown";
 import { supportsBackgroundRecording } from "../runtime";
 import { formatElapsed } from "./formatElapsed";
-import { LiveActivityBanner } from "./LiveActivityBanner";
 import { useRecording, WAVEFORM_BAR_COUNT } from "./RecordingProvider";
 
 const C = {
@@ -367,8 +365,8 @@ export function RecordingExperience({
   const sessionPaused = rec.isPaused;
   const sessionElapsed = rec.elapsed;
   const chatFocused = activeTab === "AI Chat";
-  const chatRecordingChrome = chatFocused && hasStarted;
-  const showBottomDock = !chatRecordingChrome;
+  const chatComposerMode = chatFocused && hasStarted;
+  const showBottomDock = !chatComposerMode;
   const canSendChat = Boolean(chatInput.trim()) && !chatBusy;
 
   useEffect(() => {
@@ -799,24 +797,13 @@ export function RecordingExperience({
 
   return (
     <KeyboardAvoidingView
-      style={[s.root, chatRecordingChrome && s.rootChat]}
+      style={s.root}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? (chatRecordingChrome ? Math.max(insets.top, 10) : 8) : 0}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
     >
-      {chatRecordingChrome ? (
-        <Reanimated.View
-          key="recording-banner"
-          entering={SlideInLeft.springify().damping(18).stiffness(170).mass(0.8)}
-          exiting={SlideOutRight.duration(180)}
-          style={s.bannerSlot}
-        >
-          <LiveActivityBanner topInset={Math.max(insets.top, 10)} forceVisible onStop={finishRecording} />
-        </Reanimated.View>
-      ) : (
-        <View style={s.stackShadow} />
-      )}
+      <View style={s.stackShadow} />
 
-      <View style={[s.sheet, chatRecordingChrome && s.sheetChat, showBottomDock && s.sheetWithDock]}>
+      <View style={[s.sheet, showBottomDock && s.sheetWithDock]}>
         <View style={s.topBar}>
           <Pressable
             accessibilityLabel={hasStarted ? "Minimize recording" : "Cancel recording"}
@@ -841,32 +828,30 @@ export function RecordingExperience({
           </Pressable>
         </View>
 
-        {!chatFocused ? (
-          <Reanimated.View
-            key="transcript-header"
-            entering={FadeInDown.duration(220)}
-            exiting={FadeOutUp.duration(160)}
-            layout={LinearTransition.duration(220)}
-            style={s.header}
-          >
-            <View style={s.livePill}>
-              <View style={[s.liveDot, !hasStarted && s.liveDotReady, sessionPaused && s.liveDotPaused]} />
-              <Text style={s.liveText}>{liveStatusLabel}</Text>
-            </View>
-            <Text style={s.title} numberOfLines={2}>
-              {title || "Live Mystery Shopping Calls"}
-            </Text>
-            <View style={s.metaRow}>
-              <MetaIcon
-                icon="calendar-outline"
-                text={new Date().toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" })}
-              />
-              <MetaIcon icon="time-outline" text={formatElapsed(sessionElapsed)} />
-              <MetaIcon icon="business-outline" text={agentName || "Tour agent"} />
-            </View>
-            <Text style={s.caption}>{statusCaption}</Text>
-          </Reanimated.View>
-        ) : null}
+        <Reanimated.View
+          key="recording-header"
+          entering={FadeInDown.duration(220)}
+          exiting={FadeOutUp.duration(160)}
+          layout={LinearTransition.duration(220)}
+          style={s.header}
+        >
+          <View style={s.livePill}>
+            <View style={[s.liveDot, !hasStarted && s.liveDotReady, sessionPaused && s.liveDotPaused]} />
+            <Text style={s.liveText}>{liveStatusLabel}</Text>
+          </View>
+          <Text style={s.title} numberOfLines={2}>
+            {title || "Live Mystery Shopping Calls"}
+          </Text>
+          <View style={s.metaRow}>
+            <MetaIcon
+              icon="calendar-outline"
+              text={new Date().toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" })}
+            />
+            <MetaIcon icon="time-outline" text={formatElapsed(sessionElapsed)} />
+            <MetaIcon icon="business-outline" text={agentName || "Tour agent"} />
+          </View>
+          <Text style={s.caption}>{statusCaption}</Text>
+        </Reanimated.View>
 
         <View style={s.tabs}>
           {TABS.map((tab) => (
@@ -1182,8 +1167,6 @@ function MetaIcon({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: 
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg, paddingTop: Platform.OS === "ios" ? 24 : 10, overflow: "visible" },
-  rootChat: { paddingTop: 0, backgroundColor: C.bg },
-  bannerSlot: { zIndex: 20 },
   stackShadow: {
     position: "absolute",
     top: Platform.OS === "ios" ? 36 : 18,
@@ -1196,7 +1179,6 @@ const s = StyleSheet.create({
     opacity: 1,
   },
   sheet: { flex: 1, marginTop: 22, borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: C.bg, overflow: "hidden" },
-  sheetChat: { marginTop: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 },
   sheetWithDock: { paddingBottom: Platform.OS === "ios" ? 132 : 120 },
   topBar: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8 },
   iconButton: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },

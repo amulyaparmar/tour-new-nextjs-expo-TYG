@@ -1,4 +1,4 @@
-import { streamText, type ModelMessage } from "ai";
+import { generateText, streamText, type ModelMessage } from "ai";
 import { NextResponse } from "next/server";
 
 import { getBedrockLanguageModelForAnalysis } from "@/lib/bedrock-language-model";
@@ -13,6 +13,7 @@ type LiveChatBody = {
   messages?: Array<{ role?: string; content?: string }>;
   liveTranscript?: string;
   propertyContext?: string;
+  responseMode?: "stream" | "json";
 };
 
 function normalizeMessages(body: LiveChatBody): ModelMessage[] {
@@ -73,23 +74,16 @@ async function loadCommunityContext(propertyId: string | null | undefined) {
   }
 }
 
-export async function POST(request: Request, context: Context) {
-  const { id } = await context.params;
-
-  try {
-    const session = await getSessionById(id);
-    if (!session) {
-      return NextResponse.json({ error: "Session not found." }, { status: 404 });
-    }
-
-    const body = (await request.json()) as LiveChatBody;
-    const messages = normalizeMessages(body);
-    const liveTranscript = truncate(body.liveTranscript, 8_000);
-    const clientPropertyContext = truncate(body.propertyContext, 4_000);
-    const dbPropertyContext = await loadCommunityContext(session.propertyId);
-    const propertyContext = [dbPropertyContext, clientPropertyContext].filter(Boolean).join("\n\n");
-
-    const instructions = `You are Tour AI, a live in-tour assistant for a multifamily leasing agent.
+function buildLiveChatInstructions({
+  session,
+  propertyContext,
+  liveTranscript,
+}: {
+  session: NonNullable<Awaited<ReturnType<typeof getSessionById>>>;
+  propertyContext: string;
+  liveTranscript: string;
+}) {
+  return `You are Tour AI, a live in-tour assistant for a multifamily leasing agent.
 
 Help the agent while they are actively touring with a prospect. Be concise, calm, and practical. Use the property/session context and live transcript if available. Prefer short bullets or one clear next line the agent can say out loud.
 
@@ -109,6 +103,34 @@ ${propertyContext || "No extra property context was provided."}
 
 ## Live transcript so far
 ${liveTranscript || "No live transcript has been captured yet."}`;
+}
+
+export async function POST(request: Request, context: Context) {
+  const { id } = await context.params;
+
+  try {
+    const session = await getSessionById(id);
+    if (!session) {
+      return NextResponse.json({ error: "Session not found." }, { status: 404 });
+    }
+
+    const body = (await request.json()) as LiveChatBody;
+    const messages = normalizeMessages(body);
+    const liveTranscript = truncate(body.liveTranscript, 8_000);
+    const clientPropertyContext = truncate(body.propertyContext, 4_000);
+    const dbPropertyContext = await loadCommunityContext(session.propertyId);
+    const propertyContext = [dbPropertyContext, clientPropertyContext].filter(Boolean).join("\n\n");
+    const instructions = buildLiveChatInstructions({ session, propertyContext, liveTranscript });
+
+    if (body.responseMode === "json" || request.headers.get("x-tour-response") === "json") {
+      const result = await generateText({
+        model: getBedrockLanguageModelForAnalysis(),
+        instructions,
+        messages,
+        temperature: 0.35,
+      });
+      return NextResponse.json({ reply: result.text.trim() });
+    }
 
     const result = streamText({
       model: getBedrockLanguageModelForAnalysis(),

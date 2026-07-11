@@ -59,6 +59,12 @@ const DEFAULT_PROMPTS = [
   "Mention pet policy",
   "Offer floor plan options",
 ] as const;
+const EMPTY_CHAT_PROMPTS = [
+  "How can I improve?",
+  "What's going well?",
+  "What needs to improve?",
+  "Give me 2 things to say",
+] as const;
 const WAVE_MIN_HEIGHT = 4;
 const WAVE_MAX_HEIGHT = 28;
 const PERMISSION_TIP_KEY = "tour.recording.permissionTip.dismissed";
@@ -933,6 +939,22 @@ export function RecordingExperience({
                     <Text style={s.emptyChatBody}>
                       It uses the session, community, notes, selected assets, and live transcript context.
                     </Text>
+                    <View style={s.emptyPromptGrid}>
+                      {EMPTY_CHAT_PROMPTS.map((prompt) => (
+                        <Pressable
+                          key={prompt}
+                          disabled={chatBusy}
+                          onPress={() => void submitChat(prompt)}
+                          style={({ pressed }) => [
+                            s.emptyPromptBubble,
+                            pressed && s.pressed,
+                            chatBusy && { opacity: 0.6 },
+                          ]}
+                        >
+                          <Text style={s.emptyPromptText}>{prompt}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
                   </View>
                 ) : (
                   chatMessages.map((message, index) => {
@@ -1226,6 +1248,19 @@ const s = StyleSheet.create({
   emptyChat: { alignItems: "center", gap: 8, padding: 22 },
   emptyChatTitle: { color: C.text, fontSize: 19, fontWeight: "900", textAlign: "center" },
   emptyChatBody: { color: C.textSec, fontSize: 14, lineHeight: 20, fontWeight: "700", textAlign: "center" },
+  emptyPromptGrid: { alignSelf: "stretch", gap: 10, marginTop: 14 },
+  emptyPromptBubble: {
+    minHeight: 48,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: "rgba(0,108,229,0.18)",
+    borderRadius: 18,
+    backgroundColor: C.bgDeep,
+  },
+  emptyPromptText: { color: C.text, fontSize: 14, lineHeight: 18, fontWeight: "900", textAlign: "center" },
+  pressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
   chatBubble: { maxWidth: "92%", borderRadius: 14, padding: 12, gap: 4 },
   chatUser: { alignSelf: "flex-end", backgroundColor: "rgba(109,134,255,0.22)" },
   chatAssistant: { alignSelf: "flex-start", backgroundColor: C.panel },

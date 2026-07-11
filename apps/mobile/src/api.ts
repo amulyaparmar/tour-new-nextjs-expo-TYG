@@ -393,15 +393,16 @@ export type LiveSessionChatMessage = {
   content: string;
 };
 
-function liveChatAuthHeaders(): Record<string, string> {
+function liveChatAuthHeaders(responseMode: "stream" | "json" = "stream"): Record<string, string> {
   const session = getCurrentSession();
   if (!session) throw new Error("Sign in is required.");
   return {
     Authorization: `Bearer ${session.accessToken}`,
     "x-admin-community-id": session.workspace.community.id,
     "x-tour-client": "mobile",
+    "x-tour-response": responseMode,
     "Content-Type": "application/json",
-    Accept: "application/octet-stream, text/plain, */*",
+    Accept: responseMode === "json" ? "application/json" : "application/octet-stream, text/plain, */*",
   };
 }
 
@@ -425,9 +426,28 @@ export async function streamLiveSessionChat(
   },
   onChunk: (text: string) => void,
 ): Promise<string> {
+  try {
+    return await streamLiveSessionChatResponse(sessionId, payload, onChunk);
+  } catch (error) {
+    const reply = await fetchLiveSessionChatJson(sessionId, payload);
+    if (reply) onChunk(reply);
+    if (reply) return reply;
+    throw error instanceof Error ? error : new Error("Tour AI could not answer right now.");
+  }
+}
+
+async function streamLiveSessionChatResponse(
+  sessionId: string,
+  payload: {
+    messages: LiveSessionChatMessage[];
+    liveTranscript?: string;
+    propertyContext?: string;
+  },
+  onChunk: (text: string) => void,
+): Promise<string> {
   const response = await expoFetch(`${getApiBaseUrl()}/api/sessions/${sessionId}/live-chat`, {
     method: "POST",
-    headers: liveChatAuthHeaders(),
+    headers: liveChatAuthHeaders("stream"),
     body: JSON.stringify(payload),
   });
 
@@ -475,6 +495,29 @@ export async function streamLiveSessionChat(
     onChunk(full);
   }
   return full.trim();
+}
+
+async function fetchLiveSessionChatJson(
+  sessionId: string,
+  payload: {
+    messages: LiveSessionChatMessage[];
+    liveTranscript?: string;
+    propertyContext?: string;
+  }
+): Promise<string> {
+  const response = await authenticatedFetch(`/api/sessions/${sessionId}/live-chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-tour-response": "json",
+    },
+    body: JSON.stringify({ ...payload, responseMode: "json" }),
+  });
+  const body = await response.json().catch(() => null) as { reply?: string; error?: string } | null;
+  if (!response.ok) {
+    throw new Error(body?.error ?? "Tour AI could not answer right now.");
+  }
+  return typeof body?.reply === "string" ? body.reply.trim() : "";
 }
 
 export async function sendLiveSessionChat(

@@ -24,13 +24,11 @@
     "mobile:build:ios": "npm --workspace @tour/mobile run build:ios",
     "mobile:submit:ios": "npm --workspace @tour/mobile run submit:ios",
     "mobile:testflight": "npm --workspace @tour/mobile run testflight",
-    "postinstall": "patch-package"
-  },
-  "dependencies": {
-    "patch-package": "^8.0.1"
+    "postinstall": "node scripts/apply-patches.cjs"
   },
   "devDependencies": {
     "next": "^16.0.0",
+    "patch-package": "^8.0.1",
     "react-native-worklets": "0.5.1",
     "turbo": "^2.8.0",
     "typescript": "^6.0.3"

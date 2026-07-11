@@ -1112,9 +1112,9 @@ const CHECK_IN_REP = { slug: "alex", name: "Alex Johnson", firstName: "Alex" };
 const CHECK_IN_PROPERTY = "27 North";
 const CHECK_IN_URL = "https://tour.you/p/alex?check-in=true";
 const CHECK_IN_QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=12&format=png&data=${encodeURIComponent(CHECK_IN_URL)}`;
-const CHECK_IN_CONTACT_SHEET_RATIO = 0.68;
-const CHECK_IN_DETAIL_SHEET_RATIO = 0.75;
-const CHECK_IN_SHEET_MAX_HEIGHT = 620;
+const CHECK_IN_CONTACT_SHEET_RATIO = 0.9;
+const CHECK_IN_DETAIL_SHEET_RATIO = 0.9;
+const CHECK_IN_SHEET_MAX_HEIGHT = 760;
 const CHECK_IN_QUESTIONS: MobileCheckInQuestion[] = [
   {
     id: "hear_about",
@@ -1340,177 +1340,183 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
           </View>
 
           {mode === "qr" ? (
-            <View style={homeSt.qrPanel}>
-              <View style={homeSt.qrCard}>
-                <Image source={{ uri: CHECK_IN_QR_URL }} style={homeSt.qrImage} resizeMode="contain" />
+            <Reanimated.View key="qr-step" entering={FadeIn.duration(160)} style={homeSt.checkInStepPane}>
+              <View style={homeSt.qrPanel}>
+                <View style={homeSt.qrCard}>
+                  <Image source={{ uri: CHECK_IN_QR_URL }} style={homeSt.qrImage} resizeMode="contain" />
+                </View>
+                <Text style={homeSt.qrTitle}>Scan to check in</Text>
+                <Text style={homeSt.qrSub}>{CHECK_IN_URL}</Text>
+                <View style={homeSt.qrShareGrid}>
+                  <Pressable onPress={() => void sendCheckInSms()} style={({ pressed }) => [homeSt.qrShareButton, homeSt.qrShareButtonPrimary, pressed && st.pressed]}>
+                    <Ionicons name="chatbubble-outline" size={17} color="#fff" />
+                    <Text style={homeSt.qrShareButtonPrimaryText}>SMS</Text>
+                  </Pressable>
+                  <Pressable onPress={() => void sendCheckInWhatsApp()} style={({ pressed }) => [homeSt.qrShareButton, pressed && st.pressed]}>
+                    <Ionicons name="logo-whatsapp" size={17} color="#16a34a" />
+                    <Text style={homeSt.qrShareButtonText}>WhatsApp</Text>
+                  </Pressable>
+                  <Pressable onPress={() => void shareCheckInLink()} style={({ pressed }) => [homeSt.qrShareButton, pressed && st.pressed]}>
+                    <Ionicons name="share-social-outline" size={17} color={C.text} />
+                    <Text style={homeSt.qrShareButtonText}>Share</Text>
+                  </Pressable>
+                </View>
               </View>
-              <Text style={homeSt.qrTitle}>Scan to check in</Text>
-              <Text style={homeSt.qrSub}>{CHECK_IN_URL}</Text>
-              <View style={homeSt.qrShareGrid}>
-                <Pressable onPress={() => void sendCheckInSms()} style={({ pressed }) => [homeSt.qrShareButton, homeSt.qrShareButtonPrimary, pressed && st.pressed]}>
-                  <Ionicons name="chatbubble-outline" size={17} color="#fff" />
-                  <Text style={homeSt.qrShareButtonPrimaryText}>SMS</Text>
-                </Pressable>
-                <Pressable onPress={() => void sendCheckInWhatsApp()} style={({ pressed }) => [homeSt.qrShareButton, pressed && st.pressed]}>
-                  <Ionicons name="logo-whatsapp" size={17} color="#16a34a" />
-                  <Text style={homeSt.qrShareButtonText}>WhatsApp</Text>
-                </Pressable>
-                <Pressable onPress={() => void shareCheckInLink()} style={({ pressed }) => [homeSt.qrShareButton, pressed && st.pressed]}>
-                  <Ionicons name="share-social-outline" size={17} color={C.text} />
-                  <Text style={homeSt.qrShareButtonText}>Share</Text>
-                </Pressable>
-              </View>
-            </View>
+            </Reanimated.View>
           ) : step === "done" ? (
-            <View style={homeSt.donePanel}>
+            <Reanimated.View key="done-step" entering={FadeInUp.duration(180)} style={[homeSt.checkInStepPane, homeSt.donePanel]}>
               <View style={homeSt.doneIcon}><Ionicons name="checkmark" size={34} color="#fff" /></View>
               <Text style={homeSt.qrTitle}>You're checked in</Text>
               <Text style={homeSt.qrSub}>Thanks for visiting {propertyLabel}. {CHECK_IN_REP.firstName} has the guest details and can start the tour.</Text>
               <Pressable onPress={closeSheet} style={({ pressed }) => [homeSt.sheetPrimary, pressed && st.pressed]}>
                 <Text style={homeSt.sheetPrimaryText}>Done</Text>
               </Pressable>
-            </View>
+            </Reanimated.View>
           ) : step === "questions" ? (
-            <ScrollView
-              ref={checkInScrollRef}
-              style={homeSt.checkInScroll}
-              contentContainerStyle={[homeSt.checkInForm, keyboardHeight > 0 && homeSt.checkInFormKeyboard]}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={homeSt.stepHeader}>
-                <Text style={homeSt.stepKicker}>Optional details</Text>
-                <Text style={homeSt.questionTitle}>{firstName ? `${firstName}, ` : ""}a few quick questions</Text>
-              </View>
-              {CHECK_IN_QUESTIONS.map((question) => (
-                <CheckInQuestionField
-                  key={question.id}
-                  question={question}
-                  value={answers[question.id] ?? ""}
-                  onChange={(value) => setAnswers((current) => ({ ...current, [question.id]: value }))}
-                />
-              ))}
-              <Pressable onPress={() => setWantsSummary((value) => !value)} style={homeSt.toggleRow}>
-                <Text style={homeSt.toggleText}>Send me follow-up notes after the tour</Text>
-                <Ionicons name={wantsSummary ? "checkbox" : "square-outline"} size={21} color={wantsSummary ? C.brand : C.textMuted} />
-              </Pressable>
-              {error && <Text style={homeSt.fieldError}>{error}</Text>}
-            </ScrollView>
-          ) : (
-            <ScrollView
-              ref={checkInScrollRef}
-              style={homeSt.checkInScroll}
-              contentContainerStyle={[homeSt.checkInForm, keyboardHeight > 0 && homeSt.checkInFormKeyboard]}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={homeSt.checkInHead}>
-                <View style={homeSt.formHeadAvatar}><Ionicons name="person-outline" size={23} color="#fff" /></View>
-                <Text style={homeSt.formHeadText}>Check in for your tour{"\n"}with {CHECK_IN_REP.firstName}</Text>
-              </View>
-              <View style={homeSt.formRow2}>
-                <CheckInField
-                  label="First name"
-                  value={firstName}
-                  onChangeText={(value) => {
-                    setFirstName(value);
-                    if (highlightedField === "firstName") setHighlightedField(null);
-                  }}
-                  autoComplete="given-name"
-                  autoFocus
-                  inputRef={firstNameRef}
-                  returnKeyType="next"
-                  blurOnSubmit={false}
-                  onSubmitEditing={() => focusNextInput(lastNameRef)}
-                  highlighted={highlightedField === "firstName"}
-                  onLayoutY={(y) => { contactFieldOffsets.current.firstName = y; }}
-                />
-                <CheckInField
-                  label="Last name"
-                  value={lastName}
-                  onChangeText={setLastName}
-                  autoComplete="family-name"
-                  inputRef={lastNameRef}
-                  returnKeyType="next"
-                  blurOnSubmit={false}
-                  onSubmitEditing={() => focusNextInput(emailRef)}
-                />
-              </View>
-              <CheckInField
-                label="Email"
-                value={email}
-                onChangeText={(value) => {
-                  setEmail(value);
-                  if (error) setError(null);
-                  if (highlightedField === "email") setHighlightedField(null);
-                }}
-                keyboardType="email-address"
-                autoComplete="email"
-                inputRef={emailRef}
-                returnKeyType="next"
-                blurOnSubmit={false}
-                onSubmitEditing={() => focusNextInput(phoneRef)}
-                highlighted={highlightedField === "email"}
-                onLayoutY={(y) => { contactFieldOffsets.current.email = y; }}
-              />
-              <View style={homeSt.phoneRow}>
-                <Pressable hitSlop={6} onPress={() => countryCodeRef.current?.focus()} style={homeSt.phoneCc}>
-                  <Text style={homeSt.phoneFlag}>🇺🇸</Text>
-                  <TextInput
-                    ref={countryCodeRef}
-                    value={countryCode}
-                    onChangeText={setCountryCode}
-                    keyboardType="phone-pad"
-                    autoComplete="tel-country-code"
-                    returnKeyType="next"
-                    blurOnSubmit={false}
-                    onSubmitEditing={() => focusNextInput(phoneRef)}
-                    placeholder="+1"
-                    placeholderTextColor="#6b7280"
-                    style={homeSt.phoneCcInput}
+            <Reanimated.View key="questions-step" entering={SlideInRight.duration(190)} exiting={SlideOutLeft.duration(140)} style={homeSt.checkInStepPane}>
+              <ScrollView
+                ref={checkInScrollRef}
+                style={homeSt.checkInScroll}
+                contentContainerStyle={[homeSt.checkInForm, keyboardHeight > 0 && homeSt.checkInFormKeyboard]}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={homeSt.stepHeader}>
+                  <Text style={homeSt.stepKicker}>Optional details</Text>
+                  <Text style={homeSt.questionTitle}>{firstName ? `${firstName}, ` : ""}a few quick questions</Text>
+                </View>
+                {CHECK_IN_QUESTIONS.map((question) => (
+                  <CheckInQuestionField
+                    key={question.id}
+                    question={question}
+                    value={answers[question.id] ?? ""}
+                    onChange={(value) => setAnswers((current) => ({ ...current, [question.id]: value }))}
                   />
+                ))}
+                <Pressable onPress={() => setWantsSummary((value) => !value)} style={homeSt.toggleRow}>
+                  <Text style={homeSt.toggleText}>Send me follow-up notes after the tour</Text>
+                  <Ionicons name={wantsSummary ? "checkbox" : "square-outline"} size={21} color={wantsSummary ? C.brand : C.textMuted} />
                 </Pressable>
-                <View style={st.flex1}>
+                {error && <Text style={homeSt.fieldError}>{error}</Text>}
+              </ScrollView>
+            </Reanimated.View>
+          ) : (
+            <Reanimated.View key="contact-step" entering={SlideInLeft.duration(190)} exiting={SlideOutRight.duration(140)} style={homeSt.checkInStepPane}>
+              <ScrollView
+                ref={checkInScrollRef}
+                style={homeSt.checkInScroll}
+                contentContainerStyle={[homeSt.checkInForm, keyboardHeight > 0 && homeSt.checkInFormKeyboard]}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={homeSt.checkInHead}>
+                  <View style={homeSt.formHeadAvatar}><Ionicons name="person-outline" size={23} color="#fff" /></View>
+                  <Text style={homeSt.formHeadText}>Check in for your tour{"\n"}with {CHECK_IN_REP.firstName}</Text>
+                </View>
+                <View style={homeSt.formRow2}>
                   <CheckInField
-                    label="Phone number"
-                    value={phone}
-                    onChangeText={(value) => setPhone(formatCheckInPhone(value))}
-                    keyboardType="phone-pad"
-                    autoComplete="tel"
-                    inputRef={phoneRef}
+                    label="First name"
+                    value={firstName}
+                    onChangeText={(value) => {
+                      setFirstName(value);
+                      if (highlightedField === "firstName") setHighlightedField(null);
+                    }}
+                    autoComplete="given-name"
+                    autoFocus
+                    inputRef={firstNameRef}
                     returnKeyType="next"
                     blurOnSubmit={false}
-                    onSubmitEditing={() => focusNextInput(reasonRef)}
+                    onSubmitEditing={() => focusNextInput(lastNameRef)}
+                    highlighted={highlightedField === "firstName"}
+                    onLayoutY={(y) => { contactFieldOffsets.current.firstName = y; }}
+                  />
+                  <CheckInField
+                    label="Last name"
+                    value={lastName}
+                    onChangeText={setLastName}
+                    autoComplete="family-name"
+                    inputRef={lastNameRef}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => focusNextInput(emailRef)}
                   />
                 </View>
-              </View>
-              <CheckInField
-                label="Reason for visit (optional)"
-                value={reason}
-                onChangeText={setReason}
-                inputRef={reasonRef}
-                returnKeyType={showJobTitle ? "next" : "done"}
-                blurOnSubmit={!showJobTitle}
-                onSubmitEditing={submitReasonField}
-              />
-              {showJobTitle ? (
                 <CheckInField
-                  label="Job title"
-                  value={jobTitle}
-                  onChangeText={setJobTitle}
-                  autoComplete="organization-title"
-                  inputRef={jobTitleRef}
-                  returnKeyType="done"
-                  onSubmitEditing={nextFromContact}
+                  label="Email"
+                  value={email}
+                  onChangeText={(value) => {
+                    setEmail(value);
+                    if (error) setError(null);
+                    if (highlightedField === "email") setHighlightedField(null);
+                  }}
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  inputRef={emailRef}
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => focusNextInput(phoneRef)}
+                  highlighted={highlightedField === "email"}
+                  onLayoutY={(y) => { contactFieldOffsets.current.email = y; }}
                 />
-              ) : (
-                <Pressable onPress={() => { setShowJobTitle(true); setTimeout(() => jobTitleRef.current?.focus(), 0); }} style={({ pressed }) => [homeSt.addJobButton, pressed && st.pressed]}>
-                  <Ionicons name="briefcase-outline" size={15} color="#111827" />
-                  <Text style={homeSt.addJobText}>Job title</Text>
-                </Pressable>
-              )}
-              {error && <Text style={homeSt.fieldError}>{error}</Text>}
-            </ScrollView>
+                <View style={homeSt.phoneRow}>
+                  <Pressable hitSlop={6} onPress={() => countryCodeRef.current?.focus()} style={homeSt.phoneCc}>
+                    <Text style={homeSt.phoneFlag}>🇺🇸</Text>
+                    <TextInput
+                      ref={countryCodeRef}
+                      value={countryCode}
+                      onChangeText={setCountryCode}
+                      keyboardType="phone-pad"
+                      autoComplete="tel-country-code"
+                      returnKeyType="next"
+                      blurOnSubmit={false}
+                      onSubmitEditing={() => focusNextInput(phoneRef)}
+                      placeholder="+1"
+                      placeholderTextColor="#6b7280"
+                      style={homeSt.phoneCcInput}
+                    />
+                  </Pressable>
+                  <View style={st.flex1}>
+                    <CheckInField
+                      label="Phone number"
+                      value={phone}
+                      onChangeText={(value) => setPhone(formatCheckInPhone(value))}
+                      keyboardType="phone-pad"
+                      autoComplete="tel"
+                      inputRef={phoneRef}
+                      returnKeyType="next"
+                      blurOnSubmit={false}
+                      onSubmitEditing={() => focusNextInput(reasonRef)}
+                    />
+                  </View>
+                </View>
+                <CheckInField
+                  label="Reason for visit (optional)"
+                  value={reason}
+                  onChangeText={setReason}
+                  inputRef={reasonRef}
+                  returnKeyType={showJobTitle ? "next" : "done"}
+                  blurOnSubmit={!showJobTitle}
+                  onSubmitEditing={submitReasonField}
+                />
+                {showJobTitle ? (
+                  <CheckInField
+                    label="Job title"
+                    value={jobTitle}
+                    onChangeText={setJobTitle}
+                    autoComplete="organization-title"
+                    inputRef={jobTitleRef}
+                    returnKeyType="done"
+                    onSubmitEditing={nextFromContact}
+                  />
+                ) : (
+                  <Pressable onPress={() => { setShowJobTitle(true); setTimeout(() => jobTitleRef.current?.focus(), 0); }} style={({ pressed }) => [homeSt.addJobButton, pressed && st.pressed]}>
+                    <Ionicons name="briefcase-outline" size={15} color="#111827" />
+                    <Text style={homeSt.addJobText}>Job title</Text>
+                  </Pressable>
+                )}
+                {error && <Text style={homeSt.fieldError}>{error}</Text>}
+              </ScrollView>
+            </Reanimated.View>
           )}
 
           {mode === "checkin" && step !== "done" ? (
@@ -5363,6 +5369,7 @@ const homeSt = StyleSheet.create({
   sheetTabText: { color: C.textMuted, fontSize: 13, fontWeight: "900" },
   sheetTabTextActive: { color: C.brand },
   checkInSheetBody: { flex: 1, minHeight: 0, gap: 8, overflow: "hidden" },
+  checkInStepPane: { flex: 1, minHeight: 0 },
   checkInScroll: { flex: 1, minHeight: 0 },
   checkInForm: { gap: 10, paddingBottom: 14 },
   checkInFormKeyboard: { paddingBottom: 110 },

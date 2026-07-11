@@ -1168,7 +1168,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   const [reason, setReason] = useState(`Tour ${propertyLabel}`);
   const [jobTitle, setJobTitle] = useState("");
   const [showJobTitle, setShowJobTitle] = useState(false);
-  const [wantsSummary, setWantsSummary] = useState(false);
+  const [wantsSummary, setWantsSummary] = useState(true);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [highlightedField, setHighlightedField] = useState<"firstName" | "email" | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -1198,6 +1198,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
     setStep("contact");
     setHighlightedField(null);
     setReason(`Tour ${propertyLabel}`);
+    setWantsSummary(true);
     setError(null);
   }, [propertyLabel, visible]);
 
@@ -1284,6 +1285,21 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   function nextFromQuestion() {
     setError(null);
     void submitLead();
+  }
+
+  function toggleFollowUpNotes() {
+    if (!wantsSummary) {
+      setWantsSummary(true);
+      return;
+    }
+    Alert.alert(
+      "Skip follow-up notes?",
+      "Follow-up notes help us send tour details after the visit. Are you sure you do not want them?",
+      [
+        { text: "Keep follow-ups", style: "cancel" },
+        { text: "Skip follow-ups", style: "destructive", onPress: () => setWantsSummary(false) },
+      ],
+    );
   }
 
   function focusNextInput(ref: React.RefObject<TextInput | null>) {
@@ -1393,7 +1409,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
                     onChange={(value) => setAnswers((current) => ({ ...current, [question.id]: value }))}
                   />
                 ))}
-                <Pressable onPress={() => setWantsSummary((value) => !value)} style={homeSt.toggleRow}>
+                <Pressable onPress={toggleFollowUpNotes} style={homeSt.toggleRow}>
                   <Text style={homeSt.toggleText}>Send me follow-up notes after the tour</Text>
                   <Ionicons name={wantsSummary ? "checkbox" : "square-outline"} size={21} color={wantsSummary ? C.brand : C.textMuted} />
                 </Pressable>

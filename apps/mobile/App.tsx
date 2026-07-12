@@ -1383,7 +1383,12 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               <View style={homeSt.doneIcon}><Ionicons name="checkmark" size={34} color="#fff" /></View>
               <Text style={homeSt.qrTitle}>You're checked in</Text>
               <Text style={homeSt.qrSub}>Thanks for visiting {propertyLabel}. {CHECK_IN_REP.firstName} has the guest details and can start the tour.</Text>
-              <Pressable onPress={closeSheet} style={({ pressed }) => [homeSt.sheetPrimary, pressed && st.pressed]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Finish check-in"
+                onPress={closeSheet}
+                style={({ pressed }) => [homeSt.sheetPrimary, pressed && st.pressed]}
+              >
                 <Text style={homeSt.sheetPrimaryText}>Done</Text>
               </Pressable>
             </Reanimated.View>
@@ -5774,7 +5779,7 @@ const homeSt = StyleSheet.create({
   sheetFieldMultiline: { minHeight: 82, alignItems: "flex-start", paddingTop: 14 },
   sheetInput: { flex: 1, color: C.text, fontSize: 14, fontWeight: "700", paddingVertical: 0 },
   sheetInputMultiline: { minHeight: 52, textAlignVertical: "top" },
-  sheetPrimary: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 4, borderRadius: 16, backgroundColor: "#111" },
+  sheetPrimary: { alignSelf: "stretch", width: "100%", minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 4, paddingHorizontal: 24, borderRadius: 16, backgroundColor: "#111" },
   sheetPrimaryText: { color: "#fff", fontSize: 15, fontWeight: "900" },
   qrPanel: { alignSelf: "stretch", alignItems: "center", gap: 12, paddingTop: 6 },
   qrCard: { width: 210, height: 210, alignItems: "center", justifyContent: "center", padding: 12, borderRadius: 24, backgroundColor: "#f8fafc" },

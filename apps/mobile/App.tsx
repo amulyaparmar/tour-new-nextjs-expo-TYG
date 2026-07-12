@@ -3440,6 +3440,8 @@ function SessionReviewExperience({
   const [commentComposerOpen, setCommentComposerOpen] = useState(false);
   const [selectionComment, setSelectionComment] = useState("");
   const [selectionBusy, setSelectionBusy] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [followPlayback, setFollowPlayback] = useState(true);
   const scrollRef = useRef<ScrollView | null>(null);
   const segmentY = useRef<Record<string, number>>({});
   const phaseY = useRef<Record<string, number>>({});
@@ -3447,10 +3449,12 @@ function SessionReviewExperience({
   const userDragging = useRef(false);
   const lastAutoSegment = useRef<string | null>(null);
   const reviewModeRef = useRef<SessionReviewMode>("transcript");
+  const followPlaybackRef = useRef(true);
   const longPressedSegmentRef = useRef<string | null>(null);
 
   useEffect(() => { setLocalActions(actions); }, [actions]);
   useEffect(() => { reviewModeRef.current = reviewMode; }, [reviewMode]);
+  useEffect(() => { followPlaybackRef.current = followPlayback; }, [followPlayback]);
 
   const playbackUrl = getRecordingPlaybackUrl(sessionId);
 
@@ -3482,10 +3486,11 @@ function SessionReviewExperience({
           setPlaying(status.isPlaying);
           const segment = transcript.find((item) => nextPosition >= item.startTime && nextPosition < item.endTime);
           if (segment) {
-            if (!userDragging.current) setActiveSegmentId(segment.id);
+            setActiveSegmentId(segment.id);
             if (
               status.isPlaying &&
               reviewModeRef.current === "transcript" &&
+              followPlaybackRef.current &&
               !userDragging.current &&
               lastAutoSegment.current !== segment.id
             ) {
@@ -3512,26 +3517,19 @@ function SessionReviewExperience({
     setPosition(next);
     if (shouldPlay) await sound.playAsync();
     const segment = transcript.find((item) => next >= item.startTime && next < item.endTime) ?? transcript[0];
-    if (reviewModeRef.current === "transcript") scrollToSegment(segment);
+    if (reviewModeRef.current === "transcript" && followPlaybackRef.current) scrollToSegment(segment);
   }, [duration, scrollToSegment, sound, transcript]);
 
-  const closestSegmentForOffset = useCallback((offset: number) => {
-    const anchor = offset + 96;
-    return transcript.reduce<any | null>((best, segment) => {
-      if (!best) return segment;
-      const segmentDistance = Math.abs((segmentY.current[segment.id] ?? 0) - anchor);
-      const bestDistance = Math.abs((segmentY.current[best.id] ?? 0) - anchor);
-      return segmentDistance < bestDistance ? segment : best;
-    }, null);
-  }, [transcript]);
+  function setPlaybackFollowing(next: boolean) {
+    followPlaybackRef.current = next;
+    setFollowPlayback(next);
+  }
 
-  const syncPlaybackToScroll = useCallback((offset: number) => {
-    if (reviewModeRef.current !== "transcript") return;
-    const closest = closestSegmentForOffset(offset);
-    userDragging.current = false;
-    const alreadyAtClosest = closest && position >= closest.startTime && position < closest.endTime;
-    if (closest && !alreadyAtClosest) void seekToSeconds(closest.startTime);
-  }, [closestSegmentForOffset, position, seekToSeconds]);
+  function returnToPlayingTranscript() {
+    setPlaybackFollowing(true);
+    const segment = transcript.find((item) => position >= item.startTime && position < item.endTime) ?? transcript[0];
+    if (segment) scrollToSegment(segment);
+  }
 
   async function togglePlayback() {
     if (!sound) return;
@@ -3585,6 +3583,14 @@ function SessionReviewExperience({
     const end = Math.max(...selectedSegments.map((segment) => segment.endTime));
     return { start, end };
   }, [selectedSegments]);
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    return transcript.filter((segment) =>
+      segment.text?.toLowerCase().includes(query) ||
+      segment.speaker?.toLowerCase().includes(query)
+    );
+  }, [searchQuery, transcript]);
 
   function beginSegmentSelection(segmentId: string) {
     impactHaptic();
@@ -3599,6 +3605,14 @@ function SessionReviewExperience({
         ? current.filter((id) => id !== segmentId)
         : [...current, segmentId]
     );
+  }
+
+  function openTranscriptAtSegment(segment: any) {
+    reviewModeRef.current = "transcript";
+    setReviewMode("transcript");
+    setPlaybackFollowing(true);
+    void seekToSeconds(segment.startTime, true);
+    requestAnimationFrame(() => scrollToSegment(segment));
   }
 
   async function saveSelectionComment() {
@@ -3685,20 +3699,14 @@ function SessionReviewExperience({
         showsVerticalScrollIndicator={false}
         stickyHeaderIndices={[1]}
         scrollEventThrottle={16}
-        onScroll={(event) => {
-          if (reviewMode !== "transcript" || !userDragging.current) return;
-          const closest = closestSegmentForOffset(event.nativeEvent.contentOffset.y);
-          if (closest) setActiveSegmentId(closest.id);
-        }}
         onScrollBeginDrag={() => {
-          if (reviewMode === "transcript") userDragging.current = true;
+          if (reviewMode === "transcript") {
+            userDragging.current = true;
+            setPlaybackFollowing(false);
+          }
         }}
-        onMomentumScrollEnd={(event) => {
-          syncPlaybackToScroll(event.nativeEvent.contentOffset.y);
-        }}
-        onScrollEndDrag={(event) => {
-          syncPlaybackToScroll(event.nativeEvent.contentOffset.y);
-        }}
+        onMomentumScrollEnd={() => { userDragging.current = false; }}
+        onScrollEndDrag={() => { userDragging.current = false; }}
       >
         <TourScreenHeader
           onBack={onBack}
@@ -3717,7 +3725,13 @@ function SessionReviewExperience({
         <View style={reviewSt.tabSticky}>
           <SessionModeTabs
             value={reviewMode}
-            onChange={setReviewMode}
+            onChange={(mode) => {
+              if (mode === "ai") {
+                onOpenAiChat();
+                return;
+              }
+              setReviewMode(mode);
+            }}
           />
         </View>
 
@@ -3750,6 +3764,56 @@ function SessionReviewExperience({
                   ))}
                 </CollapsibleSection>
               ) : null}
+            </View>
+          </AnimatedTabContent>
+        )}
+        {reviewMode === "search" && (
+          <AnimatedTabContent tabKey="search">
+            <View style={reviewSt.searchPanel}>
+              <View style={reviewSt.searchInputWrap}>
+                <Ionicons name="search" size={18} color={C.textMuted} />
+                <TextInput
+                  autoFocus
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Search transcript or speaker"
+                  placeholderTextColor={C.textMuted}
+                  returnKeyType="search"
+                  style={reviewSt.searchInput}
+                />
+                {searchQuery ? (
+                  <Pressable onPress={() => setSearchQuery("")} hitSlop={10}>
+                    <Ionicons name="close-circle" size={18} color={C.textMuted} />
+                  </Pressable>
+                ) : null}
+              </View>
+              {!searchQuery.trim() ? (
+                <Text style={reviewSt.searchHint}>Search names, phrases, questions, or moments from this session.</Text>
+              ) : searchResults.length === 0 ? (
+                <EmptyState icon="search-outline" title="No matches" subtitle="Try another word or phrase." />
+              ) : (
+                <View style={reviewSt.searchResults}>
+                  <Text style={reviewSt.searchCount}>{searchResults.length} result{searchResults.length === 1 ? "" : "s"}</Text>
+                  {searchResults.map((segment) => (
+                    <Pressable
+                      key={segment.id}
+                      onPress={() => openTranscriptAtSegment(segment)}
+                      style={reviewSt.searchResult}
+                    >
+                      <View style={reviewSt.searchResultIcon}>
+                        <Ionicons name="play" size={13} color={C.brand} />
+                      </View>
+                      <View style={st.flex1}>
+                        <View style={reviewSt.searchResultMeta}>
+                          <Text style={reviewSt.searchResultSpeaker}>{segment.speaker}</Text>
+                          <Text style={reviewSt.searchResultTime}>{fmtSec(segment.startTime)}</Text>
+                        </View>
+                        <Text style={reviewSt.searchResultText} numberOfLines={3}>{segment.text}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
           </AnimatedTabContent>
         )}
@@ -3824,7 +3888,10 @@ function SessionReviewExperience({
                         return;
                       }
                       if (selectedSegmentIds.length > 0) toggleSegmentSelection(segment.id);
-                      else void seekToSeconds(segment.startTime, true);
+                      else {
+                        setPlaybackFollowing(true);
+                        void seekToSeconds(segment.startTime, true);
+                      }
                     }}
                     style={reviewSt.turnMain}
                   >
@@ -3934,6 +4001,8 @@ function SessionReviewExperience({
         onToggle={() => void togglePlayback()}
         onSpeed={() => void changeSpeed()}
         onSeek={(ratio) => void seekToSeconds(ratio * duration)}
+        showReturnToPlaying={reviewMode === "transcript" && !followPlayback}
+        onReturnToPlaying={returnToPlayingTranscript}
       />
 
       <Modal
@@ -5760,6 +5829,18 @@ const reviewSt = StyleSheet.create({
     fontWeight: "900",
     color: "#101828",
   },
+  searchPanel: { gap: 12, paddingTop: 4 },
+  searchInputWrap: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 13, borderWidth: 1, borderColor: "#dbe3ef", borderRadius: 14, backgroundColor: "#fff" },
+  searchInput: { flex: 1, color: C.text, fontSize: 15, fontWeight: "600" },
+  searchHint: { paddingHorizontal: 4, color: C.textMuted, fontSize: 12, lineHeight: 18, fontWeight: "600" },
+  searchResults: { gap: 8 },
+  searchCount: { color: C.textMuted, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  searchResult: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 12, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 14, backgroundColor: "#fff" },
+  searchResultIcon: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: "#eff6ff" },
+  searchResultMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 3 },
+  searchResultSpeaker: { flex: 1, color: C.brand, fontSize: 11, fontWeight: "900" },
+  searchResultTime: { color: C.textMuted, fontSize: 10, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  searchResultText: { color: C.textSec, fontSize: 13, lineHeight: 18, fontWeight: "600" },
   header: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
   headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e6eaf0", borderRadius: 12, backgroundColor: "#fff" },
   propertyPicker: { maxWidth: 210, minHeight: 36, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#eef2f7" },

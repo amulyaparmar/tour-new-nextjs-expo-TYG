@@ -1,7 +1,7 @@
-import { ClipboardList, GraduationCap, MessageCircle, MessageSquare } from "lucide-react-native";
+import { ClipboardList, GraduationCap, MessageCircle, MessageSquare, Search, Sparkles } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
@@ -9,7 +9,7 @@ import { selectionHaptic } from "@/lib/haptics";
 
 import { SESSION_PAGE_PADDING } from "./session-layout";
 
-export type SessionReviewMode = "rubric" | "transcript" | "coaching" | "comments";
+export type SessionReviewMode = "rubric" | "transcript" | "search" | "coaching" | "comments" | "ai";
 
 const MODES: Array<{
   id: SessionReviewMode;
@@ -18,8 +18,10 @@ const MODES: Array<{
 }> = [
   { id: "rubric", label: "Rubric", icon: ClipboardList },
   { id: "transcript", label: "Transcript", icon: MessageSquare },
+  { id: "search", label: "Search", icon: Search },
   { id: "coaching", label: "Coaching", icon: GraduationCap },
   { id: "comments", label: "Comments", icon: MessageCircle },
+  { id: "ai", label: "AI Chat", icon: Sparkles },
 ];
 
 export function SessionModeTabs({
@@ -31,7 +33,11 @@ export function SessionModeTabs({
 }) {
   return (
     <View style={styles.wrap}>
-      <View style={styles.bar}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.bar}
+      >
         {MODES.map((mode) => {
           const active = value === mode.id;
           return (
@@ -52,7 +58,7 @@ export function SessionModeTabs({
             </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -66,11 +72,12 @@ const styles = StyleSheet.create({
   },
   bar: {
     flexDirection: "row",
+    paddingRight: SESSION_PAGE_PADDING,
     borderBottomWidth: 1,
     borderBottomColor: "#e2e8f0",
   },
   tab: {
-    flex: 1,
+    minWidth: 112,
     minHeight: 48,
     flexDirection: "row",
     alignItems: "center",

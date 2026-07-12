@@ -1,4 +1,4 @@
-import { Pause, Play } from "lucide-react-native";
+import { LocateFixed, Pause, Play } from "lucide-react-native";
 import React, { useRef } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -18,6 +18,8 @@ export function SessionPlayer({
   onToggle,
   onSpeed,
   onSeek,
+  showReturnToPlaying = false,
+  onReturnToPlaying,
 }: {
   position: number;
   duration: number;
@@ -28,6 +30,8 @@ export function SessionPlayer({
   onToggle: () => void;
   onSpeed: () => void;
   onSeek: (ratio: number) => void;
+  showReturnToPlaying?: boolean;
+  onReturnToPlaying?: () => void;
 }) {
   const trackWidth = useRef(0);
 
@@ -39,6 +43,17 @@ export function SessionPlayer({
 
   return (
     <View style={styles.dock}>
+      {showReturnToPlaying && onReturnToPlaying ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Return to currently playing transcript"
+          onPress={onReturnToPlaying}
+          style={styles.returnButton}
+        >
+          <Icon as={LocateFixed} size={14} color="#006ce5" />
+          <Text style={styles.returnText}>Return to playing</Text>
+        </Pressable>
+      ) : null}
       <View
         accessibilityRole="adjustable"
         accessibilityLabel="Recording playhead"
@@ -123,6 +138,24 @@ const styles = StyleSheet.create({
   trackHit: {
     minHeight: 34,
     justifyContent: "center",
+  },
+  returnButton: {
+    alignSelf: "center",
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+  },
+  returnText: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: "#006ce5",
   },
   track: {
     height: 6,

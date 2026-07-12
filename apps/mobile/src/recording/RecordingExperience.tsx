@@ -1256,7 +1256,7 @@ const s = StyleSheet.create({
   pressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
   chatBubble: { maxWidth: "92%", borderRadius: 14, padding: 12, gap: 4 },
   chatUser: { alignSelf: "flex-end", backgroundColor: "rgba(109,134,255,0.22)" },
-  chatAssistant: { alignSelf: "flex-start", backgroundColor: C.panel },
+  chatAssistant: { alignSelf: "flex-start", width: "92%", backgroundColor: C.panel },
   chatRole: { color: C.textMuted, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
   chatCopy: { color: C.text, fontSize: 15, lineHeight: 22, fontWeight: "600" },
   chatError: { color: C.red, fontSize: 13, fontWeight: "800" },

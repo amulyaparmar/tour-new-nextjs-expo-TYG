@@ -283,7 +283,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       waveformLevelsRef.current = EMPTY_WAVEFORM;
       setWaveformLevels(EMPTY_WAVEFORM);
       liveActivityTickRef.current = 0;
-      startRecordingLiveActivity();
+      startRecordingLiveActivity(liveMetaRef.current?.title);
 
       timerRef.current = setInterval(() => {
         setElapsed((current) => {

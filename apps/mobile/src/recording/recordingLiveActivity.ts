@@ -4,14 +4,15 @@ type LiveActivityModule = typeof import("expo-live-activity");
 
 let activityId: string | undefined;
 let recordingStartMs: number | undefined;
+let recordingSessionTitle = "Tour conversation";
 let liveActivityAvailable: boolean | undefined;
 
-/** Tour brand colors + mark asset (see assets/liveActivity/tour-mark.png). */
+/** Tour brand colors. Native SwiftUI supplies the play-mark lockup. */
 const TOUR_LIVE_ACTIVITY = {
-  imageName: "tour-mark",
-  dynamicIslandImageName: "tour-mark",
   config: {
-    backgroundColor: "006CE5",
+    // Deep Tour blue keeps the white wordmark crisp and gives the #4D8AE5
+    // play mark enough contrast on the Lock Screen notification card.
+    backgroundColor: "0B2740",
     titleColor: "FFFFFF",
     subtitleColor: "FFFFFFCC",
     progressViewTint: "FFFFFF",
@@ -39,14 +40,15 @@ function getLiveActivity(): LiveActivityModule | null {
 
 function liveActivityState(_elapsed: number, isPaused: boolean, finished = false) {
   const state: import("expo-live-activity").LiveActivityState = {
-    title: finished ? "Saved" : isPaused ? "Paused" : "Recording",
-    imageName: TOUR_LIVE_ACTIVITY.imageName,
-    dynamicIslandImageName: TOUR_LIVE_ACTIVITY.dynamicIslandImageName,
+    title: recordingSessionTitle,
+    subtitle: finished ? "Saved" : isPaused ? "Paused" : "Recording",
   };
 
   if (recordingStartMs && !isPaused && !finished) {
     state.progressBar = {
-      date: recordingStartMs + 4 * 60 * 60 * 1000,
+      // The native Tour widget treats this as the recording start timestamp
+      // and renders an elapsed timer that counts upward.
+      date: recordingStartMs,
     };
   }
 
@@ -66,9 +68,10 @@ function runLiveActivity(action: (LiveActivity: LiveActivityModule) => void): vo
   }
 }
 
-export function startRecordingLiveActivity(): void {
+export function startRecordingLiveActivity(sessionTitle?: string | null): void {
   runLiveActivity((LiveActivity) => {
     recordingStartMs = Date.now();
+    recordingSessionTitle = sessionTitle?.trim() || "Tour conversation";
     const id = LiveActivity.startActivity(liveActivityState(0, false), TOUR_LIVE_ACTIVITY.config);
     activityId = id ?? undefined;
   });
@@ -87,5 +90,6 @@ export function stopRecordingLiveActivity(elapsed: number): void {
     LiveActivity.stopActivity(activityId!, liveActivityState(elapsed, false, true));
     activityId = undefined;
     recordingStartMs = undefined;
+    recordingSessionTitle = "Tour conversation";
   });
 }

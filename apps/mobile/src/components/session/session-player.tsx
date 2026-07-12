@@ -31,14 +31,29 @@ export function SessionPlayer({
 }) {
   const trackWidth = useRef(0);
 
+  function seekAt(x: number) {
+    const width = trackWidth.current;
+    if (width <= 0) return;
+    onSeek(Math.max(0, Math.min(1, x / width)));
+  }
+
   return (
     <View style={styles.dock}>
-      <Pressable
-        onPress={(event) => {
-          const width = trackWidth.current;
-          if (width <= 0) return;
-          onSeek(Math.max(0, Math.min(1, event.nativeEvent.locationX / width)));
+      <View
+        accessibilityRole="adjustable"
+        accessibilityLabel="Recording playhead"
+        accessibilityValue={{ min: 0, max: Math.max(0, Math.round(duration)), now: Math.round(position) }}
+        accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
+        onAccessibilityAction={(event) => {
+          if (duration <= 0) return;
+          const delta = event.nativeEvent.actionName === "increment" ? 5 : -5;
+          onSeek(Math.max(0, Math.min(1, (position + delta) / duration)));
         }}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(event) => seekAt(event.nativeEvent.locationX)}
+        onResponderMove={(event) => seekAt(event.nativeEvent.locationX)}
+        onResponderRelease={(event) => seekAt(event.nativeEvent.locationX)}
         style={styles.trackHit}
       >
         <View
@@ -48,8 +63,9 @@ export function SessionPlayer({
           }}
         >
           <View style={[styles.fill, { width: `${progressPercent}%` }]} />
+          <View pointerEvents="none" style={[styles.thumb, { left: `${progressPercent}%` }]} />
         </View>
-      </Pressable>
+      </View>
 
       <View style={styles.row}>
         <Pressable onPress={onSpeed} hitSlop={10} style={styles.speedBtn}>
@@ -105,18 +121,35 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   trackHit: {
-    paddingVertical: 4,
+    minHeight: 34,
+    justifyContent: "center",
   },
   track: {
-    height: 4,
+    height: 6,
     borderRadius: 999,
     backgroundColor: "#e8edf5",
-    overflow: "hidden",
+    overflow: "visible",
   },
   fill: {
     height: "100%",
     borderRadius: 999,
     backgroundColor: "#006ce5",
+  },
+  thumb: {
+    position: "absolute",
+    top: -7,
+    width: 20,
+    height: 20,
+    marginLeft: -10,
+    borderRadius: 10,
+    borderWidth: 3,
+    borderColor: "#fff",
+    backgroundColor: "#006ce5",
+    shadowColor: "#101828",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.22,
+    shadowRadius: 4,
+    elevation: 4,
   },
   row: {
     flexDirection: "row",

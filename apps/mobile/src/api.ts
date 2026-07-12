@@ -333,6 +333,7 @@ export type SessionComment = {
   sessionId: string;
   authorName: string;
   body: string;
+  kind: "comment" | "key_moment";
   timestampSec: number | null;
   parentId: string | null;
   createdAt: string;
@@ -348,6 +349,7 @@ export async function fetchComments(sessionId: string) {
 export async function postComment(sessionId: string, payload: {
   body: string;
   authorName?: string;
+  kind?: "comment" | "key_moment";
   timestampSec?: number | null;
   parentId?: string | null;
 }) {

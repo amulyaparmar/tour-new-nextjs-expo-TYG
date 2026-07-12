@@ -122,7 +122,6 @@ import {
   SessionModeTabs,
   SessionPlayer,
   SessionReviewSkeleton,
-  SessionSummaryStrip,
   TourScreenHeader,
   SESSION_PAGE_PADDING,
   type SessionReviewMode,
@@ -3436,13 +3435,22 @@ function SessionReviewExperience({
   const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(transcript[0]?.id ?? null);
-  const [reviewMode, setReviewMode] = useState<SessionReviewMode>("rubric");
+  const [reviewMode, setReviewMode] = useState<SessionReviewMode>("transcript");
+  const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
+  const [commentComposerOpen, setCommentComposerOpen] = useState(false);
+  const [selectionComment, setSelectionComment] = useState("");
+  const [selectionBusy, setSelectionBusy] = useState(false);
   const scrollRef = useRef<ScrollView | null>(null);
   const segmentY = useRef<Record<string, number>>({});
+  const phaseY = useRef<Record<string, number>>({});
+  const tabBodyY = useRef(0);
   const userDragging = useRef(false);
   const lastAutoSegment = useRef<string | null>(null);
+  const reviewModeRef = useRef<SessionReviewMode>("transcript");
+  const longPressedSegmentRef = useRef<string | null>(null);
 
   useEffect(() => { setLocalActions(actions); }, [actions]);
+  useEffect(() => { reviewModeRef.current = reviewMode; }, [reviewMode]);
 
   const playbackUrl = getRecordingPlaybackUrl(sessionId);
 
@@ -3474,8 +3482,13 @@ function SessionReviewExperience({
           setPlaying(status.isPlaying);
           const segment = transcript.find((item) => nextPosition >= item.startTime && nextPosition < item.endTime);
           if (segment) {
-            setActiveSegmentId(segment.id);
-            if (status.isPlaying && !userDragging.current && lastAutoSegment.current !== segment.id) {
+            if (!userDragging.current) setActiveSegmentId(segment.id);
+            if (
+              status.isPlaying &&
+              reviewModeRef.current === "transcript" &&
+              !userDragging.current &&
+              lastAutoSegment.current !== segment.id
+            ) {
               lastAutoSegment.current = segment.id;
               scrollToSegment(segment);
             }
@@ -3499,8 +3512,26 @@ function SessionReviewExperience({
     setPosition(next);
     if (shouldPlay) await sound.playAsync();
     const segment = transcript.find((item) => next >= item.startTime && next < item.endTime) ?? transcript[0];
-    scrollToSegment(segment);
+    if (reviewModeRef.current === "transcript") scrollToSegment(segment);
   }, [duration, scrollToSegment, sound, transcript]);
+
+  const closestSegmentForOffset = useCallback((offset: number) => {
+    const anchor = offset + 96;
+    return transcript.reduce<any | null>((best, segment) => {
+      if (!best) return segment;
+      const segmentDistance = Math.abs((segmentY.current[segment.id] ?? 0) - anchor);
+      const bestDistance = Math.abs((segmentY.current[best.id] ?? 0) - anchor);
+      return segmentDistance < bestDistance ? segment : best;
+    }, null);
+  }, [transcript]);
+
+  const syncPlaybackToScroll = useCallback((offset: number) => {
+    if (reviewModeRef.current !== "transcript") return;
+    const closest = closestSegmentForOffset(offset);
+    userDragging.current = false;
+    const alreadyAtClosest = closest && position >= closest.startTime && position < closest.endTime;
+    if (closest && !alreadyAtClosest) void seekToSeconds(closest.startTime);
+  }, [closestSegmentForOffset, position, seekToSeconds]);
 
   async function togglePlayback() {
     if (!sound) return;
@@ -3516,7 +3547,6 @@ function SessionReviewExperience({
   }
 
   const pct = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
-  const openActionCount = localActions.filter((action) => action.status === "open").length;
   const focusSection = useMemo(() => {
     const sections = analysis.sectionScores;
     if (!sections.length) return null;
@@ -3532,6 +3562,92 @@ function SessionReviewExperience({
       .filter((moment) => moment.seconds !== null)
       .sort((left, right) => (left.seconds ?? 0) - (right.seconds ?? 0));
   }, [analysis.exactMoments]);
+  const commentsBySegment = useMemo(() => {
+    const mapped = new Map<string, SessionComment[]>();
+    for (const comment of comments) {
+      if (comment.timestampSec == null || comment.parentId || transcript.length === 0) continue;
+      const nearest = transcript.reduce((best, segment) =>
+        Math.abs(segment.startTime - comment.timestampSec!) < Math.abs(best.startTime - comment.timestampSec!)
+          ? segment
+          : best
+      , transcript[0]);
+      mapped.set(nearest.id, [...(mapped.get(nearest.id) ?? []), comment]);
+    }
+    return mapped;
+  }, [comments, transcript]);
+  const selectedSegments = useMemo(
+    () => transcript.filter((segment) => selectedSegmentIds.includes(segment.id)),
+    [selectedSegmentIds, transcript]
+  );
+  const selectionRange = useMemo(() => {
+    if (selectedSegments.length === 0) return null;
+    const start = Math.min(...selectedSegments.map((segment) => segment.startTime));
+    const end = Math.max(...selectedSegments.map((segment) => segment.endTime));
+    return { start, end };
+  }, [selectedSegments]);
+
+  function beginSegmentSelection(segmentId: string) {
+    impactHaptic();
+    longPressedSegmentRef.current = segmentId;
+    setSelectedSegmentIds([segmentId]);
+  }
+
+  function toggleSegmentSelection(segmentId: string) {
+    selectionHaptic();
+    setSelectedSegmentIds((current) =>
+      current.includes(segmentId)
+        ? current.filter((id) => id !== segmentId)
+        : [...current, segmentId]
+    );
+  }
+
+  async function saveSelectionComment() {
+    if (!selectionRange || !selectionComment.trim()) return;
+    setSelectionBusy(true);
+    try {
+      await postComment(sessionId, {
+        body: selectionComment.trim(),
+        kind: "comment",
+        timestampSec: selectionRange.start,
+      });
+      setCommentComposerOpen(false);
+      setSelectionComment("");
+      setSelectedSegmentIds([]);
+      showToast("Comment added to transcript", "success");
+      onReload();
+    } catch {
+      showToast("Could not add comment", "error");
+    } finally {
+      setSelectionBusy(false);
+    }
+  }
+
+  async function createSelectionClip() {
+    if (!selectionRange || selectedSegments.length === 0) return;
+    setSelectionBusy(true);
+    const excerpt = selectedSegments.map((segment) => `${segment.speaker}: ${segment.text}`).join("\n");
+    const rangeLabel = `${fmtSec(selectionRange.start)}–${fmtSec(selectionRange.end)}`;
+    const clipUrl = `${getApiBaseUrl()}/api/sessions/${sessionId}/recording#t=${Math.floor(selectionRange.start)},${Math.ceil(selectionRange.end)}`;
+    try {
+      await postComment(sessionId, {
+        body: `Clip ${rangeLabel}\n${excerpt}`,
+        kind: "key_moment",
+        timestampSec: selectionRange.start,
+      });
+      await Share.share({
+        title: `${session.title} clip · ${rangeLabel}`,
+        message: `${session.title} · ${rangeLabel}\n\n${excerpt}\n\n${clipUrl}`,
+        url: clipUrl,
+      });
+      setSelectedSegmentIds([]);
+      showToast("Clip created and saved", "success");
+      onReload();
+    } catch {
+      showToast("Could not create clip", "error");
+    } finally {
+      setSelectionBusy(false);
+    }
+  }
 
   function openSessionMoreMenu() {
     Alert.alert("Session options", undefined, [
@@ -3567,23 +3683,21 @@ function SessionReviewExperience({
         style={reviewSt.scrollBody}
         contentContainerStyle={reviewSt.scrollContent}
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[2]}
+        stickyHeaderIndices={[1]}
         scrollEventThrottle={16}
+        onScroll={(event) => {
+          if (reviewMode !== "transcript" || !userDragging.current) return;
+          const closest = closestSegmentForOffset(event.nativeEvent.contentOffset.y);
+          if (closest) setActiveSegmentId(closest.id);
+        }}
         onScrollBeginDrag={() => {
           if (reviewMode === "transcript") userDragging.current = true;
         }}
         onMomentumScrollEnd={(event) => {
-          if (reviewMode !== "transcript") return;
-          const offset = event.nativeEvent.contentOffset.y;
-          const closest = transcript.reduce<any | null>((best, segment) => {
-            if (!best) return segment;
-            return Math.abs((segmentY.current[segment.id] ?? 0) - offset) < Math.abs((segmentY.current[best.id] ?? 0) - offset) ? segment : best;
-          }, null);
-          userDragging.current = false;
-          if (closest && closest.id !== activeSegmentId) void seekToSeconds(closest.startTime);
+          syncPlaybackToScroll(event.nativeEvent.contentOffset.y);
         }}
-        onScrollEndDrag={() => {
-          setTimeout(() => { userDragging.current = false; }, 120);
+        onScrollEndDrag={(event) => {
+          syncPlaybackToScroll(event.nativeEvent.contentOffset.y);
         }}
       >
         <TourScreenHeader
@@ -3592,7 +3706,7 @@ function SessionReviewExperience({
           subtitle={[
             session.prospectName || "Recorded tour",
             duration ? fmtSec(duration) : null,
-            openActionCount > 0 ? `${openActionCount} actions` : null,
+            `${analysis.overallScore}% score`,
           ]
             .filter(Boolean)
             .join(" · ")}
@@ -3600,24 +3714,17 @@ function SessionReviewExperience({
           moreAccessibilityLabel="Session options"
         />
 
-        <SessionSummaryStrip
-          score={analysis.overallScore}
-          pointsEarned={analysis.totalPointsEarned}
-          pointsPossible={analysis.totalPointsPossible}
-          openActionCount={openActionCount}
-          focusSection={focusSection}
-          onCoachingPress={() => setReviewMode("coaching")}
-        />
-
         <View style={reviewSt.tabSticky}>
           <SessionModeTabs
             value={reviewMode}
             onChange={setReviewMode}
-            openActionCount={openActionCount}
           />
         </View>
 
-        <View style={reviewSt.tabBody}>
+        <View
+          style={reviewSt.tabBody}
+          onLayout={(event) => { tabBodyY.current = event.nativeEvent.layout.y; }}
+        >
         {reviewMode === "rubric" && (
           <AnimatedTabContent tabKey="rubric">
             <View style={{ gap: 12 }}>
@@ -3656,13 +3763,22 @@ function SessionReviewExperience({
             />
           </AnimatedTabContent>
         )}
+        {reviewMode === "comments" && (
+          <AnimatedTabContent tabKey="comments">
+            <CommentsTab comments={comments} sessionId={sessionId} onUpdate={onReload} />
+          </AnimatedTabContent>
+        )}
         {reviewMode === "transcript" && transcript.length === 0 && (
           <AnimatedTabContent tabKey="transcript-empty">
             <EmptyState icon="chatbubble-outline" title="No transcript yet" subtitle="The transcript will appear after processing." />
           </AnimatedTabContent>
         )}
         {reviewMode === "transcript" && transcriptGroups.map((group) => (
-          <View key={group.id} style={reviewSt.phaseSection}>
+          <View
+            key={group.id}
+            style={reviewSt.phaseSection}
+            onLayout={(event) => { phaseY.current[group.id] = event.nativeEvent.layout.y; }}
+          >
             <View style={reviewSt.phaseDivider}>
               <View style={[reviewSt.phaseDividerLine, { backgroundColor: group.color }]} />
               <Text style={[reviewSt.phaseDividerTitle, { color: group.color }]}>{group.label}</Text>
@@ -3670,6 +3786,7 @@ function SessionReviewExperience({
             </View>
             {group.segments.map((segment, index) => {
               const active = segment.id === activeSegmentId;
+              const selected = selectedSegmentIds.includes(segment.id);
               const isAgent = segment.speaker?.toLowerCase().includes("agent");
               const prev = group.segments[index - 1];
               const showInitial = !prev || prev.speaker !== segment.speaker;
@@ -3678,14 +3795,39 @@ function SessionReviewExperience({
                 moment.seconds >= segment.startTime &&
                 moment.seconds < segment.endTime
               );
+              const segmentComments = commentsBySegment.get(segment.id) ?? [];
               return (
                 <Reanimated.View
                   key={segment.id || index}
                   entering={FadeInDown.delay(Math.min(index * 18, 180)).duration(240)}
-                  onLayout={(event) => { segmentY.current[segment.id] = event.nativeEvent.layout.y; }}
-                  style={[reviewSt.turnRow, active && reviewSt.turnRowActive]}
+                  onLayout={(event) => {
+                    segmentY.current[segment.id] =
+                      tabBodyY.current +
+                      (phaseY.current[group.id] ?? 0) +
+                      event.nativeEvent.layout.y;
+                  }}
+                  style={[
+                    reviewSt.turnRow,
+                    active && reviewSt.turnRowActive,
+                    selected && reviewSt.turnRowSelected,
+                  ]}
                 >
-                  <Pressable onPress={() => void seekToSeconds(segment.startTime, true)} style={reviewSt.turnMain}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityHint="Tap to play from this timestamp. Long press to select transcript segments."
+                    onLongPress={() => beginSegmentSelection(segment.id)}
+                    delayLongPress={360}
+                    onPress={() => {
+                      if (longPressedSegmentRef.current === segment.id) {
+                        longPressedSegmentRef.current = null;
+                        return;
+                      }
+                      if (selectedSegmentIds.length > 0) toggleSegmentSelection(segment.id);
+                      else void seekToSeconds(segment.startTime, true);
+                    }}
+                    style={reviewSt.turnMain}
+                  >
                     <View style={reviewSt.turnInitialSlot}>
                       {showInitial && (
                         <Text style={[reviewSt.turnInitial, { color: isAgent ? tourColors.agent : tourColors.prospect }]}>
@@ -3701,16 +3843,46 @@ function SessionReviewExperience({
                         <Text style={reviewSt.segmentTime}>{fmtSec(segment.startTime)}</Text>
                       </View>
                       <Text style={reviewSt.turnText}>{segment.text}</Text>
+                      {moments.length > 0 || segmentComments.length > 0 ? (
+                        <View style={reviewSt.annotationRow}>
+                          {moments.map((moment) => (
+                            <Pressable
+                              key={moment.id}
+                              accessibilityLabel={`AI coaching note at ${fmtSec(moment.seconds ?? segment.startTime)}`}
+                              onPress={() => Alert.alert("AI coaching note", moment.explanation, [
+                                { text: "Play", onPress: () => void seekToSeconds(moment.seconds ?? segment.startTime, true) },
+                                { text: "Close", style: "cancel" },
+                              ])}
+                              style={reviewSt.annotationChip}
+                            >
+                              <Ionicons name="sparkles" size={12} color={C.purple} />
+                              <Text style={[reviewSt.annotationText, { color: C.purple }]}>AI note</Text>
+                            </Pressable>
+                          ))}
+                          {segmentComments.map((comment) => (
+                            <Pressable
+                              key={comment.id}
+                              accessibilityLabel={`${comment.kind === "key_moment" ? "Saved clip" : "Comment"} at ${fmtSec(comment.timestampSec ?? segment.startTime)}`}
+                              onPress={() => Alert.alert(
+                                comment.kind === "key_moment" ? "Saved clip" : comment.authorName,
+                                comment.body
+                              )}
+                              style={reviewSt.annotationChip}
+                            >
+                              <Ionicons
+                                name={comment.kind === "key_moment" ? "film-outline" : "chatbubble-outline"}
+                                size={12}
+                                color={C.brand}
+                              />
+                              <Text style={reviewSt.annotationText}>
+                                {comment.kind === "key_moment" ? "Clip" : "Comment"}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      ) : null}
                     </View>
                   </Pressable>
-                  {moments.map((moment) => (
-                    <CoachingMomentCard
-                      key={moment.id}
-                      moment={moment}
-                      compact
-                      onSeek={() => void seekToSeconds(moment.seconds ?? segment.startTime, true)}
-                    />
-                  ))}
                 </Reanimated.View>
               );
             })}
@@ -3719,7 +3891,39 @@ function SessionReviewExperience({
         </View>
       </ScrollView>
 
-      <SessionAiFab onPress={onOpenAiChat} bottomOffset={Platform.OS === "ios" ? 118 : 104} />
+      {selectedSegmentIds.length > 0 && selectionRange ? (
+        <View style={reviewSt.selectionBar}>
+          <Pressable onPress={() => setSelectedSegmentIds([])} style={reviewSt.selectionClose}>
+            <Ionicons name="close" size={18} color={C.textSec} />
+          </Pressable>
+          <View style={st.flex1}>
+            <Text style={reviewSt.selectionTitle}>
+              {selectedSegmentIds.length} selected
+            </Text>
+            <Text style={reviewSt.selectionTime}>
+              {fmtSec(selectionRange.start)}–{fmtSec(selectionRange.end)}
+            </Text>
+          </View>
+          <Pressable
+            disabled={selectionBusy}
+            onPress={() => setCommentComposerOpen(true)}
+            style={reviewSt.selectionAction}
+          >
+            <Ionicons name="chatbubble-outline" size={17} color={C.brand} />
+            <Text style={reviewSt.selectionActionText}>Comment</Text>
+          </Pressable>
+          <Pressable
+            disabled={selectionBusy}
+            onPress={() => void createSelectionClip()}
+            style={reviewSt.selectionAction}
+          >
+            {selectionBusy ? <ActivityIndicator size="small" color={C.brand} /> : <Ionicons name="film-outline" size={17} color={C.brand} />}
+            <Text style={reviewSt.selectionActionText}>Create clip</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <SessionAiFab onPress={onOpenAiChat} bottomOffset={Platform.OS === "ios" ? 118 : 104} />
+      )}
       <SessionPlayer
         position={position}
         duration={duration}
@@ -3731,6 +3935,53 @@ function SessionReviewExperience({
         onSpeed={() => void changeSpeed()}
         onSeek={(ratio) => void seekToSeconds(ratio * duration)}
       />
+
+      <Modal
+        visible={commentComposerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCommentComposerOpen(false)}
+      >
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={reviewSt.commentModalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setCommentComposerOpen(false)} />
+          <View style={reviewSt.commentModalCard}>
+            <View style={reviewSt.commentModalHeader}>
+              <View style={reviewSt.commentModalIcon}>
+                <Ionicons name="chatbubble-outline" size={18} color={C.brand} />
+              </View>
+              <View style={st.flex1}>
+                <Text style={reviewSt.commentModalTitle}>Comment on selection</Text>
+                <Text style={reviewSt.commentModalTime}>
+                  {selectionRange ? `${fmtSec(selectionRange.start)}–${fmtSec(selectionRange.end)}` : ""}
+                </Text>
+              </View>
+              <Pressable onPress={() => setCommentComposerOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={21} color={C.textMuted} />
+              </Pressable>
+            </View>
+            <TextInput
+              autoFocus
+              multiline
+              value={selectionComment}
+              onChangeText={setSelectionComment}
+              placeholder="Add a comment..."
+              placeholderTextColor={C.textMuted}
+              style={reviewSt.commentModalInput}
+            />
+            <Pressable
+              disabled={!selectionComment.trim() || selectionBusy}
+              onPress={() => void saveSelectionComment()}
+              style={[
+                reviewSt.commentModalSubmit,
+                (!selectionComment.trim() || selectionBusy) && { opacity: 0.5 },
+              ]}
+            >
+              {selectionBusy ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={16} color="#fff" />}
+              <Text style={reviewSt.commentModalSubmitText}>Add comment</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -4851,6 +5102,16 @@ function CommentsTab({ comments, sessionId, onUpdate }: { comments: SessionComme
                   <Text style={{ fontSize: 12, fontWeight: "900", color: C.brand }}>{c.authorName[0]?.toUpperCase()}</Text>
                 </View>
                 <Text style={{ fontSize: 13, fontWeight: "800", color: C.text }}>{c.authorName}</Text>
+                <View style={reviewSt.commentKindBadge}>
+                  <Ionicons
+                    name={c.kind === "key_moment" ? "star" : "chatbubble-outline"}
+                    size={10}
+                    color={c.kind === "key_moment" ? C.purple : C.brand}
+                  />
+                  <Text style={[reviewSt.commentKindText, c.kind === "key_moment" && { color: C.purple }]}>
+                    {c.kind === "key_moment" ? "Key moment" : "Manual"}
+                  </Text>
+                </View>
                 <Text style={{ fontSize: 11, fontWeight: "600", color: C.textMuted }}>{relativeTime(c.createdAt)}</Text>
                 {c.timestampSec !== null && (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: C.brand + "10", borderRadius: 99, paddingHorizontal: 6, paddingVertical: 2 }}>
@@ -5530,7 +5791,8 @@ const reviewSt = StyleSheet.create({
   phaseDividerTitle: { flex: 1, fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
   phaseDividerTime: { color: "#98a2b3", fontSize: 11, fontWeight: "800" },
   turnRow: { borderRadius: 12, backgroundColor: "transparent" },
-  turnRowActive: { backgroundColor: "#eef6ff" },
+  turnRowActive: { backgroundColor: "#eaf4ff", borderLeftWidth: 3, borderLeftColor: C.brand },
+  turnRowSelected: { backgroundColor: "#e0efff", borderWidth: 1, borderColor: "#60a5fa" },
   turnMain: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 8, paddingHorizontal: 8 },
   turnInitialSlot: { width: 20, alignItems: "center", paddingTop: 1 },
   turnInitial: { fontSize: 12, fontWeight: "900" },
@@ -5538,6 +5800,11 @@ const reviewSt = StyleSheet.create({
   turnSpeaker: { fontSize: 12, fontWeight: "900" },
   segmentTime: { color: "#98a2b3", fontSize: 11, fontWeight: "800", marginLeft: "auto" },
   turnText: { color: "#344054", fontSize: 14, lineHeight: 20, fontWeight: "600" },
+  annotationRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
+  annotationChip: { minHeight: 26, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: "#dbeafe", backgroundColor: "#fff" },
+  annotationText: { color: C.brand, fontSize: 10, fontWeight: "900" },
+  commentKindBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 999, backgroundColor: "#f4f7fb" },
+  commentKindText: { color: C.brand, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
   coachingMoment: { gap: 9, marginVertical: 6, padding: 12, borderWidth: 1, borderColor: "#e9d5ff", borderRadius: 14, backgroundColor: "#fbf7ff" },
   coachingMomentCompact: { marginLeft: 36, marginRight: 8, marginTop: 2 },
   coachingMomentHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
@@ -5551,6 +5818,41 @@ const reviewSt = StyleSheet.create({
   coachingQuote: { color: "#7b8496", fontSize: 12, lineHeight: 17, fontStyle: "italic" },
   coachingMomentActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   coachingMomentAction: { color: C.purple, fontSize: 11, fontWeight: "900" },
+  selectionBar: {
+    position: "absolute",
+    left: SESSION_PAGE_PADDING,
+    right: SESSION_PAGE_PADDING,
+    bottom: Platform.OS === "ios" ? 142 : 126,
+    minHeight: 62,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    borderRadius: 16,
+    backgroundColor: "#fff",
+    shadowColor: "#101828",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+    elevation: 10,
+    zIndex: 12,
+  },
+  selectionClose: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: "#f1f5f9" },
+  selectionTitle: { color: C.text, fontSize: 12, fontWeight: "900" },
+  selectionTime: { color: C.textMuted, fontSize: 10, fontWeight: "800", marginTop: 1 },
+  selectionAction: { minHeight: 38, alignItems: "center", justifyContent: "center", gap: 2, paddingHorizontal: 7, borderRadius: 10, backgroundColor: "#eff6ff" },
+  selectionActionText: { color: C.brand, fontSize: 9, fontWeight: "900" },
+  commentModalBackdrop: { flex: 1, justifyContent: "center", padding: 22, backgroundColor: "rgba(15,23,42,0.45)" },
+  commentModalCard: { gap: 14, padding: 16, borderRadius: 20, backgroundColor: "#fff", shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 16 },
+  commentModalHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  commentModalIcon: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#eff6ff" },
+  commentModalTitle: { color: C.text, fontSize: 16, fontWeight: "900" },
+  commentModalTime: { color: C.textMuted, fontSize: 11, fontWeight: "800", marginTop: 2 },
+  commentModalInput: { minHeight: 110, padding: 12, borderWidth: 1, borderColor: "#dbe3ef", borderRadius: 14, color: C.text, fontSize: 15, fontWeight: "600", textAlignVertical: "top", backgroundColor: "#f8fafc" },
+  commentModalSubmit: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 13, backgroundColor: C.brand },
+  commentModalSubmitText: { color: "#fff", fontSize: 14, fontWeight: "900" },
   processingTimeline: { alignSelf: "stretch", flexDirection: "row", justifyContent: "space-between", gap: 8, marginTop: 2, paddingTop: 8 },
   processingStep: { flex: 1, alignItems: "center", gap: 6, minWidth: 58 },
   processingStepIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#fff" },

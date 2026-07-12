@@ -46,6 +46,7 @@ export type OpenLiveExperienceInput = {
   meta: LiveRecordingMeta;
   draft: LiveRecordingDraft;
   onBeforeRecordingStart?: () => void | Promise<void>;
+  onUploadFile?: () => void | Promise<void>;
   onMinimize?: () => void;
   onCancel: (snapshot: LiveSessionSnapshot) => void | Promise<void>;
   onFinish: (snapshot: LiveSessionSnapshot) => void | Promise<void>;
@@ -75,6 +76,7 @@ export type RecordingCtx = {
   setDraftNotes: (notes: string) => void;
   addDraftAsset: (asset: Material, snippet: string) => void;
   runBeforeRecordingStart: () => void | Promise<void>;
+  requestUploadFile: () => void;
   requestCancel: () => void;
   requestFinish: () => void;
 };
@@ -112,6 +114,7 @@ const EMPTY_CTX: RecordingCtx = {
   setDraftNotes: () => {},
   addDraftAsset: () => {},
   runBeforeRecordingStart: async () => {},
+  requestUploadFile: () => {},
   requestCancel: () => {},
   requestFinish: () => {},
 };
@@ -188,6 +191,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   const waveformLevelsRef = useRef<number[]>(EMPTY_WAVEFORM);
   const recorderRef = useRef<ReturnType<typeof useAudioRecorder> | null>(null);
   const beforeStartHandlerRef = useRef<(() => void | Promise<void>) | null>(null);
+  const uploadFileHandlerRef = useRef<(() => void | Promise<void>) | null>(null);
   const minimizeHandlerRef = useRef<(() => void) | null>(null);
   const cancelHandlerRef = useRef<((snapshot: LiveSessionSnapshot) => void | Promise<void>) | null>(null);
   const finishHandlerRef = useRef<((snapshot: LiveSessionSnapshot) => void | Promise<void>) | null>(null);
@@ -200,6 +204,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
     setDraft(null);
     setTranscriptPreviewState("");
     beforeStartHandlerRef.current = null;
+    uploadFileHandlerRef.current = null;
     minimizeHandlerRef.current = null;
     cancelHandlerRef.current = null;
     finishHandlerRef.current = null;
@@ -411,6 +416,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
     setLiveMeta(input.meta);
     setDraft(input.draft);
     beforeStartHandlerRef.current = input.onBeforeRecordingStart ?? null;
+    uploadFileHandlerRef.current = input.onUploadFile ?? null;
     minimizeHandlerRef.current = input.onMinimize ?? null;
     cancelHandlerRef.current = input.onCancel;
     finishHandlerRef.current = input.onFinish;
@@ -465,6 +471,10 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
     await beforeStartHandlerRef.current?.();
   }, []);
 
+  const requestUploadFile = useCallback(() => {
+    void uploadFileHandlerRef.current?.();
+  }, []);
+
   const requestCancel = useCallback(() => {
     const snapshot = buildSnapshot();
     if (!snapshot) return;
@@ -500,6 +510,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setDraftNotes,
       addDraftAsset,
       runBeforeRecordingStart,
+      requestUploadFile,
       requestCancel,
       requestFinish,
     }),
@@ -525,6 +536,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setDraftNotes,
       addDraftAsset,
       runBeforeRecordingStart,
+      requestUploadFile,
       requestCancel,
       requestFinish,
     ],

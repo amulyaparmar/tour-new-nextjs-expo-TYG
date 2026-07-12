@@ -773,6 +773,7 @@ const TAB_ITEMS: Array<{ id: MainTab; label: string; icon: keyof typeof Ionicons
 function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistration, onProfile, onRubrics, onSignOut, authSession, onAuthSession, agentName, property }: {
   tab: MainTab; onTab: (t: MainTab) => void; onSession: (id: string) => void; onCreate: () => void; onAudioTest: () => void; onGuestRegistration: () => void; onProfile: () => void; onRubrics: () => void; onSignOut: () => void; authSession: MobileAuthSession; onAuthSession: (session: MobileAuthSession) => void; agentName: string; property: string;
 }) {
+  const { width: tabBarWidth } = useWindowDimensions();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [upcomingSessions, setUpcomingSessions] = useState<SessionSummary[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -786,6 +787,22 @@ function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistr
   const [switchingCommunityId, setSwitchingCommunityId] = useState<string | null>(null);
   const [tabTransitionDirection, setTabTransitionDirection] = useState<SlideDirection>("forward");
   const [checkInOpen, setCheckInOpen] = useState(false);
+  const tabIndicatorX = useSharedValue(
+    (tabBarWidth / TAB_ITEMS.length) * Math.max(0, TAB_ITEMS.findIndex((item) => item.id === tab)),
+  );
+  const tabIndicatorStyle = useAnimatedStyle(() => ({
+    width: tabBarWidth / TAB_ITEMS.length,
+    transform: [{ translateX: tabIndicatorX.value }],
+  }));
+
+  useEffect(() => {
+    const activeIndex = Math.max(0, TAB_ITEMS.findIndex((item) => item.id === tab));
+    tabIndicatorX.value = withSpring((tabBarWidth / TAB_ITEMS.length) * activeIndex, {
+      damping: 22,
+      stiffness: 210,
+      mass: 0.72,
+    });
+  }, [tab, tabBarWidth, tabIndicatorX]);
 
   const loadMaterials = useCallback(async () => {
     setMaterialsLoading(true);
@@ -878,8 +895,17 @@ function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistr
       )}
 
       <View style={st.tabBar}>
+        <Reanimated.View pointerEvents="none" style={[st.tabBarIndicator, tabIndicatorStyle]}>
+          <View style={st.tabBarIndicatorPill} />
+        </Reanimated.View>
         {TAB_ITEMS.map((t) => (
-          <Pressable key={t.id} onPress={() => { selectionHaptic(); handleTabPress(t.id); }} style={st.tabBarItem}>
+          <Pressable
+            key={t.id}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: tab === t.id }}
+            onPress={() => { selectionHaptic(); handleTabPress(t.id); }}
+            style={st.tabBarItem}
+          >
             <Ionicons name={tab === t.id ? t.iconActive : t.icon} size={22} color={tab === t.id ? C.brand : C.textMuted} />
             <Text style={[st.tabBarLabel, tab === t.id && st.tabBarLabelActive]}>{t.label}</Text>
           </Pressable>
@@ -1111,9 +1137,9 @@ const CHECK_IN_REP = { slug: "alex", name: "Alex Johnson", firstName: "Alex" };
 const CHECK_IN_PROPERTY = "27 North";
 const CHECK_IN_URL = "https://tour.you/p/alex?check-in=true";
 const CHECK_IN_QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=12&format=png&data=${encodeURIComponent(CHECK_IN_URL)}`;
-const CHECK_IN_CONTACT_SHEET_RATIO = 0.9;
-const CHECK_IN_DETAIL_SHEET_RATIO = 0.9;
-const CHECK_IN_SHEET_MAX_HEIGHT = 760;
+const CHECK_IN_CONTACT_SHEET_RATIO = 0.94;
+const CHECK_IN_DETAIL_SHEET_RATIO = 0.94;
+const CHECK_IN_SHEET_MAX_HEIGHT = 820;
 const CHECK_IN_QUESTIONS: MobileCheckInQuestion[] = [
   {
     id: "hear_about",
@@ -1159,6 +1185,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   const propertyLabel = property || CHECK_IN_PROPERTY;
   const [mode, setMode] = useState<"checkin" | "qr">("checkin");
   const [step, setStep] = useState<"contact" | "questions" | "done">("contact");
+  const [stepDirection, setStepDirection] = useState<SlideDirection>("forward");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -1195,6 +1222,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
     if (!visible) return;
     setMode("checkin");
     setStep("contact");
+    setStepDirection("forward");
     setHighlightedField(null);
     setReason(`Tour ${propertyLabel}`);
     setWantsSummary(true);
@@ -1234,6 +1262,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
         repSlug: CHECK_IN_REP.slug,
         propertyName: propertyLabel,
       });
+      setStepDirection("forward");
       setStep("done");
       showToast("Guest checked in", "success");
     } catch (caught) {
@@ -1262,6 +1291,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
     }
     setHighlightedField(null);
     if (CHECK_IN_QUESTIONS.length) {
+      setStepDirection("forward");
       setStep("questions");
       return;
     }
@@ -1278,6 +1308,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
 
   function goBackFromQuestions() {
     setError(null);
+    setStepDirection("back");
     setStep("contact");
   }
 
@@ -1379,7 +1410,12 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               </View>
             </Reanimated.View>
           ) : step === "done" ? (
-            <Reanimated.View key="done-step" entering={FadeInUp.duration(180)} style={[homeSt.checkInStepPane, homeSt.donePanel]}>
+            <Reanimated.View
+              key="done-step"
+              entering={SlideInRight.duration(260).easing(Easing.out(Easing.cubic))}
+              exiting={SlideOutLeft.duration(180).easing(Easing.in(Easing.cubic))}
+              style={[homeSt.checkInStepPane, homeSt.donePanel]}
+            >
               <View style={homeSt.doneIcon}><Ionicons name="checkmark" size={34} color="#fff" /></View>
               <Text style={homeSt.qrTitle}>You're checked in</Text>
               <Text style={homeSt.qrSub}>Thanks for visiting {propertyLabel}. {CHECK_IN_REP.firstName} has the guest details and can start the tour.</Text>
@@ -1393,7 +1429,12 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               </Pressable>
             </Reanimated.View>
           ) : step === "questions" ? (
-            <Reanimated.View key="questions-step" entering={SlideInRight.duration(190)} exiting={SlideOutLeft.duration(140)} style={homeSt.checkInStepPane}>
+            <Reanimated.View
+              key="questions-step"
+              entering={(stepDirection === "forward" ? SlideInRight : SlideInLeft).duration(260).easing(Easing.out(Easing.cubic))}
+              exiting={(stepDirection === "forward" ? SlideOutLeft : SlideOutRight).duration(180).easing(Easing.in(Easing.cubic))}
+              style={homeSt.checkInStepPane}
+            >
               <ScrollView
                 ref={checkInScrollRef}
                 style={homeSt.checkInScroll}
@@ -1421,7 +1462,12 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               </ScrollView>
             </Reanimated.View>
           ) : (
-            <Reanimated.View key="contact-step" entering={SlideInLeft.duration(190)} exiting={SlideOutRight.duration(140)} style={homeSt.checkInStepPane}>
+            <Reanimated.View
+              key="contact-step"
+              entering={(stepDirection === "forward" ? SlideInRight : SlideInLeft).duration(260).easing(Easing.out(Easing.cubic))}
+              exiting={(stepDirection === "forward" ? SlideOutLeft : SlideOutRight).duration(180).easing(Easing.in(Easing.cubic))}
+              style={homeSt.checkInStepPane}
+            >
               <ScrollView
                 ref={checkInScrollRef}
                 style={homeSt.checkInScroll}
@@ -2912,6 +2958,9 @@ function CreateSessionScreen({
   const [fileName, setFileName] = useState("");
   const [fileSizeMB, setFileSizeMB] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [createOptionsReady, setCreateOptionsReady] = useState(false);
+  const recorderOpenedRef = useRef(false);
+  const startRecordingRef = useRef<() => void>(() => {});
 
   const [title, setTitle] = useState("");
   const [prospect, setProspect] = useState("");
@@ -2936,7 +2985,8 @@ function CreateSessionScreen({
           if (defaultRubric) setRubricId(defaultRubric.id);
         }
       })
-      .catch(() => { /* rubric picker optional */ });
+      .catch(() => { /* rubric picker optional */ })
+      .finally(() => setCreateOptionsReady(true));
   }, []);
 
   async function uploadFile(uri: string, mimeType: string, name: string, size?: number | null, durationSec?: number, existingSessionId?: string | null, draftNotes?: string) {
@@ -2980,6 +3030,7 @@ function CreateSessionScreen({
         });
       }
       showToast(err instanceof Error ? err.message : "Upload failed", "error");
+      recorderOpenedRef.current = false;
       setPhase("choose");
     }
   }
@@ -3005,11 +3056,13 @@ function CreateSessionScreen({
       onBeforeRecordingStart: () => {
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       },
+      onUploadFile: pickFile,
       onMinimize: onLiveRecordingOpened,
       onCancel: async (snapshot) => {
         await snapshot.stop();
         snapshot.clearLiveSession();
         showToast("Recording cancelled", "info");
+        onBack();
       },
       onFinish: async (snapshot) => {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -3063,6 +3116,7 @@ function CreateSessionScreen({
             });
             onCreated(sid);
           } else {
+            recorderOpenedRef.current = false;
             setPhase("choose");
           }
           showToast(err instanceof Error ? err.message : "Upload failed", "error");
@@ -3070,17 +3124,26 @@ function CreateSessionScreen({
       },
     });
   }
+  startRecordingRef.current = startRecording;
 
   async function pickFile() {
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: ["video/*", "audio/*"], copyToCacheDirectory: true });
       if (result.canceled || !result.assets?.[0]) return;
       const file = result.assets[0];
+      rec.clearLiveSession();
       await uploadFile(file.uri, file.mimeType ?? "video/mp4", file.name ?? "recording.mp4", file.size);
     } catch {
       showToast("Could not select file", "error");
     }
   }
+
+  useEffect(() => {
+    if (!createOptionsReady || phase !== "choose" || recorderOpenedRef.current) return;
+    recorderOpenedRef.current = true;
+    const frame = requestAnimationFrame(() => startRecordingRef.current());
+    return () => cancelAnimationFrame(frame);
+  }, [createOptionsReady, phase]);
 
   async function submitAndProcess() {
     if (!sessionId) return;
@@ -3109,36 +3172,10 @@ function CreateSessionScreen({
   // ── Choose: Record or Upload ──
   if (phase === "choose") {
     return (
-      <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-        <View style={st.page}>
-          <BackBtn label="Sessions" onPress={onBack} />
-          <Text style={st.pageTitle}>New Session</Text>
-
-          <View style={{ gap: 12 }}>
-            <Pressable onPress={startRecording} style={({ pressed }) => [st.card, { padding: 22, flexDirection: "row", alignItems: "center", gap: 16 }, pressed && st.pressed]}>
-              <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.red + "12", alignItems: "center", justifyContent: "center" }}>
-                <Ionicons name="mic" size={26} color={C.red} />
-              </View>
-              <View style={st.flex1}>
-                <Text style={{ fontSize: 17, fontWeight: "900", color: C.text }}>Record Audio</Text>
-                <Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec, marginTop: 2 }}>Record your tour conversation — navigate freely while live</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={C.textMuted} />
-            </Pressable>
-
-            <Pressable onPress={pickFile} style={({ pressed }) => [st.card, { padding: 22, flexDirection: "row", alignItems: "center", gap: 16 }, pressed && st.pressed]}>
-              <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.brand + "12", alignItems: "center", justifyContent: "center" }}>
-                <Ionicons name="cloud-upload" size={26} color={C.brand} />
-              </View>
-              <View style={st.flex1}>
-                <Text style={{ fontSize: 17, fontWeight: "900", color: C.text }}>Upload File</Text>
-                <Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec, marginTop: 2 }}>Select a video or audio from your device</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={C.textMuted} />
-            </Pressable>
-          </View>
-        </View>
-      </ScrollView>
+      <View style={[st.flex1, st.center]}>
+        <ActivityIndicator color={C.brand} />
+        <Text style={{ marginTop: 10, color: C.textSec, fontSize: 13, fontWeight: "700" }}>Preparing recorder…</Text>
+      </View>
     );
   }
 
@@ -6002,8 +6039,10 @@ const st = StyleSheet.create({
   toastText: { color: "#fff", fontSize: 14, fontWeight: "700", flex: 1 },
 
   // Tab Bar
-  tabBar: { flexDirection: "row", backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border, paddingBottom: Platform.OS === "web" ? 12 : 28, paddingTop: 9 },
-  tabBarItem: { flex: 1, alignItems: "center", gap: 2 },
+  tabBar: { position: "relative", flexDirection: "row", backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.border, paddingBottom: Platform.OS === "web" ? 12 : 28, paddingTop: 9, overflow: "hidden" },
+  tabBarIndicator: { position: "absolute", top: 4, height: 47, alignItems: "center", justifyContent: "center" },
+  tabBarIndicatorPill: { width: "82%", height: 43, borderRadius: 16, backgroundColor: C.brand + "0D" },
+  tabBarItem: { zIndex: 1, flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", gap: 2 },
   tabBarLabel: { fontSize: 10, fontWeight: "700", color: C.textMuted },
   tabBarLabelActive: { color: C.brand },
 

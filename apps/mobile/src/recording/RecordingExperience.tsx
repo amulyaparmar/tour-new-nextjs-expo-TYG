@@ -174,6 +174,7 @@ type RecordingExperienceProps = {
   prospectName?: string | null;
   propertyName?: string | null;
   onBeforeRecordingStart?: () => void | Promise<void>;
+  onUploadFile?: () => void | Promise<void>;
   onSessionCreated?: (sessionId: string) => void;
 };
 
@@ -334,6 +335,7 @@ export function RecordingExperience({
   prospectName,
   propertyName,
   onBeforeRecordingStart,
+  onUploadFile,
   onSessionCreated,
 }: RecordingExperienceProps) {
   const rec = useRecording();
@@ -1087,21 +1089,30 @@ export function RecordingExperience({
               </Pressable>
             </View>
           ) : (
-            <Pressable
-              accessibilityLabel="Start recording"
-              disabled={countdown !== null}
-              onPress={() => void startCountdownAndRecording()}
-              style={[s.startRecordingButton, countdown !== null && s.startRecordingButtonDisabled]}
-            >
-              {countdown !== null ? (
-                <Text style={s.countdownText}>{countdown}</Text>
-              ) : (
-                <>
-                  <Ionicons name="mic" size={22} color="#fff" />
-                  <Text style={s.startRecordingText}>Start Recording</Text>
-                </>
-              )}
-            </Pressable>
+            <View style={s.readyActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Start recording"
+                disabled={countdown !== null}
+                onPress={() => void startCountdownAndRecording()}
+                style={[s.startRecordingButton, countdown !== null && s.startRecordingButtonDisabled]}
+              >
+                {countdown !== null ? (
+                  <Text style={s.countdownText}>{countdown}</Text>
+                ) : (
+                  <>
+                    <Ionicons name="mic" size={22} color="#fff" />
+                    <Text style={s.startRecordingText}>Start Recording</Text>
+                  </>
+                )}
+              </Pressable>
+              {onUploadFile && countdown === null ? (
+                <Pressable accessibilityRole="button" accessibilityLabel="Upload a recording" onPress={() => void onUploadFile()} style={s.uploadRecordingButton}>
+                  <Ionicons name="cloud-upload-outline" size={20} color={C.brand} />
+                  <Text style={s.uploadRecordingText}>Upload</Text>
+                </Pressable>
+              ) : null}
+            </View>
           )}
         </Reanimated.View>
       ) : null}
@@ -1377,10 +1388,13 @@ const s = StyleSheet.create({
   roundControl: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: "#E4EAF2" },
   stopControl: { width: 66, height: 66, borderRadius: 33, alignItems: "center", justifyContent: "center", backgroundColor: "#FFF7F4", borderWidth: 1, borderColor: "#FEE4E2" },
   stopSquare: { width: 19, height: 19, borderRadius: 5, backgroundColor: C.red },
-  startRecordingButton: { alignSelf: "center", minWidth: 220, minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 22, borderRadius: 29, backgroundColor: C.red, shadowColor: C.red, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.16, shadowRadius: 12, elevation: 3 },
-  startRecordingButtonDisabled: { backgroundColor: "#F04438" },
+  readyActions: { minHeight: 62, alignItems: "center", justifyContent: "center" },
+  startRecordingButton: { alignSelf: "center", minWidth: 220, minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 22, borderRadius: 29, backgroundColor: C.brand, shadowColor: C.brand, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 12, elevation: 3 },
+  startRecordingButtonDisabled: { backgroundColor: "#5AA8F7" },
   startRecordingText: { color: "#fff", fontSize: 16, fontWeight: "900" },
   countdownText: { color: "#fff", fontSize: 28, lineHeight: 32, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  uploadRecordingButton: { position: "absolute", right: 0, bottom: 2, minWidth: 58, minHeight: 52, alignItems: "center", justifyContent: "center", gap: 2, paddingHorizontal: 6, borderRadius: 16, borderWidth: 1, borderColor: "rgba(0,108,229,0.18)", backgroundColor: C.brandSoft },
+  uploadRecordingText: { color: C.brand, fontSize: 10, fontWeight: "900" },
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.58)" },
   assetSheet: { maxHeight: "78%", minHeight: "52%", borderTopLeftRadius: 18, borderTopRightRadius: 18, backgroundColor: C.bg, paddingHorizontal: 18, paddingBottom: Platform.OS === "ios" ? 32 : 18 },
   sheetHandle: { width: 40, height: 4, alignSelf: "center", borderRadius: 2, backgroundColor: "#51606F", marginTop: 9, marginBottom: 14 },

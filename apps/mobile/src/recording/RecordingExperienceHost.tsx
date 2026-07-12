@@ -17,6 +17,7 @@ export function RecordingExperienceHost() {
     setDraftNotes,
     addDraftAsset,
     runBeforeRecordingStart,
+    requestUploadFile,
     requestCancel,
     requestFinish,
     setLiveSessionId,
@@ -47,6 +48,7 @@ export function RecordingExperienceHost() {
         selectedAssetIds={draft.selectedAssetIds}
         onAddAsset={(asset) => addDraftAsset(asset, assetNoteSnippet(asset))}
         onBeforeRecordingStart={runBeforeRecordingStart}
+        onUploadFile={liveMeta.source === "create-session" ? requestUploadFile : undefined}
         onSessionCreated={setLiveSessionId}
         cancelIcon={liveMeta.source === "session-detail" ? "close" : "chevron-down"}
         onCancel={requestCancel}

@@ -147,6 +147,12 @@ function isFatalSpeechInitError(message: string | null | undefined): boolean {
   );
 }
 
+function isRecoverableSpeechSilence(message: string | null | undefined): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return lower.includes("no speech detected") || lower.includes("no speech was detected");
+}
+
 type Tab = (typeof TABS)[number];
 
 type LiveTranscriptLine = {
@@ -210,7 +216,17 @@ function useLiveSpeechTranscription() {
     });
 
     const failures = native.addListener("onTranscriptionError", (payload) => {
-      setError(speechErrorMessage(payload) || "Live transcription failed.");
+      const message = speechErrorMessage(payload) || "Live transcription failed.";
+      if (isRecoverableSpeechSilence(message)) {
+        // Apple reports ordinary silence (including an intentional pause/stop)
+        // through its error channel. Treat it as an ended utterance so the
+        // restart lifecycle can recover without alarming the user.
+        setError(null);
+        setIsFinal(true);
+        setIsRecording(false);
+        return;
+      }
+      setError(message);
       setIsRecording(false);
     });
 
@@ -365,6 +381,7 @@ export function RecordingExperience({
   const ensuringSessionRef = useRef<Promise<string | null> | null>(null);
   const liveSpeech = useLiveSpeechTranscription();
   const sessionPaused = rec.isPaused;
+  const wasSessionPausedRef = useRef(sessionPaused);
   const sessionElapsed = rec.elapsed;
   const chatFocused = activeTab === "AI Chat";
   const chatComposerMode = chatFocused && hasStarted;
@@ -433,6 +450,27 @@ export function RecordingExperience({
     };
   }, [transcriptionRequested, sessionPaused, liveSpeech.isRecording]);
 
+  // Apple may not emit a final utterance before its engine is stopped. Promote
+  // the visible interim text to durable history exactly once when pausing.
+  useEffect(() => {
+    const justPaused = sessionPaused && !wasSessionPausedRef.current;
+    wasSessionPausedRef.current = sessionPaused;
+    if (!justPaused) return;
+
+    const text = liveSpeech.text.trim();
+    if (!text || text === lastFinalTextRef.current) return;
+    lastFinalTextRef.current = text;
+    setFinalTranscriptLines((current) => [
+      ...current,
+      {
+        id: `pause-final-${Date.now()}-${current.length}`,
+        speaker: "Live",
+        time: sessionElapsed,
+        text,
+      },
+    ]);
+  }, [liveSpeech.text, sessionElapsed, sessionPaused]);
+
   // Native module stops after each final utterance. Restart only after the engine
   // reports stopped — never while isRecording (overlapping installTap = SIGABRT).
   useEffect(() => {
@@ -475,6 +513,7 @@ export function RecordingExperience({
 
   useEffect(() => {
     if (!liveSpeech.error) return;
+    if (isRecoverableSpeechSilence(liveSpeech.error)) return;
     setTranscriptionStatus(liveSpeech.error);
     if (isFatalSpeechInitError(liveSpeech.error)) {
       // Don't keep hammering Apple's recognizer — it won't recover without device setup.
@@ -1386,8 +1425,8 @@ const s = StyleSheet.create({
   waveTime: { position: "absolute", alignSelf: "center", color: C.text, fontSize: 15, fontWeight: "900", fontVariant: ["tabular-nums"], backgroundColor: C.bg, paddingHorizontal: 12 },
   recordControls: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 28 },
   roundControl: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: "#E4EAF2" },
-  stopControl: { width: 66, height: 66, borderRadius: 33, alignItems: "center", justifyContent: "center", backgroundColor: "#FFF7F4", borderWidth: 1, borderColor: "#FEE4E2" },
-  stopSquare: { width: 19, height: 19, borderRadius: 5, backgroundColor: C.red },
+  stopControl: { width: 66, height: 66, borderRadius: 33, alignItems: "center", justifyContent: "center", backgroundColor: C.brandSoft, borderWidth: 1, borderColor: "rgba(0,108,229,0.18)" },
+  stopSquare: { width: 19, height: 19, borderRadius: 5, backgroundColor: C.brand },
   readyActions: { minHeight: 62, alignItems: "center", justifyContent: "center" },
   startRecordingButton: { alignSelf: "center", minWidth: 220, minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 22, borderRadius: 29, backgroundColor: C.brand, shadowColor: C.brand, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 12, elevation: 3 },
   startRecordingButtonDisabled: { backgroundColor: "#5AA8F7" },

@@ -101,7 +101,7 @@ struct LiveActivityWidget: Widget {
           .applyWidgetURL(from: context.attributes.deepLinkUrl)
       } compactTrailing: {
         if let date = context.state.timerEndDateInMilliseconds {
-          RecordingElapsedTimer(recordingStartDateInMilliseconds: date, font: .caption)
+          RecordingElapsedTimer(recordingStartDateInMilliseconds: date, font: .caption, compact: true)
             .applyWidgetURL(from: context.attributes.deepLinkUrl)
         } else {
           Image(systemName: context.state.subtitle == "Paused" ? "pause.fill" : "checkmark")
@@ -197,19 +197,21 @@ private struct RecordingStatusLabel: View {
 private struct RecordingElapsedTimer: View {
   let recordingStartDateInMilliseconds: Double
   let font: Font
+  var compact = false
 
   private var recordingStartedAt: Date {
     Date(timeIntervalSince1970: recordingStartDateInMilliseconds / 1000)
   }
 
   var body: some View {
-    Text(timerInterval: recordingStartedAt...Date.distantFuture, countsDown: false, showsHours: true)
+    Text(recordingStartedAt, style: .timer)
       .font(font)
       .fontWeight(.semibold)
       .monospacedDigit()
       .foregroundStyle(.white)
       .lineLimit(1)
       .minimumScaleFactor(0.72)
+      .frame(width: compact ? 46 : nil, alignment: .trailing)
   }
 }
 

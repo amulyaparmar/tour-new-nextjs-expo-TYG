@@ -35,6 +35,9 @@ export function SessionModeTabs({
     <View style={styles.wrap}>
       <ScrollView
         horizontal
+        nestedScrollEnabled
+        directionalLockEnabled
+        keyboardShouldPersistTaps="handled"
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.bar}
       >

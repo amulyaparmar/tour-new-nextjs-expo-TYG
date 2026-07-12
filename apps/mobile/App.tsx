@@ -2058,7 +2058,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
         </Reanimated.View>
       )}
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={slst.chipsRow}>
+      <ScrollView horizontal nestedScrollEnabled directionalLockEnabled showsHorizontalScrollIndicator={false} contentContainerStyle={slst.chipsRow}>
         <View style={[slst.chip, slst.personChip]}><Ionicons name="person-circle-outline" size={18} color={C.text} /><Text style={slst.chipText}>You</Text><Ionicons name="chevron-down" size={12} color={C.textSec} /></View>
         <Pressable style={[slst.chip, slst.teamChip]}><Text style={slst.teamChipText}>Your team</Text></Pressable>
         <Pressable onPress={() => setShowSort((v) => !v)} style={[slst.chip, slst.sortChip]}>
@@ -2067,7 +2067,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
         </Pressable>
       </ScrollView>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={slst.filterRow}>
+      <ScrollView horizontal nestedScrollEnabled directionalLockEnabled showsHorizontalScrollIndicator={false} contentContainerStyle={slst.filterRow}>
         {FILTER_CHIPS.map((chip) => {
           const active = statusFilter === chip.value;
           return (
@@ -2124,6 +2124,8 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
 
   return (
     <FlatList
+      scrollEnabled
+      nestedScrollEnabled
       data={groupedRows}
       renderItem={renderItem}
       keyExtractor={keyExtractor}
@@ -2141,6 +2143,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
       contentContainerStyle={slst.list}
       showsVerticalScrollIndicator={false}
       contentInsetAdjustmentBehavior="automatic"
+      keyboardShouldPersistTaps="handled"
     />
   );
 }
@@ -3694,6 +3697,9 @@ function SessionReviewExperience({
     <View style={reviewSt.root}>
       <ScrollView
         ref={scrollRef}
+        scrollEnabled
+        nestedScrollEnabled
+        directionalLockEnabled
         style={reviewSt.scrollBody}
         contentContainerStyle={reviewSt.scrollContent}
         showsVerticalScrollIndicator={false}

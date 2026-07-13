@@ -152,6 +152,8 @@ import {
   useAudioInsightsQuery,
   useCommentsQuery,
   useRubricsQuery,
+  useSampleSessionQuery,
+  useSampleSessionsQuery,
   useSessionQuery,
   useSessionsQuery,
   useTranscriptQuery,
@@ -179,7 +181,7 @@ type ProspectData = { name: string; email: string; phone: string; moveIn: string
 type MainTab = "home" | "sessions" | "calendar" | "materials" | "settings";
 type Screen =
   | { type: "main"; tab: MainTab }
-  | { type: "session-detail"; sessionId: string }
+  | { type: "session-detail"; sessionId: string; sample?: boolean }
   | { type: "session-comments"; sessionId: string; sessionTitle?: string }
   | { type: "session-ai-chat"; sessionId: string; sessionTitle?: string; prospectName?: string }
   | { type: "session-audio-insights"; sessionId: string; sessionTitle?: string; initialStatus?: AudioInsightsStatus; initialInsights?: AudioInsights | null }
@@ -688,6 +690,7 @@ export default function App() {
                   tab={screen.tab}
                   onTab={(t) => nav({ type: "main", tab: t })}
                   onSession={(id) => nav({ type: "session-detail", sessionId: id })}
+                  onSampleSession={(id) => nav({ type: "session-detail", sessionId: id, sample: true })}
                   onCreate={() => nav({ type: "create-session" })}
                   onAudioTest={() => nav({ type: "audio-test" })}
                   onGuestRegistration={() => {
@@ -710,7 +713,12 @@ export default function App() {
                   property={property}
                 />
               )}
-              {screen.type === "session-detail" && (
+              {screen.type === "session-detail" && screen.sample ? (
+                <SampleSessionDetailScreen
+                  sessionId={screen.sessionId}
+                  onBack={() => nav({ type: "main", tab: "sessions" })}
+                />
+              ) : screen.type === "session-detail" ? (
                 <SessionDetailScreen
                   sessionId={screen.sessionId}
                   onBack={() => nav({ type: "main", tab: "sessions" })}
@@ -718,7 +726,7 @@ export default function App() {
                   onOpenAiChat={(meta) => nav({ type: "session-ai-chat", ...meta })}
                   onOpenAudioInsights={(meta) => nav({ type: "session-audio-insights", ...meta })}
                 />
-              )}
+              ) : null}
               {screen.type === "session-comments" && (
                 <SessionCommentsScreen
                   sessionId={screen.sessionId}
@@ -821,8 +829,8 @@ const TAB_ITEMS: Array<{ id: MainTab; label: string; icon: keyof typeof Ionicons
   { id: "settings", label: "Settings", icon: "settings-outline", iconActive: "settings" },
 ];
 
-function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistration, onProfile, onRubrics, onSignOut, authSession, onAuthSession, agentName, property }: {
-  tab: MainTab; onTab: (t: MainTab) => void; onSession: (id: string) => void; onCreate: () => void; onAudioTest: () => void; onGuestRegistration: () => void; onProfile: () => void; onRubrics: () => void; onSignOut: () => void; authSession: MobileAuthSession; onAuthSession: (session: MobileAuthSession) => void; agentName: string; property: string;
+function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTest, onGuestRegistration, onProfile, onRubrics, onSignOut, authSession, onAuthSession, agentName, property }: {
+  tab: MainTab; onTab: (t: MainTab) => void; onSession: (id: string) => void; onSampleSession: (id: string) => void; onCreate: () => void; onAudioTest: () => void; onGuestRegistration: () => void; onProfile: () => void; onRubrics: () => void; onSignOut: () => void; authSession: MobileAuthSession; onAuthSession: (session: MobileAuthSession) => void; agentName: string; property: string;
 }) {
   const { width: tabBarWidth } = useWindowDimensions();
   const queryClient = useQueryClient();
@@ -922,7 +930,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistr
 
       {tab === "sessions" && (
         <ScreenTransition transitionKey="tab:sessions" direction={tabTransitionDirection}>
-          <SessionsListScreen onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} onSession={onSession} property={property} />
+          <SessionsListScreen onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} onSession={onSession} onSampleSession={onSampleSession} property={property} />
         </ScreenTransition>
       )}
 
@@ -1947,9 +1955,36 @@ function SessionListSwipeRow({
   );
 }
 
-function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: { onBack: () => void; onCommunityPress: () => void; onSession: (id: string) => void; property: string }) {
+function SampleSessionListRow({ session, onOpen }: { session: SessionSummary; onOpen: () => void }) {
+  return (
+    <MotionPressable
+      onPress={onOpen}
+      haptic="selection"
+      entering={FadeInDown.duration(260).springify()}
+      style={[slst.sessionCard, slst.sampleSessionCard]}
+    >
+      <View style={slst.sampleSessionIcon}>
+        <Ionicons name="sparkles" size={18} color={C.purple} />
+      </View>
+      <View style={st.flex1}>
+        <Text style={slst.sessionName} numberOfLines={1}>{session.title}</Text>
+        <Text style={slst.sessionMeta} numberOfLines={1}>
+          {[session.location, session.prospectName].filter(Boolean).join(" · ") || "40Fifty Lofts example"}
+        </Text>
+      </View>
+      <View style={slst.sessionRight}>
+        <View style={slst.sampleBadge}><Text style={slst.sampleBadgeText}>SAMPLE</Text></View>
+        {session.overallScore !== null && <Text style={slst.sessionScore}>{session.overallScore}</Text>}
+      </View>
+      <Ionicons name="chevron-forward" size={17} color={C.textMuted} />
+    </MotionPressable>
+  );
+}
+
+function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSession, property }: { onBack: () => void; onCommunityPress: () => void; onSession: (id: string) => void; onSampleSession: (id: string) => void; property: string }) {
   const [refreshing, setRefreshing] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showSamples, setShowSamples] = useState(false);
 
   const search = useAppStore((state) => state.sessionsSearch);
   const statusFilter = useAppStore((state) => state.sessionsStatusFilter);
@@ -1982,16 +2017,24 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
     () => sessionsQuery.data?.pages.flatMap((pageData) => pageData.sessions) ?? [],
     [sessionsQuery.data]
   );
-  const total = sessionsQuery.data?.pages[0]?.total ?? sessions.length;
+  const ownSessionCheck = useSessionsQuery({ limit: 1, sort: "newest" });
+  const hasNoOwnSessions = !ownSessionCheck.isLoading && (ownSessionCheck.data?.total ?? 0) === 0;
+  const sampleSessionsQuery = useSampleSessionsQuery(showSamples && hasNoOwnSessions);
+  const sampleSessions = sampleSessionsQuery.data?.sessions ?? [];
+  const visibleSessions = showSamples ? sampleSessions : sessions;
   const hasMore = sessionsQuery.hasNextPage;
   const loading = sessionsQuery.isLoading;
   const loadingMore = sessionsQuery.isFetchingNextPage;
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await sessionsQuery.refetch();
+    await Promise.all([
+      sessionsQuery.refetch(),
+      ownSessionCheck.refetch(),
+      showSamples ? sampleSessionsQuery.refetch() : Promise.resolve(),
+    ]);
     setRefreshing(false);
-  }, [sessionsQuery]);
+  }, [ownSessionCheck, sampleSessionsQuery, sessionsQuery, showSamples]);
 
   const onEndReached = useCallback(() => {
     if (hasMore && !loadingMore && !loading) void sessionsQuery.fetchNextPage();
@@ -2049,26 +2092,29 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
     | { kind: "session"; id: string; session: SessionSummary };
 
   const groupedRows = useMemo<SessionListItem[]>(() => {
-    const visibleSessions = sessions.filter((session) => {
+    const filteredSessions = visibleSessions.filter((session) => {
+      if (showSamples) return true;
       if (statusFilter === "all") return true;
       if (statusFilter === "needs_review") return ["uploaded", "failed", "analysis_ready"].includes(session.status);
       if (statusFilter === "feedback") return ["analysis_ready", "reviewed"].includes(session.status) || session.overallScore !== null;
       return true;
     });
 
-    const label = statusFilter === "needs_review"
-      ? "Needs Review"
-      : statusFilter === "feedback"
-        ? "Feedback Received"
-        : "Recent Sessions";
+    const label = showSamples
+      ? "40Fifty Lofts samples"
+      : statusFilter === "needs_review"
+        ? "Needs Review"
+        : statusFilter === "feedback"
+          ? "Feedback Received"
+          : "Recent Sessions";
 
-    return visibleSessions.length
+    return filteredSessions.length
       ? [
-          { kind: "header" as const, id: `header-${statusFilter}`, label, count: visibleSessions.length },
-          ...visibleSessions.map((session) => ({ kind: "session" as const, id: session.id, session })),
+          { kind: "header" as const, id: `header-${showSamples ? "samples" : statusFilter}`, label, count: filteredSessions.length },
+          ...filteredSessions.map((session) => ({ kind: "session" as const, id: session.id, session })),
         ]
       : [];
-  }, [sessions, statusFilter]);
+  }, [showSamples, statusFilter, visibleSessions]);
 
   const renderItem = useCallback(({ item }: { item: SessionListItem }) => {
     if (item.kind === "header") {
@@ -2080,6 +2126,9 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
       );
     }
     const session = item.session;
+    if (showSamples) {
+      return <SampleSessionListRow session={session} onOpen={() => onSampleSession(session.id)} />;
+    }
     return (
       <SessionListSwipeRow
         session={session}
@@ -2092,10 +2141,10 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
         isAnyOpen={() => openSwipeableRef.current !== null}
       />
     );
-  }, [closeOpenSwipeable, confirmDeleteSession, deletingId, handleSwipeClose, handleSwipeOpen, onSession]);
+  }, [closeOpenSwipeable, confirmDeleteSession, deletingId, handleSwipeClose, handleSwipeOpen, onSampleSession, onSession, showSamples]);
 
   const keyExtractor = useCallback((item: SessionListItem) => item.id, []);
-  const sessionMetrics = useMemo(() => computeDashboardMetrics(sessions), [sessions]);
+  const sessionMetrics = useMemo(() => computeDashboardMetrics(visibleSessions), [visibleSessions]);
   const averageScore = sessionMetrics.averageScore !== null ? `${sessionMetrics.averageScore}%` : "--";
 
   const ListHeader = useMemo(() => (
@@ -2109,13 +2158,22 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
           </Pressable>
         }
         right={
-          <Pressable onPress={() => setShowSearch((value) => !value)} style={homeSt.headerIcon}>
-            <Ionicons name={showSearch ? "close" : "search"} size={19} color={C.text} />
-          </Pressable>
+          showSamples ? (
+            <Pressable accessibilityLabel="Close sample sessions" onPress={() => setShowSamples(false)} style={homeSt.headerIcon}>
+              <Ionicons name="close" size={20} color={C.text} />
+            </Pressable>
+          ) : (
+            <Pressable onPress={() => setShowSearch((value) => !value)} style={homeSt.headerIcon}>
+              <Ionicons name={showSearch ? "close" : "search"} size={19} color={C.text} />
+            </Pressable>
+          )
         }
       />
       <View style={slst.titleRow}>
-        <Text style={st.pageTitle}>Sessions</Text>
+        <View>
+          <Text style={st.pageTitle}>{showSamples ? "Sample sessions" : "Sessions"}</Text>
+          {showSamples ? <Text style={slst.sampleHeadingSub}>Curated from 40Fifty Lofts · Read only</Text> : null}
+        </View>
         <View style={slst.avgPill}>
           <Ionicons name="analytics-outline" size={14} color={sessionMetrics.averageScore !== null ? scoreColor(sessionMetrics.averageScore) : C.brand} />
           <Text style={slst.avgPillValue}>{averageScore}</Text>
@@ -2123,23 +2181,32 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
         </View>
       </View>
 
-      {showSearch && (
+      {showSamples ? (
+        <Pressable accessibilityRole="button" onPress={() => setShowSamples(false)} style={slst.sampleModeBanner}>
+          <View style={slst.sampleModeIcon}><Ionicons name="sparkles" size={16} color={C.purple} /></View>
+          <View style={st.flex1}>
+            <Text style={slst.sampleModeTitle}>Exploring real examples</Text>
+            <Text style={slst.sampleModeSub}>These never affect {property}’s sessions or scores.</Text>
+          </View>
+          <Text style={slst.sampleModeAction}>Back</Text>
+        </Pressable>
+      ) : showSearch && (
         <Reanimated.View entering={FadeInDown.duration(220)} style={st.searchBar}>
           <Ionicons name="search-outline" size={18} color={C.textMuted} />
           <TextInput autoFocus placeholder="Search sessions..." placeholderTextColor={C.textMuted} value={search} onChangeText={setSearch} style={st.searchInput} returnKeyType="search" />
         </Reanimated.View>
       )}
 
-      <ScrollView horizontal nestedScrollEnabled directionalLockEnabled showsHorizontalScrollIndicator={false} contentContainerStyle={slst.chipsRow}>
+      {!showSamples && <ScrollView horizontal nestedScrollEnabled directionalLockEnabled showsHorizontalScrollIndicator={false} contentContainerStyle={slst.chipsRow}>
         <View style={[slst.chip, slst.personChip]}><Ionicons name="person-circle-outline" size={18} color={C.text} /><Text style={slst.chipText}>You</Text><Ionicons name="chevron-down" size={12} color={C.textSec} /></View>
         <Pressable style={[slst.chip, slst.teamChip]}><Text style={slst.teamChipText}>Your team</Text></Pressable>
         <Pressable onPress={() => setShowSort((v) => !v)} style={[slst.chip, slst.sortChip]}>
           <Text style={slst.chipText}>{SORT_OPTS.find((o) => o.value === sort)?.label}</Text>
           <Ionicons name="chevron-down" size={12} color={C.textSec} />
         </Pressable>
-      </ScrollView>
+      </ScrollView>}
 
-      <ScrollView horizontal nestedScrollEnabled directionalLockEnabled showsHorizontalScrollIndicator={false} contentContainerStyle={slst.filterRow}>
+      {!showSamples && <ScrollView horizontal nestedScrollEnabled directionalLockEnabled showsHorizontalScrollIndicator={false} contentContainerStyle={slst.filterRow}>
         {FILTER_CHIPS.map((chip) => {
           const active = statusFilter === chip.value;
           return (
@@ -2152,9 +2219,9 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
             </Pressable>
           );
         })}
-      </ScrollView>
+      </ScrollView>}
 
-      {showSort && (
+      {!showSamples && showSort && (
         <View style={slst.sortPanel}>
           {SORT_OPTS.map((o) => (
             <Pressable
@@ -2169,22 +2236,59 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
         </View>
       )}
     </View>
-  ), [averageScore, onBack, onCommunityPress, property, search, sessionMetrics.averageScore, sort, showSort, showSearch, statusFilter]);
+  ), [averageScore, onBack, onCommunityPress, property, search, sessionMetrics.averageScore, showSamples, sort, showSort, showSearch, statusFilter]);
 
   const ListFooter = useMemo(() => {
+    if (showSamples) return null;
     if (loadingMore) return <ActivityIndicator style={{ paddingVertical: 20 }} color={C.brand} />;
     if (!hasMore && sessions.length > 0) return (
       <Text style={slst.endText}>All sessions loaded</Text>
     );
     return null;
-  }, [loadingMore, hasMore, sessions.length]);
+  }, [hasMore, loadingMore, sessions.length, showSamples]);
 
   const ListEmpty = useMemo(() => {
-    if (loading) return (
+    if (loading || ownSessionCheck.isLoading || (showSamples && sampleSessionsQuery.isLoading)) return (
       <View style={{ paddingTop: 20 }}>
         <LoadingShimmer rows={5} />
       </View>
     );
+    if (showSamples && sampleSessionsQuery.error) {
+      return (
+        <View style={{ gap: 12 }}>
+          <ErrorBanner
+            message={sampleSessionsQuery.error instanceof Error ? sampleSessionsQuery.error.message : "Could not load sample sessions"}
+            onRetry={() => void sampleSessionsQuery.refetch()}
+          />
+          <PrimaryBtn label="Back to my sessions" icon="arrow-back" onPress={() => setShowSamples(false)} />
+        </View>
+      );
+    }
+    if (showSamples) {
+      return <EmptyState icon="albums-outline" title="Samples unavailable" subtitle="The curated examples could not be loaded." />;
+    }
+    if (hasNoOwnSessions && !search && statusFilter === "all") {
+      return (
+        <Reanimated.View entering={FadeInDown.duration(280).springify()} style={slst.sampleEmptyCard}>
+          <View style={slst.sampleEmptyIcon}><Ionicons name="sparkles" size={25} color={C.purple} /></View>
+          <Text style={slst.sampleEmptyTitle}>No sessions yet</Text>
+          <Text style={slst.sampleEmptySub}>
+            Explore real, fully analyzed tours from 40Fifty Lofts while your team records its first session.
+          </Text>
+          <View style={slst.sampleFeatureRow}>
+            {["Audio", "Transcript", "Scoring", "Coaching"].map((label) => (
+              <View key={label} style={slst.sampleFeaturePill}><Text style={slst.sampleFeatureText}>{label}</Text></View>
+            ))}
+          </View>
+          <MotionPressable onPress={() => setShowSamples(true)} haptic="selection" style={slst.samplePrimaryButton}>
+            <Ionicons name="play-circle-outline" size={20} color="#fff" />
+            <Text style={slst.samplePrimaryText}>View sample sessions</Text>
+            <Ionicons name="arrow-forward" size={18} color="#fff" />
+          </MotionPressable>
+          <Text style={slst.sampleFootnote}>Read only · Samples never change this property’s data</Text>
+        </Reanimated.View>
+      );
+    }
     return (
       <EmptyState
         icon={search || statusFilter !== "all" ? "search-outline" : "albums-outline"}
@@ -2192,7 +2296,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
         subtitle="Recent tours will appear here"
       />
     );
-  }, [loading, search, statusFilter]);
+  }, [hasNoOwnSessions, loading, ownSessionCheck.isLoading, sampleSessionsQuery, search, showSamples, statusFilter]);
 
   return (
     <FlatList
@@ -2209,7 +2313,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
       }
       ListFooterComponent={ListFooter}
       ListEmptyComponent={ListEmpty}
-      onEndReached={onEndReached}
+      onEndReached={showSamples ? undefined : onEndReached}
       onEndReachedThreshold={0.4}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
       contentContainerStyle={slst.list}
@@ -2223,6 +2327,22 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
 const slst = StyleSheet.create({
   list: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 120 },
   header: { gap: 12, marginBottom: 8 },
+  sampleHeadingSub: { marginTop: 3, color: C.textMuted, fontSize: 11, fontWeight: "700" },
+  sampleModeBanner: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 11, padding: 12, borderWidth: 1, borderColor: "#ddd6fe", borderRadius: 14, backgroundColor: "#faf7ff" },
+  sampleModeIcon: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: C.purpleBg },
+  sampleModeTitle: { color: C.text, fontSize: 13, fontWeight: "900" },
+  sampleModeSub: { marginTop: 2, color: C.textSec, fontSize: 11, lineHeight: 15, fontWeight: "600" },
+  sampleModeAction: { color: C.brand, fontSize: 12, fontWeight: "900" },
+  sampleEmptyCard: { alignItems: "center", gap: 12, marginTop: 12, paddingHorizontal: 20, paddingVertical: 24, borderWidth: 1, borderColor: "#ddd6fe", borderRadius: 20, backgroundColor: "#fff" },
+  sampleEmptyIcon: { width: 54, height: 54, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: C.purpleBg },
+  sampleEmptyTitle: { color: C.text, fontSize: 21, fontWeight: "900", letterSpacing: -0.25 },
+  sampleEmptySub: { maxWidth: 330, color: C.textSec, fontSize: 13, lineHeight: 19, fontWeight: "600", textAlign: "center" },
+  sampleFeatureRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 },
+  sampleFeaturePill: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, backgroundColor: "#f4f7fb" },
+  sampleFeatureText: { color: C.textSec, fontSize: 10, fontWeight: "800" },
+  samplePrimaryButton: { alignSelf: "stretch", minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 2, paddingHorizontal: 16, borderRadius: 14, backgroundColor: C.brand },
+  samplePrimaryText: { flex: 1, color: "#fff", fontSize: 14, fontWeight: "900", textAlign: "center" },
+  sampleFootnote: { color: C.textMuted, fontSize: 10, fontWeight: "700", textAlign: "center" },
   chipsRow: { gap: 6, paddingVertical: 2 },
   filterRow: { gap: 7, paddingVertical: 2 },
   chip: {
@@ -2282,6 +2402,10 @@ const slst = StyleSheet.create({
   deleteActionPressed: { backgroundColor: "#dc2626", opacity: 0.92 },
   deleteActionText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   sessionCard: { minHeight: 74, flexDirection: "row", alignItems: "center", gap: 12, padding: 15, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, backgroundColor: "#fff" },
+  sampleSessionCard: { marginBottom: 10, borderColor: "#ddd6fe", backgroundColor: "#fefcff" },
+  sampleSessionIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: C.purpleBg },
+  sampleBadge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5, backgroundColor: C.purpleBg },
+  sampleBadgeText: { color: C.purple, fontSize: 8, fontWeight: "900" },
   sessionCardDeleting: { opacity: 0.55 },
   sessionNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   sessionName: { flex: 1, color: "#1a1a1a", fontSize: 15, fontWeight: "900" },
@@ -3303,6 +3427,42 @@ function CreateSessionScreen({
 
 type DTab = "overview" | "rubric" | "transcript" | "actions" | "comments";
 
+function SampleSessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack: () => void }) {
+  const sampleQuery = useSampleSessionQuery(sessionId);
+  const sample = sampleQuery.data;
+
+  if (sampleQuery.isLoading && !sample) return <SessionReviewSkeleton onBack={onBack} />;
+  if (!sample) {
+    return (
+      <View style={[st.flex1, st.center, { gap: 12, padding: 24 }]}>
+        <Ionicons name="alert-circle-outline" size={48} color={C.red} />
+        <Text style={[st.emptyTitle, { textAlign: "center" }]}>
+          {sampleQuery.error instanceof Error ? sampleQuery.error.message : "Sample session not found"}
+        </Text>
+        <BackBtn label="Sample sessions" onPress={onBack} />
+      </View>
+    );
+  }
+
+  return (
+    <SessionReviewExperience
+      session={sample.session}
+      analysis={sample.analysis}
+      transcript={sample.transcript}
+      phases={sample.phases}
+      comments={[]}
+      actions={sample.actions}
+      sessionId={sessionId}
+      onBack={onBack}
+      onReload={() => void sampleQuery.refetch()}
+      onOpenComments={() => undefined}
+      onOpenAiChat={() => undefined}
+      onOpenAudioInsights={() => undefined}
+      readOnly
+    />
+  );
+}
+
 function SessionDetailScreen({
   sessionId,
   onBack,
@@ -3497,6 +3657,7 @@ function SessionReviewExperience({
   onOpenComments,
   onOpenAiChat,
   onOpenAudioInsights,
+  readOnly = false,
 }: {
   session: any;
   analysis: AnalysisResult;
@@ -3510,6 +3671,7 @@ function SessionReviewExperience({
   onOpenComments: () => void;
   onOpenAiChat: () => void;
   onOpenAudioInsights: () => void;
+  readOnly?: boolean;
 }) {
   const [localActions, setLocalActions] = useState(actions);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
@@ -3805,13 +3967,14 @@ function SessionReviewExperience({
           ]
             .filter(Boolean)
             .join(" · ")}
-          onMorePress={openSessionMoreMenu}
+          onMorePress={readOnly ? undefined : openSessionMoreMenu}
           moreAccessibilityLabel="Session options"
         />
 
         <View style={reviewSt.tabSticky}>
           <SessionModeTabs
             value={reviewMode}
+            modes={readOnly ? ["rubric", "transcript", "search", "coaching"] : undefined}
             onChange={(mode) => {
               if (mode === "ai") {
                 onOpenAiChat();
@@ -3826,6 +3989,15 @@ function SessionReviewExperience({
           style={reviewSt.tabBody}
           onLayout={(event) => { tabBodyY.current = event.nativeEvent.layout.y; }}
         >
+        {readOnly ? (
+          <View style={reviewSt.sampleReadOnlyBanner}>
+            <View style={reviewSt.sampleReadOnlyIcon}><Ionicons name="sparkles" size={16} color={C.purple} /></View>
+            <View style={st.flex1}>
+              <Text style={reviewSt.sampleReadOnlyTitle}>40Fifty Lofts sample</Text>
+              <Text style={reviewSt.sampleReadOnlySub}>Read only · Explore the scoring, coaching, audio, and transcript.</Text>
+            </View>
+          </View>
+        ) : null}
         {reviewMode === "rubric" && (
           <AnimatedTabContent tabKey="rubric">
             <View style={{ gap: 12 }}>
@@ -3911,6 +4083,7 @@ function SessionReviewExperience({
               sessionId={sessionId}
               onUpdate={onReload}
               onActionsChange={setLocalActions}
+              readOnly={readOnly}
             />
           </AnimatedTabContent>
         )}
@@ -3966,8 +4139,8 @@ function SessionReviewExperience({
                   <Pressable
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
-                    accessibilityHint="Tap to play from this timestamp. Long press to select transcript segments."
-                    onLongPress={() => beginSegmentSelection(segment.id)}
+                    accessibilityHint={readOnly ? "Tap to play from this timestamp." : "Tap to play from this timestamp. Long press to select transcript segments."}
+                    onLongPress={readOnly ? undefined : () => beginSegmentSelection(segment.id)}
                     delayLongPress={360}
                     onPress={() => {
                       if (longPressedSegmentRef.current === segment.id) {
@@ -4045,7 +4218,7 @@ function SessionReviewExperience({
         </View>
       </ScrollView>
 
-      {selectedSegmentIds.length > 0 && selectionRange ? (
+      {!readOnly && selectedSegmentIds.length > 0 && selectionRange ? (
         <View style={reviewSt.selectionBar}>
           <Pressable onPress={() => setSelectedSegmentIds([])} style={reviewSt.selectionClose}>
             <Ionicons name="close" size={18} color={C.textSec} />
@@ -4075,9 +4248,9 @@ function SessionReviewExperience({
             <Text style={reviewSt.selectionActionText}>Create clip</Text>
           </Pressable>
         </View>
-      ) : (
+      ) : !readOnly ? (
         <SessionAiFab onPress={onOpenAiChat} bottomOffset={Platform.OS === "ios" ? 118 : 104} />
-      )}
+      ) : null}
       <SessionPlayer
         position={position}
         duration={duration}
@@ -5012,11 +5185,13 @@ function ActionsTab({
   sessionId,
   onUpdate,
   onActionsChange,
+  readOnly = false,
 }: {
   actions: FollowUpAction[];
   sessionId: string;
   onUpdate: () => void;
   onActionsChange?: (next: FollowUpAction[] | ((prev: FollowUpAction[]) => FollowUpAction[])) => void;
+  readOnly?: boolean;
 }) {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const updateActionMutation = useUpdateActionStatusMutation(sessionId);
@@ -5079,14 +5254,14 @@ function ActionsTab({
                   <Text style={{ fontSize: 13, fontWeight: "600", color: C.text, lineHeight: 20, fontStyle: "italic" }}>{a.suggestedMessage}</Text>
                 </View>
               )}
-              <View style={{ flexDirection: "row", gap: 8 }}>
+              {!readOnly && <View style={{ flexDirection: "row", gap: 8 }}>
                 <Pressable onPress={() => handleStatus(a.id, "completed")} disabled={updatingId === a.id} style={({ pressed }) => [{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: C.green, borderRadius: 12, paddingVertical: 10 }, pressed && st.pressed]}>
                   {updatingId === a.id ? <ActivityIndicator size="small" color="#fff" /> : <><Ionicons name="checkmark-circle-outline" size={16} color="#fff" /><Text style={{ color: "#fff", fontSize: 14, fontWeight: "800" }}>Complete</Text></>}
                 </Pressable>
                 <Pressable onPress={() => handleStatus(a.id, "dismissed")} disabled={updatingId === a.id} style={({ pressed }) => [{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "#f1f5f9", borderRadius: 12, paddingVertical: 10 }, pressed && st.pressed]}>
                   <Ionicons name="close-circle-outline" size={16} color={C.textSec} /><Text style={{ color: C.textSec, fontSize: 14, fontWeight: "800" }}>Dismiss</Text>
                 </Pressable>
-              </View>
+              </View>}
             </View>
           </View>
         );
@@ -5959,6 +6134,10 @@ const reviewSt = StyleSheet.create({
   commentsPageContent: { gap: 12, paddingHorizontal: SESSION_PAGE_PADDING, paddingTop: 12, paddingBottom: 130 },
   tabSticky: { backgroundColor: tourColors.bg, zIndex: 2 },
   tabBody: { gap: 13, paddingHorizontal: SESSION_PAGE_PADDING, paddingTop: 8 },
+  sampleReadOnlyBanner: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, padding: 12, borderWidth: 1, borderColor: "#ddd6fe", borderRadius: 14, backgroundColor: "#faf7ff" },
+  sampleReadOnlyIcon: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: C.purpleBg },
+  sampleReadOnlyTitle: { color: C.text, fontSize: 13, fontWeight: "900" },
+  sampleReadOnlySub: { marginTop: 2, color: C.textSec, fontSize: 11, lineHeight: 15, fontWeight: "600" },
   focusBanner: {
     gap: 2,
     paddingHorizontal: 14,

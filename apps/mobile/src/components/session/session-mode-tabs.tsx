@@ -27,10 +27,13 @@ const MODES: Array<{
 export function SessionModeTabs({
   value,
   onChange,
+  modes,
 }: {
   value: SessionReviewMode;
   onChange: (mode: SessionReviewMode) => void;
+  modes?: SessionReviewMode[];
 }) {
+  const visibleModes = modes ? MODES.filter((mode) => modes.includes(mode.id)) : MODES;
   return (
     <View style={styles.wrap}>
       <ScrollView
@@ -41,7 +44,7 @@ export function SessionModeTabs({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.bar}
       >
-        {MODES.map((mode) => {
+        {visibleModes.map((mode) => {
           const active = value === mode.id;
           return (
             <Pressable

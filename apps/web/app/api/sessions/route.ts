@@ -48,14 +48,21 @@ export async function GET(request: NextRequest) {
     let propertyId: string | undefined;
     let propertyIds: string[] | undefined;
 
-    if (propertyParam && propertyParam !== "all") {
-      if (accessiblePropertyIds.includes(propertyParam)) {
-        propertyIds = propertySessionKeys(
-          accessibleProperties.find((community) => community.propertyTygId === propertyParam)!
+    if (propertyParam === "all") {
+      propertyIds = accessibleProperties.flatMap(propertySessionKeys);
+    } else if (propertyParam) {
+      const requestedProperty = accessibleProperties.find(
+        (community) => community.propertyTygId === propertyParam
+      );
+      if (!requestedProperty) {
+        return NextResponse.json(
+          { error: "That property is not available to this team member." },
+          { status: 403 }
         );
       }
-    } else if (accessiblePropertyIds.length > 0) {
-      propertyIds = accessibleProperties.flatMap(propertySessionKeys);
+      propertyIds = propertySessionKeys(requestedProperty);
+    } else if (workspace?.community) {
+      propertyIds = propertySessionKeys(workspace.community);
     }
 
     const agentParam = sp.get("agentId")?.trim();

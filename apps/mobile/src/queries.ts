@@ -17,6 +17,8 @@ import {
   fetchComments,
   fetchMaterials,
   fetchRubrics,
+  fetchSampleSession,
+  fetchSampleSessions,
   fetchSession,
   fetchSessions,
   fetchTranscript,
@@ -35,6 +37,8 @@ export const queryKeys = {
   sessions: (params?: FetchSessionsParams) => [...queryKeys.all(), "sessions", params ?? {}] as const,
   sessionPages: (params?: FetchSessionsParams) => [...queryKeys.all(), "sessionPages", params ?? {}] as const,
   session: (sessionId: string) => [...queryKeys.all(), "session", sessionId] as const,
+  sampleSessions: () => [...queryKeys.all(), "sampleSessions"] as const,
+  sampleSession: (sessionId: string) => [...queryKeys.all(), "sampleSession", sessionId] as const,
   analysis: (sessionId: string) => [...queryKeys.session(sessionId), "analysis"] as const,
   actions: (sessionId: string) => [...queryKeys.session(sessionId), "actions"] as const,
   comments: (sessionId: string) => [...queryKeys.session(sessionId), "comments"] as const,
@@ -65,6 +69,24 @@ export function useSessionQuery(sessionId: string) {
   return useQuery({
     queryKey: queryKeys.session(sessionId),
     queryFn: () => fetchSession(sessionId),
+  });
+}
+
+export function useSampleSessionsQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.sampleSessions(),
+    queryFn: fetchSampleSessions,
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useSampleSessionQuery(sessionId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.sampleSession(sessionId),
+    queryFn: () => fetchSampleSession(sessionId),
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }
 

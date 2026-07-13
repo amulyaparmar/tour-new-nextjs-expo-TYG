@@ -22,6 +22,29 @@ export type PaginatedSessions = {
   hasMore: boolean;
 };
 
+export type SampleSessionsResponse = {
+  sample: true;
+  propertyName: string;
+  sessions: SessionSummary[];
+};
+
+export type SampleSessionBundle = {
+  sample: true;
+  propertyName: string;
+  session: SessionDetail;
+  analysis: AnalysisResult;
+  phases: ConversationPhaseSegmentation | null;
+  transcript: Array<{
+    id: string;
+    sessionId: string;
+    speaker: string;
+    startTime: number;
+    endTime: number;
+    text: string;
+  }>;
+  actions: FollowUpAction[];
+};
+
 export async function fetchSessions(params?: FetchSessionsParams): Promise<PaginatedSessions> {
   const sp = new URLSearchParams();
   if (params?.page) sp.set("page", String(params.page));
@@ -36,6 +59,24 @@ export async function fetchSessions(params?: FetchSessionsParams): Promise<Pagin
     throw new Error("Failed to fetch sessions.");
   }
   return (await res.json()) as PaginatedSessions;
+}
+
+export async function fetchSampleSessions(): Promise<SampleSessionsResponse> {
+  const res = await authenticatedFetch("/api/sessions/samples");
+  const body = await res.json().catch(() => null) as (SampleSessionsResponse & { error?: string }) | null;
+  if (!res.ok || !body?.sessions) {
+    throw new Error(body?.error ?? "Could not load sample sessions.");
+  }
+  return body;
+}
+
+export async function fetchSampleSession(sessionId: string): Promise<SampleSessionBundle> {
+  const res = await authenticatedFetch(`/api/sessions/samples?id=${encodeURIComponent(sessionId)}`);
+  const body = await res.json().catch(() => null) as (SampleSessionBundle & { error?: string }) | null;
+  if (!res.ok || !body?.session || !body.analysis) {
+    throw new Error(body?.error ?? "Could not load the sample session.");
+  }
+  return body;
 }
 
 export async function createSession(payload: {

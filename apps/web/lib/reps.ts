@@ -27,9 +27,11 @@ export type RepProfile = {
 };
 
 export type PropertyProfile = {
+  id?: string;
   name: string;
   /** Looping hero video/image shown behind the card header. */
   mediaUrl: string;
+  mediaKind?: "video" | "image";
   /** Still apartment/property photos used in generated social/MMS cards. */
   galleryImageUrls?: string[];
 };
@@ -51,7 +53,7 @@ export type RepCard = {
 };
 
 /** The mockup's three qualifying questions — the default per-property set. */
-const DEFAULT_QUESTIONS: CheckInQuestion[] = [
+export const DEFAULT_QUESTIONS: CheckInQuestion[] = [
   {
     id: "hear_about",
     label: "Where did you hear about us?",

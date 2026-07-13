@@ -101,7 +101,7 @@ import {
 import { getApiBaseUrl, getSiteBaseUrl } from "./src/config";
 import { computeDashboardMetrics } from "./src/dashboard";
 import type { UploadProgressInfo } from "./src/presignedUpload";
-import { authorizedCommunitiesForSession, type MobileAuthSession, authenticatedFetch, clearSession, getCurrentSession, restoreSession, switchCommunity } from "./src/auth";
+import { authorizedCommunitiesForSession, type MobileAuthSession, authenticatedFetch, clearSession, getCurrentSession, restoreSession, switchCommunity, updateWorkspaceAliases } from "./src/auth";
 import { LoginScreen } from "./src/LoginScreen";
 import { TourLogo, TourMark } from "./src/components/TourLogo";
 import {
@@ -942,7 +942,7 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
         }}
         onSelect={(communityId) => void chooseCommunity(communityId)}
       />
-      <CheckInSheet visible={checkInOpen} onClose={() => setCheckInOpen(false)} property={property} />
+      <CheckInSheet visible={checkInOpen} onClose={() => setCheckInOpen(false)} session={authSession} />
     </View>
   );
 }
@@ -1137,10 +1137,7 @@ type MobileCheckInQuestion = {
   required?: boolean;
 };
 
-const CHECK_IN_REP = { slug: "alex", name: "Alex Johnson", firstName: "Alex" };
 const CHECK_IN_PROPERTY = "27 North";
-const CHECK_IN_URL = "https://tour.you/p/alex?check-in=true";
-const CHECK_IN_QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=12&format=png&data=${encodeURIComponent(CHECK_IN_URL)}`;
 const CHECK_IN_CONTACT_SHEET_RATIO = 0.94;
 const CHECK_IN_DETAIL_SHEET_RATIO = 0.94;
 const CHECK_IN_SHEET_MAX_HEIGHT = 820;
@@ -1184,9 +1181,18 @@ function validCheckInEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
-function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClose: () => void; property: string }) {
+function CheckInSheet({ visible, onClose, session }: { visible: boolean; onClose: () => void; session: MobileAuthSession }) {
   const { height: windowHeight } = useWindowDimensions();
-  const propertyLabel = property || CHECK_IN_PROPERTY;
+  const propertyLabel = session.workspace.community.name || CHECK_IN_PROPERTY;
+  const repName = session.workspace.teamMember?.name || session.workspace.user.fullName || session.workspace.user.email.split("@")[0] || "your leasing agent";
+  const repFirstName = repName.split(/\s+/)[0] || "your leasing agent";
+  const memberKey = session.workspace.teamMember?.alias
+    || session.workspace.teamMember?.id
+    || session.workspace.user.email.split("@")[0]
+    || session.workspace.user.id;
+  const propertyKey = session.workspace.community.alias || session.workspace.community.propertyTygId;
+  const checkInUrl = `${getSiteBaseUrl().replace(/\/$/, "")}/p/${encodeURIComponent(propertyKey)}/${encodeURIComponent(memberKey)}?check-in=true`;
+  const checkInQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=12&format=png&data=${encodeURIComponent(checkInUrl)}`;
   const [mode, setMode] = useState<"checkin" | "qr">("checkin");
   const [step, setStep] = useState<"contact" | "questions" | "done">("contact");
   const [stepDirection, setStepDirection] = useState<SlideDirection>("forward");
@@ -1263,7 +1269,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
         jobTitle: showJobTitle ? jobTitle.trim() || null : null,
         reason: reason.trim() || null,
         questionAnswers: answers,
-        repSlug: CHECK_IN_REP.slug,
+        repSlug: memberKey,
         propertyName: propertyLabel,
         propertyId: getCurrentSession()?.workspace.community.propertyTygId ?? null,
       });
@@ -1350,11 +1356,11 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
   }
 
   async function shareCheckInLink() {
-    await Share.share({ title: "Tour check-in", message: checkInShareText(), url: CHECK_IN_URL });
+    await Share.share({ title: "Tour check-in", message: checkInShareText(), url: checkInUrl });
   }
 
   function checkInShareText() {
-    return `Check in for your tour at ${propertyLabel}: ${CHECK_IN_URL}`;
+    return `Check in for your tour with ${repFirstName} at ${propertyLabel}: ${checkInUrl}`;
   }
 
   async function sendCheckInSms() {
@@ -1394,10 +1400,10 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
             <Reanimated.View key="qr-step" entering={FadeIn.duration(160)} style={homeSt.checkInStepPane}>
               <View style={homeSt.qrPanel}>
                 <View style={homeSt.qrCard}>
-                  <Image source={{ uri: CHECK_IN_QR_URL }} style={homeSt.qrImage} resizeMode="contain" />
+                  <Image source={{ uri: checkInQrUrl }} style={homeSt.qrImage} resizeMode="contain" />
                 </View>
                 <Text style={homeSt.qrTitle}>Scan to check in</Text>
-                <Text style={homeSt.qrSub}>{CHECK_IN_URL}</Text>
+                <Text style={homeSt.qrSub}>{checkInUrl}</Text>
                 <View style={homeSt.qrShareGrid}>
                   <Pressable onPress={() => void sendCheckInSms()} style={({ pressed }) => [homeSt.qrShareButton, homeSt.qrShareButtonPrimary, pressed && st.pressed]}>
                     <Ionicons name="chatbubble-outline" size={17} color="#fff" />
@@ -1423,7 +1429,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
             >
               <View style={homeSt.doneIcon}><Ionicons name="checkmark" size={34} color="#fff" /></View>
               <Text style={homeSt.qrTitle}>You're checked in</Text>
-              <Text style={homeSt.qrSub}>Thanks for visiting {propertyLabel}. {CHECK_IN_REP.firstName} has the guest details and can start the tour.</Text>
+              <Text style={homeSt.qrSub}>Thanks for visiting {propertyLabel}. {repFirstName} has the guest details and can start the tour.</Text>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Finish check-in"
@@ -1482,7 +1488,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
               >
                 <View style={homeSt.checkInHead}>
                   <View style={homeSt.formHeadAvatar}><Ionicons name="person-outline" size={23} color="#fff" /></View>
-                  <Text style={homeSt.formHeadText}>Check in for your tour{"\n"}with {CHECK_IN_REP.firstName}</Text>
+                  <Text style={homeSt.formHeadText}>Check in for your tour{"\n"}with {repFirstName}</Text>
                 </View>
                 <View style={homeSt.formRow2}>
                   <CheckInField
@@ -5683,8 +5689,38 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
   const [communityPickerOpen, setCommunityPickerOpen] = useState(false);
   const [communityQuery, setCommunityQuery] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [userAlias, setUserAlias] = useState(session.workspace.teamMember?.alias ?? "");
+  const [propertyAlias, setPropertyAlias] = useState(session.workspace.community.alias ?? "");
+  const [savingAliases, setSavingAliases] = useState(false);
   const teamRole = session.workspace.teamMember?.role || "Property Team";
   const authorizedPropertyCount = authorizedCommunitiesForSession(session).length;
+  const publicPropertyKey = propertyAlias.trim() || session.workspace.community.propertyTygId;
+  const publicMemberKey = userAlias.trim()
+    || session.workspace.teamMember?.id
+    || session.workspace.user.email.split("@")[0]
+    || session.workspace.user.id;
+  const publicCheckInUrl = `${getSiteBaseUrl().replace(/\/$/, "")}/p/${encodeURIComponent(publicPropertyKey)}/${encodeURIComponent(publicMemberKey)}`;
+
+  useEffect(() => {
+    setUserAlias(session.workspace.teamMember?.alias ?? "");
+    setPropertyAlias(session.workspace.community.alias ?? "");
+  }, [session.workspace.community.id, session.workspace.community.alias, session.workspace.teamMember?.alias]);
+
+  async function saveAliases() {
+    setSavingAliases(true);
+    try {
+      const nextSession = await updateWorkspaceAliases({
+        userAlias: userAlias.trim() || null,
+        propertyAlias: propertyAlias.trim() || null,
+      });
+      onSessionChange(nextSession);
+      showToast("Public check-in link saved", "success");
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not save aliases", "error");
+    } finally {
+      setSavingAliases(false);
+    }
+  }
 
   async function chooseCommunity(communityId: string) {
     if (communityId === session.workspace.community.id) {
@@ -5716,7 +5752,7 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
       </View>
 
       <Text style={st.settingsSectionLabel}>ACTIVE PROPERTY</Text>
-      <Pressable onPress={() => setCommunityPickerOpen(true)} style={({ pressed }) => [st.settingsIdentity, pressed && st.pressed]}>
+      <View style={st.settingsIdentity}>
         <View style={st.settingsCommunityRow}>
           <View style={[st.communitySettingIcon, { backgroundColor: C.greenBg }]}>
             <Ionicons name="business-outline" size={18} color={C.green} />
@@ -5725,9 +5761,63 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
             <Text style={st.communitySettingName}>{session.workspace.community.name}</Text>
             <Text style={st.cardRowSub}>{authorizedPropertyCount} available {authorizedPropertyCount === 1 ? "property" : "properties"}</Text>
           </View>
-          <Text style={st.settingsChangeText}>Change</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Switch active property"
+            onPress={() => setCommunityPickerOpen(true)}
+            style={({ pressed }) => [st.settingsSwitchButton, pressed && st.pressed]}
+          >
+            <Text style={st.settingsChangeText}>Switch</Text>
+          </Pressable>
         </View>
-      </Pressable>
+      </View>
+
+      <Text style={st.settingsSectionLabel}>PUBLIC CHECK-IN LINK</Text>
+      <View style={st.aliasSettingsCard}>
+        <View style={st.aliasFieldGroup}>
+          <Text style={st.aliasFieldLabel}>Property alias</Text>
+          <View style={st.aliasInputRow}>
+            <Text style={st.aliasPrefix}>tour.you/p/</Text>
+            <TextInput
+              accessibilityLabel="Property alias"
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="property-name"
+              placeholderTextColor={C.textMuted}
+              value={propertyAlias}
+              onChangeText={setPropertyAlias}
+              style={st.aliasInput}
+            />
+          </View>
+        </View>
+        <View style={st.aliasFieldGroup}>
+          <Text style={st.aliasFieldLabel}>Your alias</Text>
+          <View style={st.aliasInputRow}>
+            <Text style={st.aliasPrefix}>/</Text>
+            <TextInput
+              accessibilityLabel="Your check-in alias"
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="your-name"
+              placeholderTextColor={C.textMuted}
+              value={userAlias}
+              onChangeText={setUserAlias}
+              style={st.aliasInput}
+            />
+          </View>
+        </View>
+        <Text style={st.aliasPreview} numberOfLines={2}>{publicCheckInUrl}</Text>
+        <Text style={st.aliasHelp}>This page uses your name, role, phone, email, and the active property.</Text>
+        <Pressable
+          accessibilityRole="button"
+          disabled={savingAliases}
+          onPress={() => void saveAliases()}
+          style={({ pressed }) => [st.aliasSaveButton, pressed && st.pressed, savingAliases && st.aliasSaveButtonDisabled]}
+        >
+          {savingAliases ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="checkmark" size={17} color="#fff" />}
+          <Text style={st.aliasSaveText}>{savingAliases ? "Saving…" : "Save aliases"}</Text>
+        </Pressable>
+      </View>
       <Text style={st.settingsSectionLabel}>EVALUATION</Text>
       <CardRow icon="clipboard-outline" title="Rubrics" sub="Templates, criteria, and session applications" onPress={onRubrics} />
       <Text style={st.settingsSectionLabel}>ACCOUNT</Text>
@@ -6513,12 +6603,24 @@ const st = StyleSheet.create({
   // Settings
   settingsIdentity: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderWidth: 1, borderColor: C.border, borderRadius: 8, backgroundColor: C.card },
   settingsCommunityRow: { flexDirection: "row", alignItems: "center", gap: 12, width: "100%" },
+  settingsSwitchButton: { minHeight: 38, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, borderRadius: 10, backgroundColor: "#eef4ff" },
   settingsSectionLabel: { color: C.textMuted, fontSize: 10, fontWeight: "900", marginTop: 4 },
   communitySettingRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 12 },
   communitySettingIcon: { width: 34, height: 34, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#eef2ff" },
   communityRowBody: { flex: 1, minWidth: 0, gap: 2 },
   communitySettingName: { color: C.text, fontSize: 13, fontWeight: "800" },
   settingsChangeText: { color: C.brand, fontSize: 12, fontWeight: "900" },
+  aliasSettingsCard: { gap: 13, padding: 14, borderWidth: 1, borderColor: C.border, borderRadius: 14, backgroundColor: C.card },
+  aliasFieldGroup: { gap: 6 },
+  aliasFieldLabel: { color: C.textSec, fontSize: 11, fontWeight: "900" },
+  aliasInputRow: { minHeight: 48, flexDirection: "row", alignItems: "center", paddingHorizontal: 12, borderWidth: 1, borderColor: "#d7dee8", borderRadius: 12, backgroundColor: "#f8fafc" },
+  aliasPrefix: { color: C.textMuted, fontSize: 13, fontWeight: "700" },
+  aliasInput: { flex: 1, minWidth: 0, paddingVertical: 10, color: C.text, fontSize: 14, fontWeight: "800" },
+  aliasPreview: { color: C.brand, fontSize: 12, lineHeight: 17, fontWeight: "800" },
+  aliasHelp: { color: C.textSec, fontSize: 11, lineHeight: 16 },
+  aliasSaveButton: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, backgroundColor: C.brand },
+  aliasSaveButtonDisabled: { opacity: 0.6 },
+  aliasSaveText: { color: "#fff", fontSize: 14, fontWeight: "900" },
   settingsVersion: { color: C.textMuted, fontSize: 11, textAlign: "center", marginTop: 4 },
 
   // Buttons

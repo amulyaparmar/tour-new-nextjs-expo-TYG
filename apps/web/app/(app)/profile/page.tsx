@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ContactCardPanel } from "../ContactCardPanel";
 import { requireTourWorkspace } from "@/lib/tour-auth";
 import { WorkspaceActions } from "./WorkspaceActions";
+import { AliasSettings } from "./AliasSettings";
 
 export default async function ProfilePage() {
   const workspace = await requireTourWorkspace();
@@ -46,6 +47,13 @@ export default async function ProfilePage() {
       <WorkspaceActions
         communities={workspace.communities}
         currentCommunityId={workspace.community.id}
+      />
+
+      <AliasSettings
+        initialPropertyAlias={workspace.community.alias ?? ""}
+        initialUserAlias={workspace.teamMember.alias ?? ""}
+        propertyId={workspace.community.propertyTygId}
+        memberFallback={workspace.teamMember.id ?? workspace.user.email.split("@")[0] ?? workspace.user.id}
       />
 
       <ContactCardPanel id="profile-contact-card-heading" />

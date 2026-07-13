@@ -187,16 +187,23 @@ export function CheckInCard({ card, vCardUrl, offlineQrUrl }: CheckInCardProps) 
       <div className={styles.stage}>
         <section className={styles.card}>
           <div className={styles.header}>
-            <video
-              aria-hidden="true"
-              autoPlay
-              loop
-              muted
-              playsInline
-              preload="metadata"
-              src={property.mediaUrl}
-              className={styles.headerVideo}
-            />
+            {property.mediaUrl ? (
+              property.mediaKind === "image" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img aria-hidden="true" alt="" src={property.mediaUrl} className={styles.headerVideo} />
+              ) : (
+                <video
+                  aria-hidden="true"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="metadata"
+                  src={property.mediaUrl}
+                  className={styles.headerVideo}
+                />
+              )
+            ) : null}
             <div className={styles.headerOverlay} />
             <span className={styles.brand}>tour.you</span>
             <div className={styles.avatar}>
@@ -218,9 +225,11 @@ export function CheckInCard({ card, vCardUrl, offlineQrUrl }: CheckInCardProps) 
               <ContactField href={`mailto:${rep.email}`} icon={<Mail size={16} />}>
                 {rep.email}
               </ContactField>
-              <ContactField href={`tel:${rep.phoneValue}`} icon={<Phone size={16} />}>
-                {rep.phoneDisplay}
-              </ContactField>
+              {rep.phoneValue ? (
+                <ContactField href={`tel:${rep.phoneValue}`} icon={<Phone size={16} />}>
+                  {rep.phoneDisplay}
+                </ContactField>
+              ) : null}
               {rep.website ? (
                 <ContactField href={rep.website} icon={<Globe2 size={16} />}>
                   {rep.websiteDisplay ?? rep.website}
@@ -375,7 +384,8 @@ function ContactSheet({
           reason,
           questionAnswers: answers,
           repSlug: rep.slug,
-          propertyName: property.name
+          propertyName: property.name,
+          propertyId: property.id ?? null,
         })
       });
       if (!res.ok) {

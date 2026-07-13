@@ -340,6 +340,25 @@ export async function switchCommunity(communityId: string) {
   return persistSession({ ...currentSession, workspace: body.workspace });
 }
 
+export async function updateWorkspaceAliases(input: {
+  userAlias: string | null;
+  propertyAlias: string | null;
+}) {
+  const response = await authenticatedFetch("/api/admin/settings/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const body = await response.json().catch(() => null) as {
+    workspace?: MobileWorkspace;
+    error?: string;
+  } | null;
+  if (!response.ok || !body?.workspace || !currentSession) {
+    throw new Error(body?.error ?? "Could not save check-in aliases.");
+  }
+  return persistSession({ ...currentSession, workspace: body.workspace });
+}
+
 export async function listCommunityEnrichment() {
   const response = await authenticatedFetch("/api/admin/properties/enrichment", {
     cache: "no-store",

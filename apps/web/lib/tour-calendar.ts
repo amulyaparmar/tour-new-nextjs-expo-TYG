@@ -486,7 +486,7 @@ function normalizeLeadEvents(
           .digest("hex");
 
       events.push({
-        company_id: workspace.membership.companyId,
+        company_id: workspace.organization.id,
         property_id: workspace.community.id,
         provider: "entrata",
         external_event_id: externalEventId,

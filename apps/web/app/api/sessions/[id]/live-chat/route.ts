@@ -50,22 +50,35 @@ async function loadCommunityContext(propertyId: string | null | undefined) {
   try {
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
-      .from("communities")
-      .select("id,name,alias,gmb_id,entrata_property_id")
+      .from("propertiesTYG")
+      .select("id,name,alias,place_id")
       .eq("id", propertyId)
       .maybeSingle<{
         id: string;
         name: string;
         alias: string | null;
-        gmb_id: string | null;
-        entrata_property_id: string | null;
+        place_id: string | null;
       }>();
-    if (error || !data) return null;
+    if (error) return null;
+    if (!data && propertyId.startsWith("community:")) {
+      const legacyId = Number(propertyId.slice("community:".length));
+      const { data: legacy } = await supabase
+        .from("Community")
+        .select("id,name,alias,gmbId")
+        .eq("id", legacyId)
+        .maybeSingle<{ id: number; name: string; alias: string | null; gmbId: unknown }>();
+      if (!legacy) return null;
+      return [
+        `Community: ${legacy.name}`,
+        legacy.alias ? `Alias: ${legacy.alias}` : null,
+        legacy.gmbId ? `GMB: ${String(legacy.gmbId).replace(/^"|"$/g, "")}` : null,
+      ].filter(Boolean).join("\n");
+    }
+    if (!data) return null;
     return [
       `Community: ${data.name}`,
       data.alias ? `Alias: ${data.alias}` : null,
-      data.gmb_id ? `GMB: ${data.gmb_id}` : null,
-      data.entrata_property_id ? `Entrata property: ${data.entrata_property_id}` : null,
+      data.place_id ? `GMB: ${data.place_id}` : null,
     ]
       .filter(Boolean)
       .join("\n");

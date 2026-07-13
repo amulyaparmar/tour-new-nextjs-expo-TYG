@@ -1,95 +1,70 @@
 import { NextResponse } from "next/server";
 
-import { resolveFallbackAdminContext } from "@/lib/admin-auth";
-import { compareCommunityDisplayName, formatCommunityDisplayName } from "@/lib/community-display";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
-type BusinessRow = {
+type PropertyRow = {
   id: string;
-  name: string;
-  gmb_id: string | null;
+  name: string | null;
   alias: string | null;
-  entrata_property_id: string | null;
-  companies: { id: string; name: string; slug: string } | Array<{ id: string; name: string; slug: string }> | null;
+  place_id: string | null;
+  property_manager: string | null;
+  metadata: unknown;
 };
 
 export async function GET(request: Request) {
-  const query = new URL(request.url).searchParams.get("q")?.trim() ?? "";
+  const params = new URL(request.url).searchParams;
+  const email = params.get("email")?.trim().toLowerCase() ?? "";
+  const query = params.get("q")?.trim().toLowerCase() ?? "";
+  if (!email.includes("@")) {
+    return NextResponse.json({ businesses: [], error: "Enter your work email to load your properties." }, { status: 400 });
+  }
+
   try {
     const supabase = getSupabaseServiceClient();
-    const builder = supabase
-      .from("communities")
-      .select("id,name,gmb_id,alias,entrata_property_id,companies(id,name,slug)")
-      .eq("portal_enabled", true)
-      .order("name", { ascending: true })
-      .limit(1000);
-
-    const { data, error } = await builder;
-
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as unknown as BusinessRow[];
-    if (rows.length === 0 && !query) {
-      return NextResponse.json(await fallbackBusinesses(query));
+    const rows: PropertyRow[] = [];
+    const pageSize = 1000;
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase
+        .from("propertiesTYG")
+        .select("id,name,alias,place_id,property_manager,metadata")
+        .not("metadata->property_team", "is", null)
+        .order("name", { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error) throw new Error(error.message);
+      const batch = (data ?? []) as PropertyRow[];
+      rows.push(...batch);
+      if (batch.length < pageSize) break;
     }
 
-    const normalizedQuery = query.toLowerCase();
     const businesses = rows
-      .map((row) => {
-        const company = Array.isArray(row.companies)
-          ? row.companies[0]
-          : row.companies;
-        const companyName = company?.name ?? "Company";
-        const name = formatCommunityDisplayName({
-          name: row.name,
-          companyName,
-          companySlug: company?.slug,
-        });
-        return {
-          id: row.id,
-          name,
-          companyName,
-          gmbId: row.gmb_id,
-          alias: row.alias,
-          calendarConnected: Boolean(row.entrata_property_id),
-        };
-      })
-      .filter((business) => {
-        if (!normalizedQuery) return true;
-        return `${business.name} ${business.companyName} ${business.alias ?? ""}`
-          .toLowerCase()
-          .includes(normalizedQuery);
-      })
+      .filter((row) => propertyTeamEmails(row.metadata).includes(email))
+      .map((row) => ({
+        id: row.id,
+        name: row.name?.trim() || `Property ${row.id}`,
+        companyName: row.property_manager?.trim() || email.split("@")[1] || "Property team",
+        gmbId: row.place_id?.trim() || null,
+        alias: row.alias?.trim() || null,
+        calendarConnected: false,
+      }))
+      .filter((business) => !query || `${business.name} ${business.companyName} ${business.alias ?? ""}`.toLowerCase().includes(query))
       .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
 
-    return NextResponse.json({
-      businesses,
-    });
-  } catch {
-    return NextResponse.json(await fallbackBusinesses(query));
+    return NextResponse.json({ businesses }, { headers: { "Cache-Control": "no-store" } });
+  } catch (caught) {
+    return NextResponse.json(
+      { error: caught instanceof Error ? caught.message : "Could not load properties." },
+      { status: 500 }
+    );
   }
 }
 
-async function fallbackBusinesses(query: string) {
-  const workspace = await resolveFallbackAdminContext();
-  const normalized = query.trim().toLowerCase();
-  const businesses = workspace.communities
-    .filter((community) => {
-      if (!normalized) return true;
-      return `${community.name} ${community.companyName ?? workspace.membership.companyName} ${community.alias ?? ""}`
-        .toLowerCase()
-        .includes(normalized);
-    })
-    .sort((left, right) => compareCommunityDisplayName(left, right))
-    .map((community) => {
-      return {
-        id: community.id,
-        name: formatCommunityDisplayName(community),
-        companyName: community.companyName ?? workspace.membership.companyName,
-        gmbId: community.gmbId,
-        alias: community.alias,
-        calendarConnected: false,
-      };
-    });
-
-  return { businesses };
+function propertyTeamEmails(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return [];
+  const team = (metadata as { property_team?: unknown }).property_team;
+  if (!Array.isArray(team)) return [];
+  return team.flatMap((member) => {
+    if (!member || typeof member !== "object" || Array.isArray(member)) return [];
+    const email = String((member as { email?: unknown }).email ?? "").trim().toLowerCase();
+    return email ? [email] : [];
+  });
 }

@@ -32,7 +32,7 @@ export function TourLogin() {
   const [query, setQuery] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loadingBusinesses, setLoadingBusinesses] = useState(true);
+  const [loadingBusinesses, setLoadingBusinesses] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,7 +43,18 @@ export function TourLogin() {
       })
       .catch(() => {});
 
-    fetch("/api/admin/auth/businesses")
+  }, [router]);
+
+  useEffect(() => {
+    if (!email.includes("@")) {
+      setBusinesses([]);
+      setSelectedBusinessId("");
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setLoadingBusinesses(true);
+      fetch(`/api/admin/auth/businesses?email=${encodeURIComponent(email.trim().toLowerCase())}`, { signal: controller.signal })
       .then(async (response) => {
         const body = await response.json();
         if (!response.ok) throw new Error(body.error ?? "Could not load communities.");
@@ -53,9 +64,16 @@ export function TourLogin() {
         setBusinesses(items);
         setSelectedBusinessId(items[0]?.id ?? "");
       })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load communities."))
+      .catch((caught) => {
+        if ((caught as Error).name !== "AbortError") setError(caught instanceof Error ? caught.message : "Could not load properties.");
+      })
       .finally(() => setLoadingBusinesses(false));
-  }, [router]);
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [email]);
 
   const visibleBusinesses = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -120,6 +138,18 @@ export function TourLogin() {
               </div>
 
               <label className={styles.search}>
+                <Mail size={16} />
+                <input
+                  value={email}
+                  onChange={(event) => { setEmail(event.target.value); setError(null); }}
+                  placeholder="you@company.com"
+                  aria-label="Work email"
+                  type="email"
+                  autoComplete="email"
+                />
+              </label>
+
+              <label className={styles.search}>
                 <Search size={16} />
                 <input
                   value={query}
@@ -158,7 +188,7 @@ export function TourLogin() {
               <button
                 type="button"
                 className={styles.primaryButton}
-                disabled={!selectedBusinessId}
+                disabled={!email.includes("@") || !selectedBusinessId}
                 onClick={() => {
                   setError(null);
                   setStep(2);

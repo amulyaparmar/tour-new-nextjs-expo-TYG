@@ -13,8 +13,7 @@ export async function resolveSessionAgentName(
     return session.agentName.trim();
   }
 
-  const propertyIds = workspace.communities.map((community) => community.id);
-  const agents = await listTeamAgents(workspace.membership.companyId, propertyIds);
+  const agents = await listTeamAgents(workspace.communities);
 
   if (session.agentId) {
     const matched = agents.find((agent) => agent.id === session.agentId);
@@ -27,7 +26,7 @@ export async function resolveSessionAgentName(
     }
   }
 
-  const currentAgent = agents.find((agent) => agent.authUserId === workspace.user.id);
+  const currentAgent = agents.find((agent) => agent.email === workspace.user.email);
   if (currentAgent) {
     return currentAgent.fullName?.trim() || currentAgent.name?.trim() || null;
   }

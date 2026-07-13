@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import type { SessionLead } from "@tour/shared";
 import { addSessionLead, createSession, findOpenQrSession } from "@/lib/sessions";
+import { getSupabaseServiceClient } from "@/lib/supabase";
 
 export async function POST(request: Request) {
   try {
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
       reason?: string | null;
       questionAnswers?: Record<string, string>;
       repSlug?: string | null;
+      propertyId?: string | null;
     };
 
     const firstName = body.firstName?.trim() || null;
@@ -42,7 +44,18 @@ export async function POST(request: Request) {
 
     // A second person scanning during the same tour joins the open session
     // group instead of creating a duplicate session.
-    const openSession = await findOpenQrSession();
+    const propertyId = body.propertyId?.trim() || null;
+    if (propertyId) {
+      const { data, error } = await getSupabaseServiceClient()
+        .from("propertiesTYG")
+        .select("id")
+        .eq("id", propertyId)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) return NextResponse.json({ error: "Property not found." }, { status: 404 });
+    }
+
+    const openSession = await findOpenQrSession(propertyId);
     if (openSession) {
       await addSessionLead(openSession.id, lead);
       return NextResponse.json({ sessionId: openSession.id, grouped: true }, { status: 200 });
@@ -54,7 +67,8 @@ export async function POST(request: Request) {
       scheduledAt: new Date().toISOString(),
       prospectName: lead.name,
       source: "qr",
-      leads: [lead]
+      leads: [lead],
+      propertyId,
     });
 
     return NextResponse.json({ sessionId: session.id, grouped: false }, { status: 201 });

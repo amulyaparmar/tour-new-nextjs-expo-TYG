@@ -361,7 +361,7 @@ const QR_GROUP_WINDOW_MS = 2 * 60 * 60 * 1000;
  * window — additional prospects scanning the same QR join this session group
  * instead of creating duplicates.
  */
-export async function findOpenQrSession(): Promise<SessionSummary | null> {
+export async function findOpenQrSession(propertyId?: string | null): Promise<SessionSummary | null> {
   const cutoff = new Date(Date.now() - QR_GROUP_WINDOW_MS).toISOString();
   try {
     const supabase = getSupabaseServiceClient();
@@ -370,6 +370,7 @@ export async function findOpenQrSession(): Promise<SessionSummary | null> {
       .select(SESSION_COLUMNS)
       .eq("source", "qr")
       .eq("status", "scheduled")
+      .match(propertyId ? { property_id: propertyId } : {})
       .gte("created_at", cutoff)
       .order("created_at", { ascending: false })
       .limit(1)

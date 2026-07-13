@@ -67,7 +67,7 @@ export async function GET(request: Request) {
     }
 
     const reportProperties = body.properties.filter((property) => property.id && property.name);
-    const byPlaceId = new Map(reportProperties.map((property) => [String(property.id), property]));
+    const byPropertyId = new Map(reportProperties.map((property) => [String(property.id), property]));
     const byIdentity = new Map<string, ReportProperty>();
     for (const property of reportProperties) {
       const identity = normalizeIdentity(property.name);
@@ -76,7 +76,7 @@ export async function GET(request: Request) {
 
     const matchByCommunity = new Map(
       workspace.communities.map((community) => {
-        const exactMatch = community.gmbId ? byPlaceId.get(community.gmbId) : undefined;
+        const exactMatch = byPropertyId.get(community.propertyTygId);
         const nameMatch =
           byIdentity.get(normalizeIdentity(community.alias)) ??
           byIdentity.get(normalizeIdentity(community.name));
@@ -114,14 +114,14 @@ export async function GET(request: Request) {
     }
 
     const communities = workspace.communities.map((community) => {
-      const exactMatch = community.gmbId ? byPlaceId.get(community.gmbId) : undefined;
+      const exactMatch = byPropertyId.get(community.propertyTygId);
       const match = matchByCommunity.get(community.id);
       const fullRecord = match?.id ? fullRecordById.get(match.id) : undefined;
       const enriched = fullRecord ? hasFullEnrichedData(fullRecord) : match ? hasEnrichedData(match) : false;
       return {
         communityId: community.id,
         state: match ? (enriched ? "enriched" : "indexed") : "not_linked",
-        match: exactMatch ? "place_id" : match ? "normalized_name" : null,
+        match: exactMatch ? "property_id" : match ? "normalized_name" : null,
         reportPropertyId: match?.id ?? null,
         marketKey: match?.market_key ?? null,
         thumbnailUrl: match?.thumbnail_url ?? null,

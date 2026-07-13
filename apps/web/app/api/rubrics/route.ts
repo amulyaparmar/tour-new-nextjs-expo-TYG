@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { hasAdminSession, requireAdminContext } from "@/lib/admin-auth";
-import { createRubric, listRubrics, listRubricsForCommunity } from "@/lib/rubrics";
+import { hasAdminSession, propertySessionKeys, requireAdminContext } from "@/lib/admin-auth";
+import { createRubric, listRubricTemplates, listRubrics, listRubricsForCommunity } from "@/lib/rubrics";
 
 const RUBRICS_CACHE_CONTROL = "private, max-age=60, stale-while-revalidate=300";
 
@@ -9,9 +9,10 @@ export async function GET(request: Request) {
   try {
     const workspace = hasAdminSession(request) ? await requireAdminContext(request) : null;
     const rubrics = workspace
-      ? await listRubricsForCommunity(workspace.community.id)
+      ? await listRubricsForCommunity(propertySessionKeys(workspace.community))
       : await listRubrics();
-    return NextResponse.json({ rubrics }, {
+    const templates = workspace ? await listRubricTemplates() : [];
+    return NextResponse.json({ rubrics, templates }, {
       headers: { "Cache-Control": RUBRICS_CACHE_CONTROL },
     });
   } catch (error) {
@@ -24,6 +25,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const workspace = hasAdminSession(request) ? await requireAdminContext(request) : null;
     const body = (await request.json()) as {
       name?: string;
       definition?: unknown;
@@ -55,6 +57,8 @@ export async function POST(request: Request) {
       sessionType: body.sessionType,
       segmentationPrompt: body.segmentationPrompt ?? null,
       analysisPrompt: body.analysisPrompt ?? null,
+      propertyId: workspace?.community.propertyTygId ?? null,
+      isTemplate: false,
     });
 
     return NextResponse.json({ rubric }, { status: 201 });

@@ -7,9 +7,8 @@ export const dynamic = "force-dynamic";
 
 export default async function SessionsPage() {
   const workspace = await requireTourWorkspace();
-  const propertyIds = workspace.communities.map((community) => community.id);
-  const agents = await listTeamAgents(workspace.membership.companyId, propertyIds);
-  const currentAgentId = agents.find((agent) => agent.authUserId === workspace.user.id)?.id ?? null;
+  const agents = await listTeamAgents(workspace.communities);
+  const currentAgentId = agents.find((agent) => agent.email === workspace.user.email)?.id ?? null;
 
   return (
     <SessionsPageClient

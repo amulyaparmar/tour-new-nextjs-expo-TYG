@@ -9,7 +9,7 @@ export const maxDuration = 120;
 export async function POST(request: Request) {
   try {
     const workspace = await requireAdminContext(request);
-    if (workspace.membership.role === "member") {
+    if (workspace.teamMember.accessRole === "member") {
       throw new AdminAuthError("Manager access is required to extract rubrics.", 403);
     }
 

@@ -71,6 +71,7 @@ import {
   type Material,
   type PaginatedSessions,
   applyRubricToSession,
+  cloneRubricTemplate,
   createSession,
   type CalendarEvent,
   type SessionComment,
@@ -100,7 +101,7 @@ import {
 import { getApiBaseUrl } from "./src/config";
 import { computeDashboardMetrics } from "./src/dashboard";
 import type { UploadProgressInfo } from "./src/presignedUpload";
-import { type MobileAuthSession, authenticatedFetch, clearSession, restoreSession, switchCommunity } from "./src/auth";
+import { type MobileAuthSession, authenticatedFetch, clearSession, getCurrentSession, restoreSession, switchCommunity } from "./src/auth";
 import { LoginScreen } from "./src/LoginScreen";
 import { TourLogo, TourMark } from "./src/components/TourLogo";
 import {
@@ -1294,6 +1295,7 @@ function CheckInSheet({ visible, onClose, property }: { visible: boolean; onClos
         questionAnswers: answers,
         repSlug: CHECK_IN_REP.slug,
         propertyName: propertyLabel,
+        propertyId: getCurrentSession()?.workspace.community.propertyTygId ?? null,
       });
       setStepDirection("forward");
       setStep("done");
@@ -5322,6 +5324,9 @@ function RubricsScreen({
   const rubricsQuery = useRubricsQuery();
   const sessionsQuery = useSessionsQuery({ limit: 100 });
   const rubrics = rubricsQuery.data?.rubrics ?? [];
+  const templates = rubricsQuery.data?.templates ?? [];
+  const [cloningId, setCloningId] = useState<string | null>(null);
+  const [cloneError, setCloneError] = useState<string | null>(null);
   const sessions = sessionsQuery.data?.sessions ?? [];
   const loading = rubricsQuery.isLoading || sessionsQuery.isLoading;
   const error = rubricsQuery.error ?? sessionsQuery.error ?? null;
@@ -5339,6 +5344,21 @@ function RubricsScreen({
     setRefreshing(true);
     await load();
     setRefreshing(false);
+  }
+
+  async function addTemplate(template: Rubric) {
+    if (cloningId) return;
+    setCloningId(template.id);
+    setCloneError(null);
+    try {
+      await cloneRubricTemplate(template.id);
+      await rubricsQuery.refetch();
+      showToast("Rubric added to this property", "success");
+    } catch (caught) {
+      setCloneError(caught instanceof Error ? caught.message : "Could not add rubric template.");
+    } finally {
+      setCloningId(null);
+    }
   }
 
   function applicationsFor(rubricId: string) {
@@ -5366,6 +5386,31 @@ function RubricsScreen({
               <Text style={st.pageHeadingSub}>{session.workspace.community.name}</Text>
             </View>
             {error && <ErrorBanner message={error instanceof Error ? error.message : "Could not load rubrics"} onRetry={load} />}
+            {cloneError && <ErrorBanner message={cloneError} onRetry={() => setCloneError(null)} />}
+          {templates.length > 0 && (
+            <>
+              <Text style={st.sectionTitle}>Template library</Text>
+              <Text style={st.pageHeadingSub}>Frozen templates create an editable copy for this property.</Text>
+              <View style={st.rubricGrid}>
+                {templates.map((template) => (
+                  <MotionPressable
+                    key={template.id}
+                    disabled={Boolean(cloningId)}
+                    onPress={() => void addTemplate(template)}
+                    haptic="selection"
+                    style={st.rubricCard}
+                  >
+                    <View style={st.rubricListIcon}><Ionicons name="copy-outline" size={19} color={C.brand} /></View>
+                    <View style={st.rubricCardBody}>
+                      <Text style={st.rubricCardTitle} numberOfLines={2}>{template.name}</Text>
+                      <Text style={st.materialMeta}>{template.definition.sections.length} sections · {rubricItemCount(template.definition)} items</Text>
+                      <Text style={[st.rubricAppliedText, { color: C.brand }]}>{cloningId === template.id ? "Adding…" : "Add to this property"}</Text>
+                    </View>
+                  </MotionPressable>
+                ))}
+              </View>
+            </>
+          )}
           {loading ? <LoadingBox /> : rubrics.length === 0 ? (
             <EmptyState icon="clipboard-outline" title="No rubrics" subtitle="Evaluation templates will appear here" />
           ) : (
@@ -5526,7 +5571,7 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
         <View style={st.avatar48}><Text style={st.avatar48Text}>{(session.workspace.user.fullName ?? session.workspace.user.email)[0]?.toUpperCase()}</Text></View>
         <View style={st.flex1}>
           <Text style={st.cardRowTitle}>{session.workspace.user.fullName ?? "Team member"}</Text>
-          <Text style={st.cardRowSub}>{session.workspace.user.email} · {session.workspace.membership.role}</Text>
+          <Text style={st.cardRowSub}>{session.workspace.user.email} · {session.workspace.teamMember.role}</Text>
         </View>
       </View>
 
@@ -5547,7 +5592,7 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
       <CardRow icon="clipboard-outline" title="Rubrics" sub="Templates, criteria, and session applications" onPress={onRubrics} />
       <Text style={st.settingsSectionLabel}>ACCOUNT</Text>
       <CardRow icon="log-out-outline" title="Log out" sub="Remove this account from this device" onPress={() => setLogoutOpen(true)} destructive />
-      <Text style={st.settingsVersion}>Tour mobile 0.1.0 · {session.workspace.membership.companyName}</Text>
+      <Text style={st.settingsVersion}>Tour mobile 0.1.0 · {session.workspace.organization.name}</Text>
 
       <CommunityPickerModal
         visible={communityPickerOpen}
@@ -5630,10 +5675,10 @@ function ProfileScreen({ session, onBack, onStartTour }: { session: MobileAuthSe
       <View style={[st.card, { alignItems: "center", padding: 22, gap: 14 }]}>
         <View style={st.avatarLg}><Text style={st.avatarLgText}>{initials}</Text></View>
         <Text style={{ fontSize: 28, fontWeight: "900", color: C.text }}>{name}</Text>
-        <Text style={{ fontSize: 15, fontWeight: "700", color: C.textSec, textAlign: "center" }}>{session.workspace.membership.role} at {session.workspace.community.name}</Text>
+        <Text style={{ fontSize: 15, fontWeight: "700", color: C.textSec, textAlign: "center" }}>{session.workspace.teamMember.role} at {session.workspace.community.name}</Text>
         <View style={{ alignSelf: "stretch", backgroundColor: "#f8fafc", borderRadius: 20, padding: 16, gap: 12 }}>
           <View style={{ gap: 4 }}><Text style={st.labelSmall}>Email</Text><Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{session.workspace.user.email}</Text></View>
-          <View style={{ gap: 4 }}><Text style={st.labelSmall}>Company</Text><Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{session.workspace.membership.companyName}</Text></View>
+          <View style={{ gap: 4 }}><Text style={st.labelSmall}>Company</Text><Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{session.workspace.organization.name}</Text></View>
         </View>
         <PrimaryBtn label="Exchange contact and start tour" onPress={onStartTour} icon="swap-horizontal-outline" />
       </View>

@@ -10,8 +10,8 @@ export async function GET(request: Request) {
       profile: {
         name: workspace.user.fullName ?? workspace.user.email.split("@")[0],
         email: workspace.user.email,
-        role: workspace.membership.role,
-        company: workspace.membership.companyName,
+        role: workspace.teamMember.role,
+        company: workspace.organization.name,
         community: workspace.community.name,
       },
     });
@@ -41,8 +41,8 @@ export async function PATCH(request: Request) {
       profile: {
         name,
         email: workspace.user.email,
-        role: workspace.membership.role,
-        company: workspace.membership.companyName,
+        role: workspace.teamMember.role,
+        company: workspace.organization.name,
         community: workspace.community.name,
       },
     });

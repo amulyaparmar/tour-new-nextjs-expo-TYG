@@ -17,9 +17,9 @@ export async function POST(request: Request) {
     communityId?: string;
   };
 
-  if (!body.email?.trim() || !body.password || !body.communityId) {
+  if (!body.email?.trim() || !body.password) {
     return NextResponse.json(
-      { error: "Business, email, and password are required." },
+      { error: "Email and password are required." },
       { status: 400 }
     );
   }
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
 
   try {
     const workspace = await resolveAdminContextForUser(data.user, body.communityId);
-    if (workspace.community.id !== body.communityId) {
+    if (body.communityId && workspace.community.id !== body.communityId) {
       throw new AdminAuthError("You do not have access to the selected business.", 403);
     }
 

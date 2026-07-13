@@ -1,14 +1,17 @@
 import { notFound } from "next/navigation";
 
-import { listRubricsForCommunity } from "@/lib/rubrics";
+import { propertySessionKeys } from "@/lib/admin-auth";
+import { listRubricTemplates, listRubricsForCommunity } from "@/lib/rubrics";
 import { listSessions } from "@/lib/sessions";
 import { requireTourWorkspace } from "@/lib/tour-auth";
 
 export async function loadRubricsPageData() {
   const workspace = await requireTourWorkspace();
-  const [rubrics, sessions] = await Promise.all([
-    listRubricsForCommunity(workspace.community.id),
-    listSessions({ limit: 200, sort: "newest", propertyId: workspace.community.id }),
+  const propertyKeys = propertySessionKeys(workspace.community);
+  const [rubrics, templates, sessions] = await Promise.all([
+    listRubricsForCommunity(propertyKeys),
+    listRubricTemplates(),
+    listSessions({ limit: 200, sort: "newest", propertyIds: propertyKeys }),
   ]);
 
   const sessionCounts = sessions.reduce<Record<string, number>>((counts, session) => {
@@ -20,6 +23,7 @@ export async function loadRubricsPageData() {
   return {
     workspace,
     rubrics,
+    templates,
     sessionCounts,
   };
 }

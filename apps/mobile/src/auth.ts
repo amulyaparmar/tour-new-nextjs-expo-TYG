@@ -14,25 +14,54 @@ export type MobileWorkspace = {
     email: string;
     fullName: string | null;
   };
-  membership: {
+  teamMember: {
+    id: string | null;
+    alias: string | null;
+    name: string;
+    email: string;
+    role: string;
+    accessRole: "admin" | "manager" | "member";
+    phone: string | null;
+    verified: boolean | null;
+  };
+  organization: {
     id: string;
-    role: "admin" | "manager" | "member";
-    companyId: string;
-    companyName: string;
+    name: string;
   };
   community: {
     id: string;
+    propertyTygId: string;
+    portalCommunityId: string | null;
     name: string;
+    companyName: string | null;
+    companySlug: string | null;
     tourCommunityId: number | null;
     gmbId: string | null;
     alias: string | null;
     entrataPropertyId: string | null;
+    teamMembers: Array<{
+      id: string | null;
+      alias: string | null;
+      name: string;
+      email: string;
+      role: string;
+      accessRole: "admin" | "manager" | "member";
+      phone: string | null;
+      verified: boolean | null;
+    }>;
   };
   communities: Array<{
     id: string;
+    propertyTygId: string;
+    portalCommunityId: string | null;
     name: string;
+    companyName: string | null;
+    companySlug: string | null;
+    tourCommunityId: number | null;
     gmbId: string | null;
     alias: string | null;
+    entrataPropertyId: string | null;
+    teamMembers: MobileWorkspace["community"]["teamMembers"];
   }>;
 };
 
@@ -60,7 +89,7 @@ export type MobileSignInChallenge = {
 export type CommunityEnrichment = {
   communityId: string;
   state: "enriched" | "indexed" | "not_linked";
-  match: "place_id" | "normalized_name" | null;
+  match: "property_id" | "place_id" | "normalized_name" | null;
   reportPropertyId: string | null;
   marketKey: string | null;
   thumbnailUrl: string | null;

@@ -5,11 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import {
-  Plus, ChevronRight, Edit3, Trash2, ChevronDown, ChevronUp, CheckCircle2,
+  Plus, ChevronRight, Edit3, Trash2, ChevronDown, ChevronUp, CheckCircle2, Copy,
 } from "lucide-react";
 
 import type { Rubric } from "@tour/shared";
-import { getAnalysisModel, rubricSessionTypeLabel } from "@tour/shared";
+import { getAnalysisModel, rubricItemCount, rubricSessionTypeLabel } from "@tour/shared";
 
 import { invalidateRubricsCache } from "@/lib/client-rubrics-cache";
 import { RubricCreationFlow } from "./RubricCreationFlow";
@@ -26,12 +26,14 @@ type RubricView = "list" | "detail";
 
 export function RubricsDashboard({
   rubrics,
+  templates,
   communityId,
   communityName,
   sessionCounts,
   selectedRubricId = null,
 }: {
   rubrics: Rubric[];
+  templates: Rubric[];
   communityId: string;
   communityName: string;
   sessionCounts: Record<string, number>;
@@ -51,6 +53,8 @@ export function RubricsDashboard({
   const [activatingId, setActivatingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [activateError, setActivateError] = useState<string | null>(null);
+  const [cloningId, setCloningId] = useState<string | null>(null);
+  const [cloneError, setCloneError] = useState<string | null>(null);
 
   const selectedRubric = useMemo(
     () => (selectedRubricId ? displayRubrics.find((rubric) => rubric.id === selectedRubricId) ?? null : null),
@@ -121,6 +125,28 @@ export function RubricsDashboard({
     }
   };
 
+  const cloneTemplate = async (template: Rubric) => {
+    if (cloningId) return;
+    setCloningId(template.id);
+    setCloneError(null);
+    try {
+      const response = await fetch(`/api/admin/rubrics/${template.id}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Failed to add template.");
+      invalidateRubricsCache();
+      refresh();
+    } catch (caught) {
+      setCloneError(caught instanceof Error ? caught.message : "Failed to add template.");
+    } finally {
+      setCloningId(null);
+    }
+  };
+
   return (
     <div className="rubric-admin min-h-full bg-background pb-8">
       <AnimatePresence>
@@ -150,6 +176,43 @@ export function RubricsDashboard({
                 <Plus className="w-4 h-4" /> New rubric
               </button>
             </div>
+
+            {templates.length > 0 && (
+              <section className="mb-6" aria-labelledby="template-library-title">
+                <div className="mb-3 flex items-end justify-between gap-3">
+                  <div>
+                    <h2 id="template-library-title" className="text-sm font-bold text-foreground">Template library</h2>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Frozen starting points. Adding one creates an editable copy for {communityName}.</p>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {templates.map((template) => (
+                    <motion.div key={template.id} layout className="rounded-2xl border border-border bg-white p-4 shadow-sm">
+                      <div className="flex items-start gap-3">
+                        <div className="rounded-xl bg-primary/10 p-2 text-primary"><Copy className="h-4 w-4" /></div>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="truncate text-sm font-semibold text-foreground">{template.name}</h3>
+                          <p className="mt-1 text-xs text-muted-foreground">{template.definition.sections.length} sections · {rubricItemCount(template.definition)} criteria</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={Boolean(cloningId)}
+                        onClick={() => void cloneTemplate(template)}
+                        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/10 disabled:opacity-40"
+                      >
+                        {cloningId === template.id ? <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/20 border-t-primary" /> : <Plus className="h-3.5 w-3.5" />}
+                        {cloningId === template.id ? "Adding…" : "Add to this property"}
+                      </button>
+                    </motion.div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {cloneError && (
+              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{cloneError}</div>
+            )}
 
             {deleteError && (
               <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{deleteError}</div>

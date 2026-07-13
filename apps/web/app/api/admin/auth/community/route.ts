@@ -5,7 +5,6 @@ import {
   AdminAuthError,
   adminCookieOptions,
   requireAdminContext,
-  resolveFallbackAdminContext,
 } from "@/lib/admin-auth";
 
 export async function POST(request: Request) {
@@ -28,18 +27,7 @@ export async function POST(request: Request) {
     );
     return response;
   } catch (caught) {
-    if (caught instanceof AdminAuthError) {
-      const workspace = await resolveFallbackAdminContext(body.communityId);
-      const response = NextResponse.json({ workspace });
-      response.cookies.set(
-        ADMIN_COMMUNITY_COOKIE,
-        workspace.community.id,
-        adminCookieOptions(60 * 60 * 24 * 30)
-      );
-      return response;
-    }
-
-    const status = 500;
+    const status = caught instanceof AdminAuthError ? caught.status : 500;
     return NextResponse.json(
       { error: caught instanceof Error ? caught.message : "Could not switch community." },
       { status }

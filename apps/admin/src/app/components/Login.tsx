@@ -62,7 +62,7 @@ export function Login() {
   const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
   const [selectedBusinessId, setSelectedBusinessId] = useState("");
   const [communityQuery, setCommunityQuery] = useState("");
-  const [loadingBusinesses, setLoadingBusinesses] = useState(true);
+  const [loadingBusinesses, setLoadingBusinesses] = useState(false);
 
   const [signupStep, setSignupStep] = useState<SignupStep>("business");
   const [businessQuery, setBusinessQuery] = useState("");
@@ -83,16 +83,31 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(apiUrl("/api/admin/auth/businesses"), { cache: "no-store" })
+    if (!email.includes("@")) {
+      setBusinesses([]);
+      setSelectedBusinessId("");
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setLoadingBusinesses(true);
+      fetch(apiUrl(`/api/admin/auth/businesses?email=${encodeURIComponent(email.trim().toLowerCase())}`), { cache: "no-store", signal: controller.signal })
       .then(responseJson)
       .then((body) => {
         const items = body.businesses as BusinessOption[];
         setBusinesses(items);
         setSelectedBusinessId(items[0]?.id ?? "");
       })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load businesses."))
+      .catch((caught) => {
+        if ((caught as Error).name !== "AbortError") setError(caught instanceof Error ? caught.message : "Could not load properties.");
+      })
       .finally(() => setLoadingBusinesses(false));
-  }, []);
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [email]);
 
   const visibleBusinesses = useMemo(() => {
     const value = communityQuery.trim().toLowerCase();
@@ -249,7 +264,19 @@ export function Login() {
           {journey === "signin" ? (
             signInStep === 1 ? (
               <section className="w-full">
-                <PageTitle eyebrow="Workspace" title="Choose your community" />
+                <PageTitle eyebrow="Workspace" title="Choose your property" />
+                <div className="mb-3">
+                  <Field label="Work email" icon={<Mail className="h-4 w-4" />}>
+                    <input
+                      value={email}
+                      onChange={(event) => { setEmail(event.target.value); setError(null); }}
+                      className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="you@company.com"
+                    />
+                  </Field>
+                </div>
                 <SearchInput value={communityQuery} onChange={setCommunityQuery} placeholder="Search communities" />
                 <div className="mt-3 max-h-[45vh] overflow-y-auto border-y border-border bg-white">
                   {loadingBusinesses && <EmptyLine>Loading communities...</EmptyLine>}
@@ -265,7 +292,7 @@ export function Login() {
                   ))}
                   {!loadingBusinesses && visibleBusinesses.length === 0 && <EmptyLine>No matching communities.</EmptyLine>}
                 </div>
-                <PrimaryButton disabled={!selectedBusinessId} onClick={() => setSignInStep(2)}>
+                <PrimaryButton disabled={!email.includes("@") || !selectedBusinessId} onClick={() => setSignInStep(2)}>
                   Continue <ArrowRight className="h-4 w-4" />
                 </PrimaryButton>
               </section>

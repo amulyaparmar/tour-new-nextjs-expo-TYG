@@ -1,28 +1,23 @@
 import { NextResponse } from "next/server";
 
-import { AdminAuthError, requireAdminContext } from "@/lib/admin-auth";
-import { deleteRubric, getRubricById, updateRubric } from "@/lib/rubrics";
-import { getSupabaseServiceClient } from "@/lib/supabase";
+import { AdminAuthError, propertySessionKeys, requireAdminContext } from "@/lib/admin-auth";
+import { cloneRubricTemplate, deleteRubric, getRubricById, updateRubric } from "@/lib/rubrics";
 
 type Context = { params: Promise<{ id: string }> };
 
-async function assertCommunityRubric(rubricId: string, propertyId: string) {
-  const supabase = getSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("rubric_communities")
-    .select("rubric_id")
-    .eq("rubric_id", rubricId)
-    .eq("property_id", propertyId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) throw new AdminAuthError("Rubric not found in this community.", 403);
+async function assertCommunityRubric(rubricId: string, propertyIds: string[], allowTemplate = false) {
+  const rubric = await getRubricById(rubricId);
+  if (!rubric || (!propertyIds.includes(rubric.propertyId ?? "") && !(allowTemplate && rubric.isTemplate))) {
+    throw new AdminAuthError("Rubric not found for this property.", 403);
+  }
+  return rubric;
 }
 
 export async function GET(request: Request, context: Context) {
   try {
     const workspace = await requireAdminContext(request);
     const { id } = await context.params;
-    await assertCommunityRubric(id, workspace.community.id);
+    await assertCommunityRubric(id, propertySessionKeys(workspace.community), true);
     const rubric = await getRubricById(id);
     if (!rubric) return NextResponse.json({ error: "Rubric not found." }, { status: 404 });
     return NextResponse.json({ rubric });
@@ -37,11 +32,11 @@ export async function GET(request: Request, context: Context) {
 export async function PATCH(request: Request, context: Context) {
   try {
     const workspace = await requireAdminContext(request);
-    if (workspace.membership.role === "member") {
+    if (workspace.teamMember.accessRole === "member") {
       throw new AdminAuthError("Manager access is required to edit rubrics.", 403);
     }
     const { id } = await context.params;
-    await assertCommunityRubric(id, workspace.community.id);
+    await assertCommunityRubric(id, propertySessionKeys(workspace.community));
     const body = (await request.json()) as {
       name?: string;
       definition?: unknown;
@@ -78,16 +73,35 @@ export async function PATCH(request: Request, context: Context) {
 export async function DELETE(request: Request, context: Context) {
   try {
     const workspace = await requireAdminContext(request);
-    if (workspace.membership.role === "member") {
+    if (workspace.teamMember.accessRole === "member") {
       throw new AdminAuthError("Manager access is required to delete rubrics.", 403);
     }
     const { id } = await context.params;
-    await assertCommunityRubric(id, workspace.community.id);
+    await assertCommunityRubric(id, propertySessionKeys(workspace.community));
     await deleteRubric(id);
     return NextResponse.json({ ok: true });
   } catch (caught) {
     return NextResponse.json(
       { error: caught instanceof Error ? caught.message : "Failed to delete rubric." },
+      { status: caught instanceof AdminAuthError ? caught.status : 500 }
+    );
+  }
+}
+
+export async function POST(request: Request, context: Context) {
+  try {
+    const workspace = await requireAdminContext(request);
+    if (workspace.teamMember.accessRole === "member") {
+      throw new AdminAuthError("Manager access is required to clone rubric templates.", 403);
+    }
+    const { id } = await context.params;
+    await assertCommunityRubric(id, propertySessionKeys(workspace.community), true);
+    const body = (await request.json().catch(() => ({}))) as { name?: string | null };
+    const rubric = await cloneRubricTemplate(id, workspace.community.propertyTygId, body.name);
+    return NextResponse.json({ rubric }, { status: 201 });
+  } catch (caught) {
+    return NextResponse.json(
+      { error: caught instanceof Error ? caught.message : "Failed to clone rubric template." },
       { status: caught instanceof AdminAuthError ? caught.status : 500 }
     );
   }

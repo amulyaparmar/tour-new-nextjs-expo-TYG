@@ -38,6 +38,9 @@ export type Rubric = {
   analysisPrompt: string | null;
   sourceUrl: string | null;
   isDefault: boolean;
+  propertyId: string | null;
+  isTemplate: boolean;
+  templateSourceId: string | null;
   createdAt: string;
 };
 
@@ -52,6 +55,9 @@ export type CreateRubricInput = {
   analysisPrompt?: string | null;
   sourceUrl?: string | null;
   isDefault?: boolean;
+  propertyId?: string | null;
+  isTemplate?: boolean;
+  templateSourceId?: string | null;
 };
 
 export function sectionPoints(section: RubricSection): number {

@@ -30,6 +30,9 @@ type RubricRow = {
   analysis_prompt?: string | null;
   source_url: string | null;
   is_default: boolean;
+  property_id?: string | null;
+  is_template?: boolean | null;
+  template_source_id?: string | null;
   created_at: string;
   /** Legacy columns — may exist before migration. */
   definition_json?: unknown;
@@ -55,6 +58,9 @@ function mapRow(row: RubricRow): Rubric {
     analysisPrompt: row.analysis_prompt?.trim() || null,
     sourceUrl: row.source_url ?? row.source_file_url ?? null,
     isDefault: row.is_default,
+    propertyId: row.property_id ?? null,
+    isTemplate: Boolean(row.is_template),
+    templateSourceId: row.template_source_id ?? null,
     createdAt: row.created_at
   };
 }
@@ -113,6 +119,9 @@ export async function listRubrics(): Promise<Rubric[]> {
         audio_understanding_enabled: false,
         source_url: null,
         is_default: true,
+        property_id: null,
+        is_template: true,
+        template_source_id: null,
         created_at: now
       };
       await writeLocalStore([row]);
@@ -122,18 +131,15 @@ export async function listRubrics(): Promise<Rubric[]> {
   }
 }
 
-export async function listRubricsForCommunity(communityId: string): Promise<Rubric[]> {
-  const supabase = getSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("rubric_communities")
-    .select("rubric_id")
-    .eq("property_id", communityId);
-  if (error) throw new Error(error.message);
-  const ids = new Set(
-    ((data ?? []) as unknown as Array<{ rubric_id: string }>)
-      .map((row) => String(row.rubric_id))
+export async function listRubricsForCommunity(propertyIds: string | string[]): Promise<Rubric[]> {
+  const ids = Array.isArray(propertyIds) ? propertyIds : [propertyIds];
+  return (await listRubrics()).filter((rubric) =>
+    !rubric.isTemplate && Boolean(rubric.propertyId && ids.includes(rubric.propertyId))
   );
-  return (await listRubrics()).filter((rubric) => ids.has(rubric.id));
+}
+
+export async function listRubricTemplates(): Promise<Rubric[]> {
+  return (await listRubrics()).filter((rubric) => rubric.isTemplate);
 }
 
 export async function getRubricById(rubricId: string): Promise<Rubric | null> {
@@ -185,14 +191,21 @@ export async function createRubric(input: CreateRubricInput): Promise<Rubric> {
     segmentation_prompt: input.segmentationPrompt ?? null,
     analysis_prompt: input.analysisPrompt ?? null,
     source_url: input.sourceUrl ?? null,
-    is_default: input.isDefault ?? false
+    is_default: input.isDefault ?? false,
+    property_id: input.propertyId ?? null,
+    is_template: input.isTemplate ?? false,
+    template_source_id: input.templateSourceId ?? null,
   };
 
   try {
     const supabase = getSupabaseServiceClient();
 
     if (input.isDefault) {
-      await supabase.from("rubrics").update({ is_default: false } as never).eq("is_default", true);
+      await supabase
+        .from("rubrics")
+        .update({ is_default: false } as never)
+        .eq("is_default", true)
+        .eq("is_template", false);
     }
 
     const { data, error } = await supabase
@@ -222,6 +235,7 @@ export async function createRubric(input: CreateRubricInput): Promise<Rubric> {
 export async function updateRubric(rubricId: string, input: Partial<CreateRubricInput>): Promise<Rubric> {
   const existing = await getRubricById(rubricId);
   if (!existing) throw new Error("Rubric not found.");
+  if (existing.isTemplate) throw new Error("Frozen rubric templates cannot be edited. Clone this template instead.");
 
   const nextDefinition = input.definition === undefined
     ? existing.definition
@@ -257,7 +271,11 @@ export async function updateRubric(rubricId: string, input: Partial<CreateRubric
     const supabase = getSupabaseServiceClient();
 
     if (input.isDefault) {
-      await supabase.from("rubrics").update({ is_default: false } as never).eq("is_default", true);
+      await supabase
+        .from("rubrics")
+        .update({ is_default: false } as never)
+        .eq("is_default", true)
+        .eq("is_template", false);
     }
 
     const { data, error } = await supabase
@@ -291,6 +309,7 @@ export async function deleteRubric(rubricId: string): Promise<void> {
   const existing = await getRubricById(rubricId);
   if (!existing) throw new Error("Rubric not found.");
   if (existing.isDefault) throw new Error("Cannot delete the default rubric.");
+  if (existing.isTemplate) throw new Error("Frozen rubric templates cannot be deleted.");
 
   try {
     const supabase = getSupabaseServiceClient();
@@ -300,4 +319,28 @@ export async function deleteRubric(rubricId: string): Promise<void> {
     const rows = await readLocalStore();
     await writeLocalStore(rows.filter((r) => r.id !== rubricId));
   }
+}
+
+export async function cloneRubricTemplate(
+  templateId: string,
+  propertyId: string,
+  name?: string | null
+): Promise<Rubric> {
+  const template = await getRubricById(templateId);
+  if (!template?.isTemplate) throw new Error("Rubric template not found.");
+  return createRubric({
+    name: name?.trim() || template.name,
+    definition: template.definition,
+    analysisModel: template.analysisModel,
+    transcribeProvider: template.transcribeProvider,
+    audioUnderstandingEnabled: template.audioUnderstandingEnabled,
+    sessionType: template.sessionType,
+    segmentationPrompt: template.segmentationPrompt,
+    analysisPrompt: template.analysisPrompt,
+    sourceUrl: template.sourceUrl,
+    isDefault: false,
+    propertyId,
+    isTemplate: false,
+    templateSourceId: template.id,
+  });
 }

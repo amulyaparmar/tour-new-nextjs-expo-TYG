@@ -50,11 +50,19 @@ async function loadCommunityName(propertyId: string | null | undefined) {
   try {
     const supabase = getSupabaseServiceClient();
     const { data } = await supabase
-      .from("communities")
+      .from("propertiesTYG")
       .select("name")
       .eq("id", propertyId)
       .maybeSingle<{ name: string }>();
-    return data?.name ?? null;
+    if (data?.name) return data.name;
+    if (!propertyId.startsWith("community:")) return null;
+    const legacyId = Number(propertyId.slice("community:".length));
+    const { data: legacy } = await supabase
+      .from("Community")
+      .select("name")
+      .eq("id", legacyId)
+      .maybeSingle<{ name: string }>();
+    return legacy?.name ?? null;
   } catch {
     return null;
   }

@@ -2,10 +2,10 @@ import "server-only";
 
 import type { AnalysisResult, Rubric, SessionLead, SessionSummary } from "@tour/shared";
 
-import { listRubrics } from "./rubrics";
+import { listRubricsForCommunity } from "./rubrics";
 import { getSupabaseServiceClient } from "./supabase";
 import { listSessions } from "./sessions";
-import type { AdminWorkspace } from "./admin-auth";
+import { propertySessionKeys, type AdminCommunity, type AdminWorkspace } from "./admin-auth";
 
 export type AdminSectionScore = {
   section: string;
@@ -118,11 +118,6 @@ type AgentRow = {
   property_id: string | null;
 };
 
-type PropertyRow = {
-  id: string;
-  name: string;
-};
-
 type FollowUpRow = {
   session_id: string;
   lead_index: number;
@@ -131,13 +126,6 @@ type FollowUpRow = {
   next_follow_up_at: string | null;
   notes: Array<{ text: string; timestamp: string; author: string }> | null;
 };
-
-const FALLBACK_PROPERTIES: AdminProperty[] = [
-  { id: "p1", name: "The Meridian" },
-  { id: "p2", name: "Parkview Lofts" },
-  { id: "p3", name: "Cedar Commons" },
-  { id: "p4", name: "Riverton Heights" },
-];
 
 const FALLBACK_AGENTS: AgentRow[] = [
   { id: "a1", name: "Sarah K.", full_name: "Sarah Kowalski", role: "Senior Leasing Agent", property_id: "p1" },
@@ -149,18 +137,15 @@ const FALLBACK_AGENTS: AgentRow[] = [
 const RUBRIC_AXES = ["Opening", "Discovery", "Showcase", "Objections", "Closing", "Follow-up"];
 
 export async function getAdminBootstrap(workspace: AdminWorkspace): Promise<AdminBootstrap> {
-  const [rawProperties, rawAgents, allSessions, allRubrics, followUps, rubricIds] = await Promise.all([
-    listAdminProperties(workspace.community.id),
-    listAdminAgents(workspace.membership.companyId, workspace.community.id),
-    listSessions({ limit: 100, sort: "newest" }),
-    listRubrics(),
+  const propertyKeys = propertySessionKeys(workspace.community);
+  const [rawAgents, sessions, rubrics, followUps] = await Promise.all([
+    listAdminAgents(workspace.community),
+    listSessions({ limit: 100, sort: "newest", propertyIds: propertyKeys }),
+    listRubricsForCommunity(propertyKeys),
     listProspectFollowUps(),
-    listCommunityRubricIds(workspace.community.id),
   ]);
 
-  const sessions = allSessions.filter((session) => session.propertyId === workspace.community.id);
-  const rubrics = allRubrics.filter((rubric) => rubricIds.has(rubric.id));
-  const properties = rawProperties.length > 0 ? rawProperties : FALLBACK_PROPERTIES;
+  const properties = workspace.communities.map((community) => ({ id: community.propertyTygId, name: community.name }));
   const agentRows = rawAgents.length > 0 ? rawAgents : FALLBACK_AGENTS;
   const analyses = await listAnalysesBySessionIds(
     sessions.filter((session) => typeof session.overallScore === "number").map((session) => session.id)
@@ -192,68 +177,14 @@ export async function getAdminBootstrap(workspace: AdminWorkspace): Promise<Admi
   };
 }
 
-async function listAdminProperties(communityId: string): Promise<AdminProperty[]> {
-  try {
-    const supabase = getSupabaseServiceClient();
-    const { data, error } = await supabase
-      .from("communities")
-      .select("id,name")
-      .eq("id", communityId)
-      .eq("portal_enabled", true)
-      .order("name", { ascending: true });
-    if (error) throw new Error(error.message);
-    return ((data as PropertyRow[] | null) ?? []).map((row) => ({ id: row.id, name: row.name }));
-  } catch {
-    return [];
-  }
-}
-
-async function listAdminAgents(companyId: string, communityId: string): Promise<AgentRow[]> {
-  try {
-    const supabase = getSupabaseServiceClient();
-    const { data: access, error: accessError } = await supabase
-      .from("membership_communities")
-      .select("membership_id")
-      .eq("property_id", communityId);
-    if (accessError) throw new Error(accessError.message);
-    const membershipIds = ((access ?? []) as unknown as Array<{ membership_id: string }>)
-      .map((row) => String(row.membership_id));
-
-    let query = supabase
-      .from("agents")
-      .select("id,name,full_name,role,property_id")
-      .eq("company_id", companyId)
-      .order("name", { ascending: true });
-
-    if (membershipIds.length > 0) {
-      query = query.or(`property_id.eq.${communityId},membership_id.in.(${membershipIds.join(",")})`);
-    } else {
-      query = query.eq("property_id", communityId);
-    }
-
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
-    return (data as AgentRow[] | null) ?? [];
-  } catch {
-    return [];
-  }
-}
-
-async function listCommunityRubricIds(communityId: string) {
-  try {
-    const supabase = getSupabaseServiceClient();
-    const { data, error } = await supabase
-      .from("rubric_communities")
-      .select("rubric_id")
-      .eq("property_id", communityId);
-    if (error) throw new Error(error.message);
-    return new Set(
-      ((data ?? []) as unknown as Array<{ rubric_id: string }>)
-        .map((row) => String(row.rubric_id))
-    );
-  } catch {
-    return new Set<string>();
-  }
+async function listAdminAgents(community: AdminCommunity): Promise<AgentRow[]> {
+  return community.teamMembers.map((member) => ({
+    id: member.alias || member.id || member.email,
+    name: member.name,
+    full_name: member.name,
+    role: member.role,
+    property_id: community.id,
+  }));
 }
 
 async function listAnalysesBySessionIds(sessionIds: string[]): Promise<Map<string, AnalysisResult>> {
@@ -425,7 +356,7 @@ function mapAdminRubric(rubric: Rubric, sessions: AdminSession[]): AdminBootstra
     ...rubric,
     version: rubric.isDefault ? "v1" : "v1",
     status: rubric.isDefault ? "active" : "draft",
-    propertyIds: FALLBACK_PROPERTIES.map((property) => property.id),
+    propertyIds: rubric.propertyId ? [rubric.propertyId] : [],
     sessionCount: sessions.filter((session) => session.rubricId === rubric.id).length,
     lastUpdated: formatDate(rubric.createdAt),
     categories: rubric.definition.sections.map((section) => ({

@@ -8,14 +8,13 @@ import {
   getRecordingPlaybackPath,
   storageObjectExists,
 } from "@/lib/storage";
-import { getSupabaseServiceClient } from "@/lib/supabase";
 
 export const maxDuration = 120;
 
 export async function POST(request: Request) {
   try {
     const workspace = await requireAdminContext(request);
-    if (workspace.membership.role === "member") {
+    if (workspace.teamMember.accessRole === "member") {
       throw new AdminAuthError("Manager access is required to upload rubrics.", 403);
     }
 
@@ -53,22 +52,9 @@ export async function POST(request: Request) {
       name: nameOverride || extracted.name,
       definition: extracted.definition,
       sourceUrl: fileUrl,
+      propertyId: workspace.community.propertyTygId,
+      isTemplate: false,
     });
-
-    const supabase = getSupabaseServiceClient();
-    const { error: rubricError } = await supabase
-      .from("rubrics")
-      .update({ company_id: workspace.membership.companyId } as never)
-      .eq("id", rubric.id);
-    if (rubricError) throw new Error(rubricError.message);
-
-    const { error: assignmentError } = await supabase
-      .from("rubric_communities")
-      .upsert({
-        rubric_id: rubric.id,
-        property_id: workspace.community.id,
-      } as never);
-    if (assignmentError) throw new Error(assignmentError.message);
 
     return NextResponse.json({ rubric }, { status: 201 });
   } catch (error) {

@@ -5,6 +5,7 @@ import {
   ADMIN_COMMUNITY_COOKIE,
   hasAdminSession,
   readAdminCookie,
+  propertySessionKeys,
   requireAdminContext,
   resolveFallbackAdminContext,
 } from "@/lib/admin-auth";
@@ -42,23 +43,25 @@ export async function GET(request: NextRequest) {
       : await resolveFallbackAdminContext(readAdminCookie(request, ADMIN_COMMUNITY_COOKIE));
 
     const propertyParam = sp.get("propertyId");
-    const accessiblePropertyIds = workspace?.communities.map((community) => community.id) ?? [];
+    const accessibleProperties = workspace?.communities ?? [];
+    const accessiblePropertyIds = accessibleProperties.map((community) => community.propertyTygId);
     let propertyId: string | undefined;
     let propertyIds: string[] | undefined;
 
     if (propertyParam && propertyParam !== "all") {
       if (accessiblePropertyIds.includes(propertyParam)) {
-        propertyId = propertyParam;
+        propertyIds = propertySessionKeys(
+          accessibleProperties.find((community) => community.propertyTygId === propertyParam)!
+        );
       }
     } else if (accessiblePropertyIds.length > 0) {
-      propertyIds = accessiblePropertyIds;
+      propertyIds = accessibleProperties.flatMap(propertySessionKeys);
     }
 
     const agentParam = sp.get("agentId")?.trim();
     let agentId: string | undefined;
     if (agentParam && workspace) {
-      const propertyIds = workspace.communities.map((community) => community.id);
-      const teamAgents = await listTeamAgents(workspace.membership.companyId, propertyIds);
+      const teamAgents = await listTeamAgents(workspace.communities);
       if (teamAgents.some((agent) => agent.id === agentParam)) {
         agentId = agentParam;
       }
@@ -108,6 +111,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "title is required." }, { status: 400 });
     }
 
+    const requestedPropertyId = body.propertyId?.trim() || workspace.community.propertyTygId;
+    if (!workspace.communities.some((community) => community.propertyTygId === requestedPropertyId)) {
+      return NextResponse.json({ error: "That property is not available to this team member." }, { status: 403 });
+    }
+
     const session = await createSession({
       title: body.title,
       scheduledAt: body.scheduledAt ?? null,
@@ -117,7 +125,7 @@ export async function POST(request: Request) {
       notes: body.notes ?? null,
       rubricId: body.rubricId ?? null,
       agentId: body.agentId ?? `user:${workspace.user.id}`,
-      propertyId: body.propertyId ?? workspace.community.id,
+      propertyId: requestedPropertyId,
       unitLabel: body.unitLabel ?? null
     });
 

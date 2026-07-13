@@ -34,7 +34,7 @@ export default async function ProfilePage() {
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: "var(--slate-900)" }}>{displayName}</div>
             <div style={{ fontSize: 13, color: "var(--slate-500)" }}>
-              {workspace.user.email} · {workspace.membership.role}
+              {workspace.user.email} · {workspace.teamMember.role}
             </div>
             <div style={{ fontSize: 12, color: "var(--indigo-600)", fontWeight: 700, marginTop: 3 }}>
               {workspace.community.name}

@@ -258,8 +258,8 @@ export function Settings({ onNavigate, onSelectSession }: {
   // Profile state
   const [name, setName] = useState(workspace?.user.fullName ?? "");
   const [email] = useState(workspace?.user.email ?? "");
-  const [role] = useState(workspace?.membership.role ?? "member");
-  const [company] = useState(workspace?.membership.companyName ?? "");
+  const [role] = useState(workspace?.teamMember.role ?? "Property Team");
+  const [company] = useState(workspace?.organization.name ?? "");
 
   // Notification prefs
   const [notifs, setNotifs] = useState({

@@ -10,7 +10,7 @@ export async function resolveRubricForReanalysis(
   rubricId?: string
 ): Promise<Rubric> {
   if (!rubricId) {
-    return getRubricForSession(session.rubricId);
+    return getRubricForSession(session.rubricId, session.propertyId);
   }
 
   const rubric = await getRubricById(rubricId);

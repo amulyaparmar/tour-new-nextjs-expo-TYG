@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
 import { hasAdminSession, requireAdminContext } from "@/lib/admin-auth";
-import { createMaterial, listVisibleMaterials } from "@/lib/materials";
+import { createMaterial, listVisibleMaterialsWithLink } from "@/lib/materials";
 
 export async function GET(request: Request) {
   try {
     const workspace = hasAdminSession(request) ? await requireAdminContext(request) : null;
-    const materials = await listVisibleMaterials(
-      workspace?.community.alias ?? undefined,
-      workspace?.community.id
-    );
-    return NextResponse.json({ materials });
+    const propertyId = workspace?.community.propertyTygId;
+    const result = await listVisibleMaterialsWithLink(propertyId);
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to list materials." },
@@ -35,7 +33,7 @@ export async function POST(request: Request) {
       name: body.name,
       type: body.type,
       description: body.description ?? "",
-      propertyId: workspace?.community.id ?? null
+      propertyId: workspace?.community.propertyTygId ?? null
     });
 
     return NextResponse.json({ material }, { status: 201 });

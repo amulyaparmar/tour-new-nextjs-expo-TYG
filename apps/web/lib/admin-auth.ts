@@ -65,7 +65,7 @@ type PropertyTeamRow = {
   name: string | null;
   alias: string | null;
   place_id: string | null;
-  tour_video_id: string | number | null;
+  tour_video_id: unknown;
   property_manager: string | null;
   metadata: unknown;
 };
@@ -347,7 +347,10 @@ function communityMatches(community: AdminCommunity, requested: string | null | 
 }
 
 function parseTourCommunityId(value: unknown) {
-  const parsed = Number(value);
+  const candidate = isRecord(value)
+    ? value.community_id ?? value.communityId ?? value.tourCommunityId
+    : value;
+  const parsed = Number(candidate);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
@@ -499,7 +502,7 @@ async function listFallbackCommunities(): Promise<CommunityRow[]> {
       const property = row as {
         id: string;
         name: string | null;
-        tour_video_id: string | number | null;
+        tour_video_id: unknown;
         place_id: string | null;
         alias: string | null;
         property_manager: string | null;

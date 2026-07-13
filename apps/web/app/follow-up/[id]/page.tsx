@@ -59,7 +59,7 @@ export default async function FollowUpPage({ params }: FollowUpPageProps) {
   const [analysis, actions, materials] = await Promise.all([
     getAnalysisBySessionId(id),
     listFollowUpActions(id),
-    listVisibleMaterials()
+    listVisibleMaterials(session.propertyId ?? undefined)
   ]);
 
   const repCard = getSessionRepCard(session);

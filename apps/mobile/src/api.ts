@@ -338,6 +338,15 @@ export type Material = {
   };
 };
 
+export type TourLibraryLink = {
+  available: true;
+  source: "property" | "gmb_fallback";
+  communityId: number | null;
+  magnetUuid: string | null;
+  alias: string | null;
+  url: string;
+};
+
 export function materialUrl(material: Material) {
   return material.media?.videoUrl ?? material.media?.iframeUrl ?? material.fileUrl ?? null;
 }
@@ -663,7 +672,7 @@ export async function fetchMaterials() {
   if (!res.ok) {
     throw new Error("Failed to fetch materials.");
   }
-  return (await res.json()) as { materials: Material[] };
+  return (await res.json()) as { materials: Material[]; tourLibrary: TourLibraryLink | null };
 }
 
 export async function uploadMaterial(fileUri: string, mimeType: string, fileName: string) {

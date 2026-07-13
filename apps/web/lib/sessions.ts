@@ -44,6 +44,7 @@ import {
   updateLocalSession,
 } from "./local-store";
 import { getSupabaseServiceClient } from "./supabase";
+import { getPrimaryRubricForProperty } from "./rubrics";
 
 function rethrowInProduction(error: unknown): void {
   if (process.env.NODE_ENV === "production") {
@@ -309,6 +310,9 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     throw new Error("Session title is required.");
   }
 
+  const rubricId = input.rubricId ?? (
+    input.propertyId ? (await getPrimaryRubricForProperty(input.propertyId)).id : null
+  );
   const payload = {
     title: normalizedTitle,
     scheduled_at: input.scheduledAt ?? null,
@@ -319,7 +323,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     status: "scheduled" as const,
     source: input.source ?? "manual",
     leads: input.leads ?? [],
-    rubric_id: input.rubricId ?? null,
+    rubric_id: rubricId,
     agent_id: input.agentId ?? null,
     property_id: input.propertyId ?? null,
     unit_label: input.unitLabel ?? null
@@ -349,7 +353,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       notes: input.notes ?? null,
       source: input.source ?? "manual",
       leads: input.leads ?? [],
-      rubricId: input.rubricId ?? null
+      rubricId
     });
   }
 }

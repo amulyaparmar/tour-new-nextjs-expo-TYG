@@ -54,7 +54,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
   const hasAnalysis = !!analysis;
   const isProcessing = ["uploaded", "transcribing", "segmenting", "analyzing"].includes(session.status);
   const defaults = !hasAnalysis ? getSessionDetailDefaults(session) : null;
-  const noteAssetsPromise = !hasAnalysis ? getNoteAssets() : Promise.resolve<NoteAsset[]>([]);
+  const noteAssetsPromise = !hasAnalysis ? getNoteAssets(session.propertyId) : Promise.resolve<NoteAsset[]>([]);
   const detailDataPromise: Promise<[
     Awaited<ReturnType<typeof getTranscriptForSession>>,
     string | null,
@@ -65,7 +65,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
     ? Promise.all([
       getTranscriptForSession(id),
       resolveRecordingUrl(id, session.videoUrl, session.audioUrl),
-      getRubricForSession(analysisRun?.rubricId ?? session.rubricId),
+      getRubricForSession(analysisRun?.rubricId ?? session.rubricId, session.propertyId),
       getConversationPhases(id),
       getAudioInsights(id),
     ])
@@ -171,8 +171,8 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
   );
 }
 
-async function getNoteAssets(): Promise<NoteAsset[]> {
-  const materials = await listVisibleMaterials();
+async function getNoteAssets(propertyId: string | null | undefined): Promise<NoteAsset[]> {
+  const materials = await listVisibleMaterials(propertyId ?? undefined);
   return materials
     .map((material): NoteAsset | null => {
       const url = material.media?.videoUrl ?? material.media?.iframeUrl ?? material.fileUrl ?? null;

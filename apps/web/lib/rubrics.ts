@@ -149,20 +149,33 @@ export async function listRubricTemplates(): Promise<Rubric[]> {
  */
 export async function ensurePropertyRubric(
   propertyId: string,
-  compatibilityPropertyIds: string[] = []
+  _compatibilityPropertyIds: string[] = []
 ): Promise<Rubric> {
   const supabase = getSupabaseServiceClient();
-  const propertyIds = Array.from(new Set([propertyId, ...compatibilityPropertyIds].filter(Boolean)));
   const { data: existing, error: existingError } = await supabase
     .from("rubrics")
     .select("*")
     .eq("is_template", false)
-    .in("property_id", propertyIds)
+    .eq("property_id", propertyId)
+    .order("is_default", { ascending: false })
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle<RubricRow>();
   if (existingError) throw new Error(existingError.message);
-  if (existing) return mapRow(existing);
+  if (existing) {
+    if (existing.is_default) return mapRow(existing);
+
+    const { data: promoted, error: promoteError } = await supabase
+      .from("rubrics")
+      .update({ is_default: true } as never)
+      .eq("id", existing.id)
+      .select("*")
+      .single<RubricRow>();
+    if (promoteError || !promoted) {
+      throw new Error(promoteError?.message ?? "Could not set the property primary rubric.");
+    }
+    return mapRow(promoted);
+  }
 
   const { data: templateRows, error: templateError } = await supabase
     .from("rubrics")
@@ -190,7 +203,7 @@ export async function ensurePropertyRubric(
     segmentation_prompt: template.segmentation_prompt ?? null,
     analysis_prompt: template.analysis_prompt ?? null,
     source_url: template.source_url ?? template.source_file_url ?? null,
-    is_default: false,
+    is_default: true,
     property_id: propertyId,
     is_template: false,
     template_source_id: template.id,
@@ -238,11 +251,25 @@ export async function getDefaultRubric(): Promise<Rubric> {
   return rubric;
 }
 
-export async function getRubricForSession(rubricId: string | null | undefined): Promise<Rubric> {
+export async function getPrimaryRubricForProperty(
+  propertyId: string,
+  _compatibilityPropertyIds: string[] = []
+): Promise<Rubric> {
+  const propertyRubrics = await listRubricsForCommunity(propertyId);
+  const primary = propertyRubrics.find((rubric) => rubric.isDefault);
+  if (primary) return primary;
+  return ensurePropertyRubric(propertyId);
+}
+
+export async function getRubricForSession(
+  rubricId: string | null | undefined,
+  propertyId?: string | null
+): Promise<Rubric> {
   if (rubricId) {
     const rubric = await getRubricById(rubricId);
     if (rubric) return rubric;
   }
+  if (propertyId) return getPrimaryRubricForProperty(propertyId);
   return getDefaultRubric();
 }
 
@@ -272,11 +299,16 @@ export async function createRubric(input: CreateRubricInput): Promise<Rubric> {
     const supabase = getSupabaseServiceClient();
 
     if (input.isDefault) {
-      await supabase
+      let clearDefault = supabase
         .from("rubrics")
         .update({ is_default: false } as never)
         .eq("is_default", true)
         .eq("is_template", false);
+      clearDefault = input.propertyId
+        ? clearDefault.eq("property_id", input.propertyId)
+        : clearDefault.is("property_id", null);
+      const { error: clearError } = await clearDefault;
+      if (clearError) throw new Error(clearError.message);
     }
 
     const { data, error } = await supabase
@@ -295,7 +327,9 @@ export async function createRubric(input: CreateRubricInput): Promise<Rubric> {
       created_at: now
     };
     if (row.is_default) {
-      for (const r of rows) r.is_default = false;
+      for (const r of rows) {
+        if (!r.is_template && (r.property_id ?? null) === (row.property_id ?? null)) r.is_default = false;
+      }
     }
     rows.unshift(row);
     await writeLocalStore(rows);
@@ -342,11 +376,16 @@ export async function updateRubric(rubricId: string, input: Partial<CreateRubric
     const supabase = getSupabaseServiceClient();
 
     if (input.isDefault) {
-      await supabase
+      let clearDefault = supabase
         .from("rubrics")
         .update({ is_default: false } as never)
         .eq("is_default", true)
         .eq("is_template", false);
+      clearDefault = existing.propertyId
+        ? clearDefault.eq("property_id", existing.propertyId)
+        : clearDefault.is("property_id", null);
+      const { error: clearError } = await clearDefault;
+      if (clearError) throw new Error(clearError.message);
     }
 
     const { data, error } = await supabase
@@ -364,7 +403,9 @@ export async function updateRubric(rubricId: string, input: Partial<CreateRubric
     if (index === -1) throw new Error("Rubric not found.");
 
     if (payload.is_default) {
-      for (const row of rows) row.is_default = false;
+      for (const row of rows) {
+        if (!row.is_template && (row.property_id ?? null) === existing.propertyId) row.is_default = false;
+      }
     }
 
     rows[index] = {

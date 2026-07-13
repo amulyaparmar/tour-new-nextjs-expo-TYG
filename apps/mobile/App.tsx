@@ -69,6 +69,7 @@ import {
 } from "./src/conversationPhases";
 import {
   type Material,
+  type TourLibraryLink,
   type PaginatedSessions,
   applyRubricToSession,
   createSession,
@@ -409,29 +410,6 @@ function LoadingShimmer({ rows = 3 }: { rows?: number }) {
         <Reanimated.View key={index} style={[st.shimmerCard, animatedStyle]}>
           <View style={[st.shimmerBar, { width: index % 2 === 0 ? "68%" : "52%" }]} />
           <View style={[st.shimmerBar, { width: index % 2 === 0 ? "44%" : "72%", height: 8 }]} />
-        </Reanimated.View>
-      ))}
-    </View>
-  );
-}
-
-function LibraryShimmer({ tiles = 3 }: { tiles?: number }) {
-  const shimmer = useSharedValue(0.35);
-  useEffect(() => {
-    shimmer.value = withRepeat(withSequence(
-      withTiming(1, { duration: 760 }),
-      withTiming(0.35, { duration: 760 })
-    ), -1, true);
-  }, [shimmer]);
-  const animatedStyle = useAnimatedStyle(() => ({ opacity: shimmer.value }));
-
-  return (
-    <View style={homeSt.mediaRow}>
-      {Array.from({ length: tiles }).map((_, index) => (
-        <Reanimated.View key={index} style={[homeSt.mediaTileWrap, homeSt.libraryShimmerTile, animatedStyle]}>
-          <View style={homeSt.libraryShimmerThumb} />
-          <View style={[st.shimmerBar, { width: "78%", height: 8 }]} />
-          <View style={[st.shimmerBar, { width: "52%", height: 8 }]} />
         </Reanimated.View>
       ))}
     </View>
@@ -833,6 +811,7 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
   const sessions = sessionsQuery.data?.sessions ?? [];
   const upcomingSessions = upcomingSessionsQuery.data?.sessions ?? [];
   const materials = materialsQuery.data?.materials ?? [];
+  const tourLibrary = materialsQuery.data?.tourLibrary ?? null;
   const calendarEvents = calendarQuery.data?.events ?? [];
   const loading = sessionsQuery.isLoading || upcomingSessionsQuery.isLoading || calendarQuery.isLoading;
   const materialsLoading = materialsQuery.isLoading;
@@ -912,9 +891,9 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
                 onRetry={() => void onRefresh()}
               />
             )}
-            {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} materialsLoading={materialsLoading} onSession={onSession} onProfile={onProfile} onCheckIn={() => setCheckInOpen(true)} onCreate={onCreate} onAudioTest={onAudioTest} onAssets={() => handleTabPress("materials")} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} userEmail={authSession.workspace.user.email} property={property} />}
+            {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materialCount={materials.length} tourLibrary={tourLibrary} loading={loading} onSession={onSession} onProfile={onProfile} onCheckIn={() => setCheckInOpen(true)} onCreate={onCreate} onAudioTest={onAudioTest} onAssets={() => handleTabPress("materials")} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} userEmail={authSession.workspace.user.email} property={property} />}
             {tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={async () => { await calendarQuery.refetch(); }} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
-            {tab === "materials" && <MaterialsScreen materials={materials} loading={materialsLoading} onCreate={onCreate} onReload={async () => { await materialsQuery.refetch(); }} onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
+            {tab === "materials" && <MaterialsScreen materials={materials} tourLibrary={tourLibrary} loading={materialsLoading} onCreate={onCreate} onReload={async () => { await materialsQuery.refetch(); }} onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
             {tab === "settings" && <SettingsScreen session={authSession} onSessionChange={onAuthSession} onRubrics={onRubrics} onSignOut={onSignOut} />}
           </ScrollView>
         </ScreenTransition>
@@ -1006,12 +985,12 @@ const errorBannerSt = StyleSheet.create({
 // Dashboard
 // ═══════════════════════════════════════
 
-function DashboardScreen({ sessions, upcomingSessions, materials, loading, materialsLoading, onSession, onProfile, onCheckIn, onCreate, onAudioTest, onAssets, onCommunityPress, agentName, userEmail, property }: {
+function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrary, loading, onSession, onProfile, onCheckIn, onCreate, onAudioTest, onAssets, onCommunityPress, agentName, userEmail, property }: {
   sessions: SessionSummary[];
   upcomingSessions: SessionSummary[];
-  materials: Material[];
+  materialCount: number;
+  tourLibrary: TourLibraryLink | null;
   loading: boolean;
-  materialsLoading: boolean;
   onSession: (id: string) => void;
   onProfile: () => void;
   onCheckIn: () => void;
@@ -1023,7 +1002,6 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, mater
   userEmail: string;
   property: string;
 }) {
-  const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const todayTours = useMemo(() => {
     const todayKey = new Date().toDateString();
     return upcomingSessions
@@ -1098,41 +1076,29 @@ function DashboardScreen({ sessions, upcomingSessions, materials, loading, mater
         </HomeSection>
       )}
 
-      <HomeSection title="Library" showLogo action={!materialsLoading && materials.length ? "See All" : undefined} onAction={!materialsLoading && materials.length ? onAssets : undefined}>
-        {materialsLoading && materials.length === 0 ? (
-          <LibraryShimmer />
-        ) : (
-          <View style={homeSt.mediaRow}>
-            {materials.slice(0, 3).map((material) => {
-              const previewUrl = materialPreviewUrl(material);
-              const canOpen = Boolean(materialUrl(material));
-              return (
-                <View key={material.id} style={homeSt.mediaTileWrap}>
-                <Pressable onPress={() => setSelectedMaterial(material)} style={({ pressed }) => [homeSt.mediaTile, pressed && st.pressed]}>
-                  <View style={homeSt.mediaThumb}>
-                    {previewUrl ? (
-                      <Image source={{ uri: previewUrl }} style={homeSt.mediaPreviewImage} resizeMode="cover" />
-                    ) : (
-                      <View style={homeSt.mediaFallbackIcon}>
-                        <Ionicons name={canOpen ? "play" : "document-outline"} size={canOpen ? 18 : 23} color={C.brand} />
-                      </View>
-                    )}
-                    {canOpen && (
-                      <View style={homeSt.mediaPlayBadge}>
-                        <Ionicons name="play" size={11} color="#fff" />
-                      </View>
-                    )}
-                  </View>
-                  <Text style={homeSt.mediaLabel} numberOfLines={2}>{material.name}</Text>
-                </Pressable>
-                </View>
-              );
-            })}
-            {!materialsLoading && materials.length === 0 && <Text style={homeSt.emptyInline}>Reusable tour assets will appear here.</Text>}
+      <HomeSection title="Assets" action="Open" onAction={onAssets}>
+        <MotionPressable
+          accessibilityLabel="Open property assets"
+          onPress={onAssets}
+          haptic="selection"
+          style={homeSt.assetLinkCard}
+        >
+          <View style={[homeSt.assetLinkIcon, tourLibrary && homeSt.assetLinkIconConnected]}>
+            <Ionicons name={tourLibrary ? "play" : "folder-outline"} size={22} color={tourLibrary ? "#fff" : C.brand} />
           </View>
-        )}
+          <View style={st.flex1}>
+            <Text style={homeSt.assetLinkTitle}>
+              {tourLibrary ? "Tour Library connected" : "Local property assets"}
+            </Text>
+            <Text style={homeSt.assetLinkMeta}>
+              {tourLibrary
+                ? `${materialCount} local and Tour.video resources`
+                : `${materialCount} resources stored for this property`}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+        </MotionPressable>
       </HomeSection>
-      <MaterialPreviewModal material={selectedMaterial} onClose={() => setSelectedMaterial(null)} />
     </View>
   );
 }
@@ -2671,9 +2637,13 @@ const assetSt = StyleSheet.create({
   modalPrimaryText: { color: "#fff", fontSize: 14, fontWeight: "900" },
   modalSecondary: { minWidth: 98, minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 14, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 16, backgroundColor: "#fff" },
   modalSecondaryText: { color: C.text, fontSize: 13, fontWeight: "900" },
+  tourLibraryLink: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, borderWidth: 1, borderColor: "#bfdbfe", borderRadius: 18, backgroundColor: "#eff6ff" },
+  tourLibraryLinkIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: C.brand },
+  tourLibraryLinkTitle: { color: C.text, fontSize: 13, fontWeight: "900" },
+  tourLibraryLinkMeta: { color: C.textSec, fontSize: 11, fontWeight: "700", marginTop: 2 },
 });
 
-function MaterialsScreen({ materials, loading, onCreate, onReload, onBack, onCommunityPress, property }: { materials: Material[]; loading: boolean; onCreate: () => void; onReload: () => Promise<void>; onBack: () => void; onCommunityPress: () => void; property: string }) {
+function MaterialsScreen({ materials, tourLibrary, loading, onCreate, onReload, onBack, onCommunityPress, property }: { materials: Material[]; tourLibrary: TourLibraryLink | null; loading: boolean; onCreate: () => void; onReload: () => Promise<void>; onBack: () => void; onCommunityPress: () => void; property: string }) {
   const [uploading, setUploading] = useState(false);
   const [selected, setSelected] = useState<Material | null>(null);
 
@@ -2717,6 +2687,23 @@ function MaterialsScreen({ materials, loading, onCreate, onReload, onBack, onCom
           <Text style={st.pageTitle}>Assets</Text>
           <Text style={st.pageHeadingSub}>{materials.length} community resources</Text>
         </View>
+        {tourLibrary ? (
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="Open the connected Tour Library"
+            onPress={() => void Linking.openURL(tourLibrary.url)}
+            style={({ pressed }) => [assetSt.tourLibraryLink, pressed && st.pressed]}
+          >
+            <View style={assetSt.tourLibraryLinkIcon}>
+              <Ionicons name="play" size={18} color="#fff" />
+            </View>
+            <View style={st.flex1}>
+              <Text style={assetSt.tourLibraryLinkTitle}>Open Tour Library</Text>
+              <Text style={assetSt.tourLibraryLinkMeta}>Connected to this property</Text>
+            </View>
+            <Ionicons name="open-outline" size={18} color={C.brand} />
+          </Pressable>
+        ) : null}
         <Pressable onPress={onCreate} style={({ pressed }) => [assetSt.recordButton, pressed && st.pressed]}>
           <Ionicons name="radio-button-on-outline" size={16} color={C.purple} />
           <Text style={assetSt.recordButtonText}>Record Projects</Text>
@@ -5992,6 +5979,11 @@ const homeSt = StyleSheet.create({
   tourMetaRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 8 },
   timePill: { color: C.brand, fontSize: 11, fontWeight: "800", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4, backgroundColor: "rgba(0,108,229,0.07)" },
   tourMeta: { flex: 1, color: C.textSec, fontSize: 12 },
+  assetLinkCard: { minHeight: 78, flexDirection: "row", alignItems: "center", gap: 13, padding: 14, borderWidth: 1, borderColor: C.border, borderRadius: 18, backgroundColor: "#fff" },
+  assetLinkIcon: { width: 46, height: 46, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "#eef4ff" },
+  assetLinkIconConnected: { backgroundColor: C.brand },
+  assetLinkTitle: { color: C.text, fontSize: 14, fontWeight: "900" },
+  assetLinkMeta: { color: C.textSec, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 3 },
   statusPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20 },
   statusText: { fontSize: 9, fontWeight: "900" },
   actionCard: { minHeight: 78, flexDirection: "row", alignItems: "center", gap: 14, padding: 14, borderWidth: 1, borderColor: "#e5e5e5", borderRadius: 12, backgroundColor: "#fff" },
@@ -5999,28 +5991,6 @@ const homeSt = StyleSheet.create({
   qrBrandCenter: { position: "absolute", width: 18, height: 18, borderRadius: 5, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
   actionTitle: { color: "#000", fontSize: 14, fontWeight: "900" },
   actionSub: { color: C.textSec, fontSize: 12, marginTop: 3 },
-  mediaRow: { flexDirection: "row", gap: 10 },
-  mediaTileWrap: { width: (W - 56) / 3 },
-  mediaTile: { minHeight: 132, justifyContent: "space-between", gap: 8, padding: 8, borderRadius: 12, backgroundColor: "#eef4ff" },
-  mediaThumb: { flex: 1, minHeight: 82, alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden", borderRadius: 10, backgroundColor: "rgba(255,255,255,0.55)" },
-  libraryShimmerTile: {
-    minHeight: 132,
-    gap: 8,
-    padding: 8,
-    borderRadius: 12,
-    backgroundColor: "#eef4ff",
-  },
-  libraryShimmerThumb: {
-    flex: 1,
-    minHeight: 82,
-    borderRadius: 10,
-    backgroundColor: "#e8eef7",
-  },
-  mediaPreviewImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
-  mediaFallbackIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, backgroundColor: "#fff" },
-  mediaPlayBadge: { position: "absolute", right: 7, bottom: 7, width: 24, height: 24, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "rgba(255,255,255,0.86)", borderRadius: 12, backgroundColor: "rgba(15,23,42,0.88)" },
-  mediaLabel: { color: C.text, fontSize: 11, fontWeight: "700" },
-  emptyInline: { color: C.textSec, fontSize: 12 },
   createButton: { minHeight: 50, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: C.brand },
   createButtonText: { color: "#fff", fontSize: 14, fontWeight: "800" },
   insightCard: { minHeight: 105, flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderWidth: 1, borderLeftWidth: 4, borderColor: C.brand, borderRadius: 16, backgroundColor: "#fff" },

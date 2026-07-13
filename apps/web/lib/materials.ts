@@ -29,6 +29,15 @@ export type Material = {
   media?: TourMaterialMedia;
 };
 
+export type TourLibraryLink = {
+  available: true;
+  source: "property" | "gmb_fallback";
+  communityId: number | null;
+  magnetUuid: string | null;
+  alias: string | null;
+  url: string;
+};
+
 type MaterialRow = {
   id: string;
   name: string;
@@ -65,6 +74,19 @@ type TourApiAsset = {
   img?: unknown;
   gif?: unknown;
   iframe?: unknown;
+};
+
+type PropertyTourRow = {
+  id: string;
+  place_id: string | null;
+  tour_video_id: unknown;
+};
+
+type LegacyCommunityRow = {
+  id: number;
+  alias: string | null;
+  gmbId: unknown;
+  community_magnets: unknown;
 };
 
 async function readLocalStore(): Promise<Material[]> {
@@ -130,21 +152,38 @@ export async function listMaterials(propertyId?: string): Promise<Material[]> {
   }
 }
 
-export async function listVisibleMaterials(tourAlias = "@27north", propertyId?: string): Promise<Material[]> {
-  const [materials, tourMaterials] = await Promise.all([
-    listMaterials(propertyId),
-    listTourMaterials(tourAlias)
-  ]);
-
-  return [
-    ...tourMaterials,
-    ...materials.filter((material) => material.type !== "recording")
-  ];
+export async function listVisibleMaterials(propertyId?: string): Promise<Material[]> {
+  return (await listVisibleMaterialsWithLink(propertyId)).materials;
 }
 
-export async function getMaterial(id: string): Promise<Material | null> {
+export async function listVisibleMaterialsWithLink(propertyId?: string): Promise<{
+  materials: Material[];
+  tourLibrary: TourLibraryLink | null;
+}> {
+  const tourLibrary = propertyId ? await resolveTourLibraryLink(propertyId) : null;
+  const tourMaterialsPromise = tourLibrary && propertyId
+    ? listTourMaterials(tourLibrary, propertyId)
+    : Promise.resolve([] as Material[]);
+  const [materials, tourMaterials] = await Promise.all([
+    listMaterials(propertyId),
+    tourMaterialsPromise
+  ]);
+
+  return {
+    materials: [
+      ...tourMaterials,
+      ...materials.filter((material) => material.type !== "recording")
+    ],
+    tourLibrary,
+  };
+}
+
+export async function getMaterial(id: string, propertyId?: string): Promise<Material | null> {
   if (id.startsWith("tour-api-")) {
-    const tourMaterials = await listTourMaterials();
+    if (!propertyId) return null;
+    const link = await resolveTourLibraryLink(propertyId);
+    if (!link) return null;
+    const tourMaterials = await listTourMaterials(link, propertyId);
     return tourMaterials.find((material) => material.id === id) ?? null;
   }
 
@@ -164,10 +203,12 @@ export async function getMaterial(id: string): Promise<Material | null> {
   }
 }
 
-async function listTourMaterials(tourAlias = "@27north"): Promise<Material[]> {
-  const propertyId = tourAlias.startsWith("@") ? tourAlias : `@${tourAlias}`;
+async function listTourMaterials(link: TourLibraryLink, propertyId: string): Promise<Material[]> {
+  const listId = link.alias
+    ? `@${link.alias.replace(/^@/, "")}`
+    : link.magnetUuid ?? String(link.communityId);
   try {
-    const response = await fetch(`https://tour.video/api/list?id=${encodeURIComponent(propertyId)}`, {
+    const response = await fetch(`https://tour.video/api/list?id=${encodeURIComponent(listId)}`, {
       next: { revalidate: 300 }
     });
 
@@ -175,14 +216,19 @@ async function listTourMaterials(tourAlias = "@27north"): Promise<Material[]> {
 
     const payload = (await response.json()) as Record<string, TourApiAsset>;
     return Object.entries(payload)
-      .map(([sourceKey, asset]) => mapTourAsset(sourceKey, asset, propertyId))
+      .map(([sourceKey, asset]) => mapTourAsset(sourceKey, asset, propertyId, listId))
       .filter((asset): asset is Material => asset !== null);
   } catch {
     return [];
   }
 }
 
-function mapTourAsset(sourceKey: string, asset: TourApiAsset, propertyId: string): Material | null {
+function mapTourAsset(
+  sourceKey: string,
+  asset: TourApiAsset,
+  propertyId: string,
+  tourListId: string
+): Material | null {
   const videoUrl = stringOrNull(asset.video);
   const imageUrl = stringOrNull(asset.img);
   const gifUrl = stringOrNull(asset.gif);
@@ -201,11 +247,11 @@ function mapTourAsset(sourceKey: string, asset: TourApiAsset, propertyId: string
     id: `tour-api-${Buffer.from(sourceKey).toString("base64url")}`,
     name: title,
     type: "other",
-    description: `Tour.video ${includes} from ${propertyId}.`,
+    description: `Tour.video ${includes} from ${tourListId}.`,
     fileUrl: videoUrl ?? iframeUrl,
     parsedText: iframeUrl ? `Embed link: ${iframeUrl}` : null,
     sessionId: null,
-    propertyId: null,
+    propertyId,
     createdAt: TOUR_MATERIAL_CREATED_AT,
     media: {
       sourceKey,
@@ -215,6 +261,117 @@ function mapTourAsset(sourceKey: string, asset: TourApiAsset, propertyId: string
       iframeUrl
     }
   };
+}
+
+export async function resolveTourLibraryLink(propertyId: string): Promise<TourLibraryLink | null> {
+  const supabase = getSupabaseServiceClient();
+  const { data: property, error: propertyError } = await supabase
+    .from("propertiesTYG")
+    .select("id,place_id,tour_video_id")
+    .eq("id", propertyId)
+    .maybeSingle<PropertyTourRow>();
+  if (propertyError) throw new Error(propertyError.message);
+  if (!property) return null;
+
+  const direct = parseDirectTourLink(property.tour_video_id);
+  if (direct.communityId || direct.magnetUuid) {
+    let community: LegacyCommunityRow | null = null;
+    if (direct.communityId) {
+      const { data } = await supabase
+        .from("Community")
+        .select("id,alias,gmbId,community_magnets")
+        .eq("id", direct.communityId)
+        .maybeSingle<LegacyCommunityRow>();
+      community = data ?? null;
+    }
+    return buildTourLibraryLink({
+      source: "property",
+      communityId: direct.communityId ?? community?.id ?? null,
+      magnetUuid: direct.magnetUuid ?? normalizeMagnetUuid(community?.community_magnets),
+      alias: direct.alias ?? (cleanString(community?.alias) || null),
+    });
+  }
+
+  const matchIds = new Set([property.id, property.place_id].map(cleanString).filter(Boolean));
+  if (matchIds.size === 0) return null;
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("Community")
+      .select("id,alias,gmbId,community_magnets")
+      .not("gmbId", "is", null)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as LegacyCommunityRow[];
+    const match = rows.find((row) => matchIds.has(normalizeGmbId(row.gmbId)));
+    if (match) return linkFromCommunity(match, "gmb_fallback");
+    if (rows.length < pageSize) break;
+  }
+  return null;
+}
+
+function parseDirectTourLink(value: unknown) {
+  if (isRecord(value)) {
+    return {
+      communityId: positiveInteger(value.community_id ?? value.communityId ?? value.tourCommunityId),
+      magnetUuid: cleanString(value.magnet_uuid ?? value.magnetUuid ?? value.uuid) || null,
+      alias: cleanString(value.alias ?? value.tour_alias ?? value.tourAlias) || null,
+    };
+  }
+  return { communityId: positiveInteger(value), magnetUuid: null, alias: null };
+}
+
+function linkFromCommunity(
+  community: LegacyCommunityRow,
+  source: TourLibraryLink["source"]
+): TourLibraryLink {
+  return buildTourLibraryLink({
+    source,
+    communityId: community.id,
+    magnetUuid: normalizeMagnetUuid(community.community_magnets),
+    alias: cleanString(community.alias) || null,
+  });
+}
+
+function buildTourLibraryLink(input: Omit<TourLibraryLink, "available" | "url">): TourLibraryLink {
+  const routeId = input.alias
+    ? `@${input.alias.replace(/^@/, "")}`
+    : input.magnetUuid ?? String(input.communityId);
+  return { ...input, available: true, url: `https://tour.video/${routeId}` };
+}
+
+function normalizeGmbId(value: unknown) {
+  const raw = cleanString(value);
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return typeof parsed === "string" ? parsed.trim() : raw;
+  } catch {
+    return raw;
+  }
+}
+
+function normalizeMagnetUuid(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    return value.map((item) => isRecord(item) ? item.uuid ?? item.id : item)
+      .map(cleanString)
+      .find(Boolean) ?? null;
+  }
+  if (isRecord(value)) return cleanString(value.uuid ?? value.id) || null;
+  return cleanString(value) || null;
+}
+
+function positiveInteger(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function cleanString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : value === null || value === undefined ? "" : String(value).trim();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function shouldHideTourAsset(

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BookOpen, ClipboardList, ExternalLink, Link2, Paperclip, Play, Plus, Video } from "lucide-react";
 import { listVisibleMaterials } from "@/lib/materials";
 import type { Material } from "@/lib/materials";
+import { requireTourWorkspace } from "@/lib/tour-auth";
 
 import { AddMaterialForm } from "./AddMaterialForm";
 
@@ -15,7 +16,8 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
 };
 
 export default async function MaterialsPage() {
-  const materials = await listVisibleMaterials();
+  const workspace = await requireTourWorkspace();
+  const materials = await listVisibleMaterials(workspace.community.propertyTygId);
   const tourAssets = materials.filter((m) => m.media);
   const rubrics = materials.filter((m) => m.type === "rubric");
   const training = materials.filter((m) => m.type === "training");

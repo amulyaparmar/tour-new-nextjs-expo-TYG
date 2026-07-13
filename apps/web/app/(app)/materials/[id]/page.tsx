@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, BookOpen, ClipboardList, ExternalLink, Link2, Paperclip, Video } from "lucide-react";
 import { getMaterial } from "@/lib/materials";
+import { requireTourWorkspace } from "@/lib/tour-auth";
 import { DeleteMaterialButton } from "./DeleteMaterialButton";
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
@@ -13,8 +14,9 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
 type Props = { params: Promise<{ id: string }> };
 
 export default async function MaterialDetailPage({ params }: Props) {
+  const workspace = await requireTourWorkspace();
   const { id } = await params;
-  const material = await getMaterial(id);
+  const material = await getMaterial(id, workspace.community.propertyTygId);
 
   if (!material) {
     return (

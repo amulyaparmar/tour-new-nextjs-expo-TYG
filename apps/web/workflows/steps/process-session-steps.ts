@@ -65,7 +65,7 @@ export async function segmentPhasesStep(sessionId: string) {
   if (!session) throw new FatalError("Session not found.");
 
   const transcript = await getTranscript(sessionId);
-  const rubric = await getRubricForSession(session.rubricId);
+  const rubric = await getRubricForSession(session.rubricId, session.propertyId);
   const { segmentation } = await segmentConversationPhases(transcript, {
     segmentationPrompt: rubric.segmentationPrompt,
     sessionType: rubric.sessionType,
@@ -83,7 +83,7 @@ export async function analyzeSessionStep(sessionId: string) {
   if (!session) throw new FatalError("Session not found.");
 
   const transcript = await getTranscript(sessionId);
-  const rubric = await getRubricForSession(session.rubricId);
+  const rubric = await getRubricForSession(session.rubricId, session.propertyId);
   const analysis = await generateAnalysis({
     title: session.title,
     prospectName: session.prospectName,
@@ -110,7 +110,7 @@ export async function followUpActionsStep(sessionId: string) {
   const analysis = await getAnalysisBySessionId(sessionId);
   if (!session || !analysis) throw new FatalError("Session or analysis missing for follow-up actions.");
 
-  const rubric = await getRubricForSession(session.rubricId);
+  const rubric = await getRubricForSession(session.rubricId, session.propertyId);
   const actions = await generateFollowUpActions(analysis, {
     title: session.title,
     prospectName: session.prospectName,

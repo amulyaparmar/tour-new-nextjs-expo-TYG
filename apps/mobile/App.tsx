@@ -71,7 +71,6 @@ import {
   type Material,
   type PaginatedSessions,
   applyRubricToSession,
-  cloneRubricTemplate,
   createSession,
   type CalendarEvent,
   type SessionComment,
@@ -98,7 +97,7 @@ import {
   uploadMaterial,
   uploadRubric,
 } from "./src/api";
-import { getApiBaseUrl } from "./src/config";
+import { getApiBaseUrl, getSiteBaseUrl } from "./src/config";
 import { computeDashboardMetrics } from "./src/dashboard";
 import type { UploadProgressInfo } from "./src/presignedUpload";
 import { type MobileAuthSession, authenticatedFetch, clearSession, getCurrentSession, restoreSession, switchCommunity } from "./src/auth";
@@ -5324,9 +5323,6 @@ function RubricsScreen({
   const rubricsQuery = useRubricsQuery();
   const sessionsQuery = useSessionsQuery({ limit: 100 });
   const rubrics = rubricsQuery.data?.rubrics ?? [];
-  const templates = rubricsQuery.data?.templates ?? [];
-  const [cloningId, setCloningId] = useState<string | null>(null);
-  const [cloneError, setCloneError] = useState<string | null>(null);
   const sessions = sessionsQuery.data?.sessions ?? [];
   const loading = rubricsQuery.isLoading || sessionsQuery.isLoading;
   const error = rubricsQuery.error ?? sessionsQuery.error ?? null;
@@ -5346,18 +5342,12 @@ function RubricsScreen({
     setRefreshing(false);
   }
 
-  async function addTemplate(template: Rubric) {
-    if (cloningId) return;
-    setCloningId(template.id);
-    setCloneError(null);
+  async function openRubricSettings() {
+    const url = `${getSiteBaseUrl()}/rubrics`;
     try {
-      await cloneRubricTemplate(template.id);
-      await rubricsQuery.refetch();
-      showToast("Rubric added to this property", "success");
-    } catch (caught) {
-      setCloneError(caught instanceof Error ? caught.message : "Could not add rubric template.");
-    } finally {
-      setCloningId(null);
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert("Could not open Tour.you", `Open ${url} in your browser to manage rubric settings.`);
     }
   }
 
@@ -5386,31 +5376,20 @@ function RubricsScreen({
               <Text style={st.pageHeadingSub}>{session.workspace.community.name}</Text>
             </View>
             {error && <ErrorBanner message={error instanceof Error ? error.message : "Could not load rubrics"} onRetry={load} />}
-            {cloneError && <ErrorBanner message={cloneError} onRetry={() => setCloneError(null)} />}
-          {templates.length > 0 && (
-            <>
-              <Text style={st.sectionTitle}>Template library</Text>
-              <Text style={st.pageHeadingSub}>Frozen templates create an editable copy for this property.</Text>
-              <View style={st.rubricGrid}>
-                {templates.map((template) => (
-                  <MotionPressable
-                    key={template.id}
-                    disabled={Boolean(cloningId)}
-                    onPress={() => void addTemplate(template)}
-                    haptic="selection"
-                    style={st.rubricCard}
-                  >
-                    <View style={st.rubricListIcon}><Ionicons name="copy-outline" size={19} color={C.brand} /></View>
-                    <View style={st.rubricCardBody}>
-                      <Text style={st.rubricCardTitle} numberOfLines={2}>{template.name}</Text>
-                      <Text style={st.materialMeta}>{template.definition.sections.length} sections · {rubricItemCount(template.definition)} items</Text>
-                      <Text style={[st.rubricAppliedText, { color: C.brand }]}>{cloningId === template.id ? "Adding…" : "Add to this property"}</Text>
-                    </View>
-                  </MotionPressable>
-                ))}
+            <MotionPressable
+              onPress={() => void openRubricSettings()}
+              haptic="selection"
+              style={st.defaultRubricCard}
+            >
+              <View style={[st.defaultRubricIcon, { backgroundColor: C.brand + "10" }]}>
+                <Ionicons name="open-outline" size={22} color={C.brand} />
               </View>
-            </>
-          )}
+              <View style={st.flex1}>
+                <Text style={st.defaultRubricTitle}>Manage rubric settings on Tour.you</Text>
+                <Text style={st.materialMeta}>Clone frozen templates, edit criteria, and manage this property’s rubrics on the web.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+            </MotionPressable>
           {loading ? <LoadingBox /> : rubrics.length === 0 ? (
             <EmptyState icon="clipboard-outline" title="No rubrics" subtitle="Evaluation templates will appear here" />
           ) : (

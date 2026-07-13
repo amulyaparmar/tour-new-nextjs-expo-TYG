@@ -113,17 +113,6 @@ export async function fetchRubrics() {
   return (await res.json()) as { rubrics: Rubric[]; templates: Rubric[] };
 }
 
-export async function cloneRubricTemplate(templateId: string, name?: string) {
-  const res = await authenticatedFetch(`/api/admin/rubrics/${encodeURIComponent(templateId)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(name?.trim() ? { name: name.trim() } : {}),
-  });
-  const body = await res.json().catch(() => null) as { rubric?: Rubric; error?: string } | null;
-  if (!res.ok || !body?.rubric) throw new Error(body?.error ?? "Could not add rubric template.");
-  return body.rubric;
-}
-
 export async function uploadRubric(
   fileUri: string,
   mimeType: string,

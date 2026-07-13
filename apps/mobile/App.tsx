@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useQueryClient } from "@tanstack/react-query";
 import { Audio } from "expo-av";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
@@ -138,6 +139,26 @@ import {
   TourStatusBadge,
 } from "./src/components/tour";
 import { CommunityPickerModal } from "@/components/community-picker-modal";
+import {
+  queryKeys,
+  useCalendarEventsQuery,
+  useDeleteCommentMutation,
+  useDeleteSessionMutation,
+  useInfiniteSessionsQuery,
+  useMaterialsQuery,
+  usePostCommentMutation,
+  useActionsQuery,
+  useAnalysisQuery,
+  useAudioInsightsQuery,
+  useCommentsQuery,
+  useRubricsQuery,
+  useSessionQuery,
+  useSessionsQuery,
+  useTranscriptQuery,
+  useUpdateActionStatusMutation,
+} from "./src/queries";
+import { useAppStore } from "./src/stores/app-store";
+import type { SortOption, StatusFilter } from "./src/types/ui";
 import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text as UiText } from "@/components/ui/text";
@@ -185,6 +206,22 @@ type PendingRecordingUpload = {
   size?: number;
   durationSec?: number;
   savedAt: number;
+};
+
+/** Handed back to Create Session after live recording so the upload journey can remount. */
+type PendingCreateSessionUpload = {
+  uri: string;
+  mimeType: string;
+  name: string;
+  durationSec?: number;
+  sessionId: string | null;
+  draft: {
+    notes: string;
+    prospect: string;
+    location: string;
+    rubricId: string | null;
+    selectedAssetIds: string[];
+  };
 };
 
 const AGENT = {
@@ -588,6 +625,7 @@ export default function App() {
   const [tourStep, setTourStep] = useState<TourStep>("contact");
   const [prospect, setProspect] = useState<ProspectData>({ name: "", email: "", phone: "", moveIn: "", bedrooms: "2 bed", budget: "$2,200 - $2,600" });
   const [transitionDirection, setTransitionDirection] = useState<SlideDirection>("forward");
+  const [pendingCreateUpload, setPendingCreateUpload] = useState<PendingCreateSessionUpload | null>(null);
 
   useEffect(() => {
     player.play();
@@ -703,6 +741,12 @@ export default function App() {
                   onBack={() => nav({ type: "main", tab: "sessions" })}
                   onCreated={(id) => nav({ type: "session-detail", sessionId: id })}
                   onLiveRecordingOpened={() => nav({ type: "main", tab: "home" })}
+                  pendingUpload={pendingCreateUpload}
+                  onPendingUploadHandled={() => setPendingCreateUpload(null)}
+                  onRecordingFinished={(payload) => {
+                    setPendingCreateUpload(payload);
+                    nav({ type: "create-session" });
+                  }}
                   agentName={agentName}
                 />
               )}
@@ -774,16 +818,24 @@ function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistr
   tab: MainTab; onTab: (t: MainTab) => void; onSession: (id: string) => void; onCreate: () => void; onAudioTest: () => void; onGuestRegistration: () => void; onProfile: () => void; onRubrics: () => void; onSignOut: () => void; authSession: MobileAuthSession; onAuthSession: (session: MobileAuthSession) => void; agentName: string; property: string;
 }) {
   const { width: tabBarWidth } = useWindowDimensions();
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [upcomingSessions, setUpcomingSessions] = useState<SessionSummary[]>([]);
-  const [materials, setMaterials] = useState<Material[]>([]);
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [materialsLoading, setMaterialsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const sessionsQuery = useSessionsQuery({ limit: 100 });
+  const upcomingSessionsQuery = useSessionsQuery({ limit: 10, upcoming: true, sort: "scheduled_asc" });
+  const materialsQuery = useMaterialsQuery();
+  const calendarQuery = useCalendarEventsQuery();
+  const sessions = sessionsQuery.data?.sessions ?? [];
+  const upcomingSessions = upcomingSessionsQuery.data?.sessions ?? [];
+  const materials = materialsQuery.data?.materials ?? [];
+  const calendarEvents = calendarQuery.data?.events ?? [];
+  const loading = sessionsQuery.isLoading || upcomingSessionsQuery.isLoading || calendarQuery.isLoading;
+  const materialsLoading = materialsQuery.isLoading;
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [communityPickerOpen, setCommunityPickerOpen] = useState(false);
-  const [communityQuery, setCommunityQuery] = useState("");
+  const error = sessionsQuery.error ?? upcomingSessionsQuery.error ?? calendarQuery.error ?? null;
+  const communityPickerOpen = useAppStore((state) => state.communityPickerOpen);
+  const communityQuery = useAppStore((state) => state.communityQuery);
+  const setCommunityPickerOpen = useAppStore((state) => state.setCommunityPickerOpen);
+  const setCommunityQuery = useAppStore((state) => state.setCommunityQuery);
+  const resetCommunityPicker = useAppStore((state) => state.resetCommunityPicker);
   const [switchingCommunityId, setSwitchingCommunityId] = useState<string | null>(null);
   const [tabTransitionDirection, setTabTransitionDirection] = useState<SlideDirection>("forward");
   const [checkInOpen, setCheckInOpen] = useState(false);
@@ -804,46 +856,16 @@ function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistr
     });
   }, [tab, tabBarWidth, tabIndicatorX]);
 
-  const loadMaterials = useCallback(async () => {
-    setMaterialsLoading(true);
-    try {
-      const matData = await fetchMaterials();
-      setMaterials(Array.isArray(matData.materials) ? matData.materials : []);
-    } catch {
-      setMaterials([]);
-    } finally {
-      setMaterialsLoading(false);
-    }
-  }, []);
-
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const [sessData, upcomingData, calendarData] = await Promise.all([
-        fetchSessions({ limit: 100 }),
-        fetchSessions({ limit: 10, upcoming: true, sort: "scheduled_asc" }),
-        fetchCalendarEvents().catch(() => ({ events: [] as CalendarEvent[] })),
-      ]);
-      setSessions(sessData.sessions);
-      setUpcomingSessions(upcomingData.sessions);
-      setCalendarEvents(calendarData.events);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-    void loadMaterials();
-  }, [load, loadMaterials]);
-
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([load(), loadMaterials()]);
+    await Promise.all([
+      sessionsQuery.refetch(),
+      upcomingSessionsQuery.refetch(),
+      calendarQuery.refetch(),
+      materialsQuery.refetch(),
+    ]);
     setRefreshing(false);
-  }, [load, loadMaterials]);
+  }, [calendarQuery, materialsQuery, sessionsQuery, upcomingSessionsQuery]);
 
   const chooseCommunity = useCallback(async (communityId: string) => {
     if (communityId === authSession.workspace.community.id) {
@@ -854,17 +876,15 @@ function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistr
     try {
       const nextSession = await switchCommunity(communityId);
       onAuthSession(nextSession);
-      setCommunityPickerOpen(false);
-      setCommunityQuery("");
+      resetCommunityPicker();
       showToast(`Switched to ${nextSession.workspace.community.name}`, "success");
-      void load();
-      void loadMaterials();
+      void queryClient.invalidateQueries({ queryKey: queryKeys.all() });
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : "Could not switch community", "error");
     } finally {
       setSwitchingCommunityId(null);
     }
-  }, [authSession.workspace.community.id, load, loadMaterials, onAuthSession]);
+  }, [authSession.workspace.community.id, onAuthSession, queryClient, resetCommunityPicker]);
 
   const showScrollView = tab !== "sessions";
   const handleTabPress = useCallback((nextTab: MainTab) => {
@@ -879,10 +899,15 @@ function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistr
       {showScrollView && (
         <ScreenTransition transitionKey={`tab:${tab}`} direction={tabTransitionDirection}>
           <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.mainScroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
-            {error && <ErrorBanner message={error} onRetry={load} />}
+            {error && (
+              <ErrorBanner
+                message={error instanceof Error ? error.message : "Failed to load data"}
+                onRetry={() => void onRefresh()}
+              />
+            )}
             {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materials={materials} loading={loading} materialsLoading={materialsLoading} onSession={onSession} onProfile={onProfile} onCheckIn={() => setCheckInOpen(true)} onCreate={onCreate} onAudioTest={onAudioTest} onAssets={() => handleTabPress("materials")} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} userEmail={authSession.workspace.user.email} property={property} />}
-            {tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={load} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
-            {tab === "materials" && <MaterialsScreen materials={materials} loading={materialsLoading} onCreate={onCreate} onReload={async () => { await loadMaterials(); }} onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
+            {tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={async () => { await calendarQuery.refetch(); }} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
+            {tab === "materials" && <MaterialsScreen materials={materials} loading={materialsLoading} onCreate={onCreate} onReload={async () => { await materialsQuery.refetch(); }} onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
             {tab === "settings" && <SettingsScreen session={authSession} onSessionChange={onAuthSession} onRubrics={onRubrics} onSignOut={onSignOut} />}
           </ScrollView>
         </ScreenTransition>
@@ -1798,9 +1823,6 @@ function SessionRow({ session, onPress, isLast }: { session: SessionSummary; onP
 // Sessions List (paginated + infinite scroll + filters)
 // ═══════════════════════════════════════
 
-type StatusFilter = "all" | "needs_review" | "feedback";
-type SortOption = "newest" | "oldest" | "score_desc" | "score_asc";
-
 const FILTER_CHIPS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "needs_review", label: "Needs review" },
@@ -1914,61 +1936,54 @@ function SessionListSwipeRow({
 }
 
 function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: { onBack: () => void; onCommunityPress: () => void; onSession: (id: string) => void; property: string }) {
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [sort, setSort] = useState<SortOption>("newest");
-  const [showSort, setShowSort] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
+  const search = useAppStore((state) => state.sessionsSearch);
+  const statusFilter = useAppStore((state) => state.sessionsStatusFilter);
+  const sort = useAppStore((state) => state.sessionsSort);
+  const showSort = useAppStore((state) => state.showSessionsSort);
+  const showSearch = useAppStore((state) => state.showSessionsSearch);
+  const setSearch = useAppStore((state) => state.setSessionsSearch);
+  const setStatusFilter = useAppStore((state) => state.setSessionsStatusFilter);
+  const setSort = useAppStore((state) => state.setSessionsSort);
+  const setShowSort = useAppStore((state) => state.setShowSessionsSort);
+  const setShowSearch = useAppStore((state) => state.setShowSessionsSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const deleteSessionMutation = useDeleteSessionMutation();
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
 
-  const fetchPageData = useCallback(async (p: number, replace: boolean) => {
-    if (replace) setLoading(true);
-    else setLoadingMore(true);
-    try {
-      const data = await fetchSessions({
-        page: p,
-        limit: SESSIONS_PAGE_SIZE,
-        sort,
-        search: search.trim() || undefined,
-      });
-      setSessions((prev) => replace ? data.sessions : [...prev, ...data.sessions]);
-      setTotal(data.total);
-      setHasMore(data.hasMore);
-      setPage(p);
-    } catch {
-      // keep existing data
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, [sort, search]);
-
   useEffect(() => {
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fetchPageData(1, true), search ? 350 : 0);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(search), search ? 350 : 0);
     return () => clearTimeout(debounceRef.current);
-  }, [fetchPageData]);
+  }, [search]);
+
+  const sessionsQuery = useInfiniteSessionsQuery({
+    limit: SESSIONS_PAGE_SIZE,
+    sort,
+    search: debouncedSearch.trim() || undefined,
+  });
+  const sessions = useMemo(
+    () => sessionsQuery.data?.pages.flatMap((pageData) => pageData.sessions) ?? [],
+    [sessionsQuery.data]
+  );
+  const total = sessionsQuery.data?.pages[0]?.total ?? sessions.length;
+  const hasMore = sessionsQuery.hasNextPage;
+  const loading = sessionsQuery.isLoading;
+  const loadingMore = sessionsQuery.isFetchingNextPage;
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchPageData(1, true);
+    await sessionsQuery.refetch();
     setRefreshing(false);
-  }, [fetchPageData]);
+  }, [sessionsQuery]);
 
   const onEndReached = useCallback(() => {
-    if (hasMore && !loadingMore && !loading) fetchPageData(page + 1, false);
-  }, [hasMore, loadingMore, loading, page, fetchPageData]);
+    if (hasMore && !loadingMore && !loading) void sessionsQuery.fetchNextPage();
+  }, [hasMore, loadingMore, loading, sessionsQuery]);
 
   const closeOpenSwipeable = useCallback(() => {
     openSwipeableRef.current?.close();
@@ -1988,25 +2003,19 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, property }: {
     }
   }, []);
 
-  const removeSessionLocally = useCallback((sessionId: string) => {
-    setSessions((prev) => prev.filter((session) => session.id !== sessionId));
-    setTotal((prev) => Math.max(0, prev - 1));
-  }, []);
-
   const performDeleteSession = useCallback(async (sessionId: string) => {
     if (deletingId) return;
     setDeletingId(sessionId);
     closeOpenSwipeable();
     try {
-      await deleteSession(sessionId);
-      removeSessionLocally(sessionId);
+      await deleteSessionMutation.mutateAsync(sessionId);
       showToast("Session deleted", "success");
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : "Could not delete session", "error");
     } finally {
       setDeletingId(null);
     }
-  }, [closeOpenSwipeable, deletingId, removeSessionLocally]);
+  }, [closeOpenSwipeable, deleteSessionMutation, deletingId]);
 
   const confirmDeleteSession = useCallback((session: SessionSummary) => {
     Alert.alert(
@@ -2943,34 +2952,41 @@ function CreateSessionScreen({
   onBack,
   onCreated,
   onLiveRecordingOpened,
+  onRecordingFinished,
+  pendingUpload,
+  onPendingUploadHandled,
   agentName,
 }: {
   onBack: () => void;
   onCreated: (id: string) => void;
   onLiveRecordingOpened: () => void;
+  onRecordingFinished: (payload: PendingCreateSessionUpload) => void;
+  pendingUpload: PendingCreateSessionUpload | null;
+  onPendingUploadHandled: () => void;
   agentName?: string | null;
 }) {
   const rec = useRecording();
 
-  const [phase, setPhase] = useState<"choose" | "uploading" | "details">("choose");
+  const [phase, setPhase] = useState<"choose" | "uploading" | "details">(pendingUpload ? "uploading" : "choose");
   const [uploadStats, setUploadStats] = useState<UploadStats>(initialUploadStats());
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [fileName, setFileName] = useState("");
+  const [sessionId, setSessionId] = useState<string | null>(pendingUpload?.sessionId ?? null);
+  const [fileName, setFileName] = useState(pendingUpload?.name ?? "");
   const [fileSizeMB, setFileSizeMB] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [createOptionsReady, setCreateOptionsReady] = useState(false);
   const recorderOpenedRef = useRef(false);
   const startRecordingRef = useRef<() => void>(() => {});
+  const pendingUploadStartedRef = useRef<string | null>(null);
 
   const [title, setTitle] = useState("");
-  const [prospect, setProspect] = useState("");
-  const [location, setLocation] = useState("");
-  const [notes, setNotes] = useState("");
+  const [prospect, setProspect] = useState(pendingUpload?.draft.prospect ?? "");
+  const [location, setLocation] = useState(pendingUpload?.draft.location ?? "");
+  const [notes, setNotes] = useState(pendingUpload?.draft.notes ?? "");
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
-  const [rubricId, setRubricId] = useState<string | null>(null);
+  const [rubricId, setRubricId] = useState<string | null>(pendingUpload?.draft.rubricId ?? null);
   const [rubricOpen, setRubricOpen] = useState(false);
   const [assets, setAssets] = useState<Material[]>([]);
-  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>(pendingUpload?.draft.selectedAssetIds ?? []);
 
   useEffect(() => {
     Promise.all([
@@ -2989,11 +3005,29 @@ function CreateSessionScreen({
       .finally(() => setCreateOptionsReady(true));
   }, []);
 
-  async function uploadFile(uri: string, mimeType: string, name: string, size?: number | null, durationSec?: number, existingSessionId?: string | null, draftNotes?: string) {
+  async function uploadFile(
+    uri: string,
+    mimeType: string,
+    name: string,
+    size?: number | null,
+    durationSec?: number,
+    existingSessionId?: string | null,
+    draftOverrides?: {
+      notes?: string;
+      prospect?: string;
+      location?: string;
+      rubricId?: string | null;
+    },
+  ) {
     setFileName(name);
     setFileSizeMB(size ? (size / 1024 / 1024).toFixed(1) : null);
     setPhase("uploading");
     setUploadStats(initialUploadStats(size));
+
+    const nextProspect = draftOverrides?.prospect ?? prospect;
+    const nextLocation = draftOverrides?.location ?? location;
+    const nextNotes = draftOverrides?.notes ?? notes;
+    const nextRubricId = draftOverrides?.rubricId !== undefined ? draftOverrides.rubricId : rubricId;
     let sid = existingSessionId ?? sessionId;
 
     try {
@@ -3001,16 +3035,19 @@ function CreateSessionScreen({
       if (!sid) {
         const sessionData = await createSession({
           title: title.trim() || defaultTitle,
-          prospectName: prospect.trim() || null,
-          location: location.trim() || null,
-          notes: (draftNotes ?? notes).trim() || null,
-          rubricId,
+          prospectName: nextProspect.trim() || null,
+          location: nextLocation.trim() || null,
+          notes: nextNotes.trim() || null,
+          rubricId: nextRubricId,
         });
         sid = sessionData.session.id;
         setSessionId(sid);
       }
       if (!title.trim()) setTitle(defaultTitle);
-      if (draftNotes !== undefined) setNotes(draftNotes);
+      if (draftOverrides?.notes !== undefined) setNotes(draftOverrides.notes);
+      if (draftOverrides?.prospect !== undefined) setProspect(draftOverrides.prospect);
+      if (draftOverrides?.location !== undefined) setLocation(draftOverrides.location);
+      if (draftOverrides?.rubricId !== undefined && draftOverrides.rubricId) setRubricId(draftOverrides.rubricId);
 
       await uploadRecording(sid, uri, mimeType, name, durationSec, (next) => setUploadStats(uploadStatsFromProgress(next)));
       await clearPendingRecordingUpload(sid);
@@ -3034,6 +3071,32 @@ function CreateSessionScreen({
       setPhase("choose");
     }
   }
+
+  useEffect(() => {
+    if (!pendingUpload) return;
+    if (pendingUploadStartedRef.current === pendingUpload.uri) return;
+    pendingUploadStartedRef.current = pendingUpload.uri;
+
+    setProspect(pendingUpload.draft.prospect);
+    setLocation(pendingUpload.draft.location);
+    setNotes(pendingUpload.draft.notes);
+    setSelectedAssetIds(pendingUpload.draft.selectedAssetIds);
+    if (pendingUpload.draft.rubricId) setRubricId(pendingUpload.draft.rubricId);
+    if (pendingUpload.sessionId) setSessionId(pendingUpload.sessionId);
+    onPendingUploadHandled();
+
+    void uploadFile(
+      pendingUpload.uri,
+      pendingUpload.mimeType,
+      pendingUpload.name,
+      null,
+      pendingUpload.durationSec,
+      pendingUpload.sessionId,
+      pendingUpload.draft,
+    );
+    // Intentionally run once per pending upload payload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingUpload]);
 
   function startRecording() {
     rec.openExperience({
@@ -3074,53 +3137,20 @@ function CreateSessionScreen({
           showToast("Failed to save recording", "error");
           return;
         }
-        let sid = meta.sessionId;
-        const recordingName = `tour-${Date.now()}.m4a`;
-        setFileName(recordingName);
-        setFileSizeMB(null);
-        setUploadStats(initialUploadStats());
-        setPhase("uploading");
-        try {
-          const defaultTitle = `tour-${Date.now()}`;
-          if (!sid) {
-            const sessionData = await createSession({
-              title: meta.title.trim() || defaultTitle,
-              prospectName: draft.prospect.trim() || null,
-              location: draft.location.trim() || null,
-              notes: draft.notes.trim() || null,
-              rubricId: draft.rubricId,
-            });
-            sid = sessionData.session.id;
-          }
-          await uploadRecording(
-            sid,
-            result.uri,
-            "audio/m4a",
-            recordingName,
-            result.durationSec,
-            (next) => setUploadStats(uploadStatsFromProgress(next)),
-          );
-          await clearPendingRecordingUpload(sid);
-          setUploadStats((current) => ({ ...current, phase: "finalizing", percent: 100, etaSeconds: 0 }));
-          showToast("Recording uploaded", "success");
-          onCreated(sid);
-        } catch (err) {
-          if (sid) {
-            await savePendingRecordingUpload({
-              sessionId: sid,
-              uri: result.uri,
-              mimeType: "audio/m4a",
-              name: recordingName,
-              durationSec: result.durationSec,
-              savedAt: Date.now(),
-            });
-            onCreated(sid);
-          } else {
-            recorderOpenedRef.current = false;
-            setPhase("choose");
-          }
-          showToast(err instanceof Error ? err.message : "Upload failed", "error");
-        }
+        onRecordingFinished({
+          uri: result.uri,
+          mimeType: "audio/m4a",
+          name: `tour-${Date.now()}.m4a`,
+          durationSec: result.durationSec,
+          sessionId: meta.sessionId,
+          draft: {
+            notes: draft.notes,
+            prospect: draft.prospect,
+            location: draft.location,
+            rubricId: draft.rubricId,
+            selectedAssetIds: draft.selectedAssetIds,
+          },
+        });
       },
     });
   }
@@ -3279,57 +3309,53 @@ function SessionDetailScreen({
     initialInsights?: AudioInsights | null;
   }) => void;
 }) {
-  const [session, setSession] = useState<any>(null);
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [actions, setActions] = useState<FollowUpAction[]>([]);
-  const [transcript, setTranscript] = useState<any[]>([]);
-  const [phases, setPhases] = useState<ConversationPhaseSegmentation | null>(null);
-  const [comments, setComments] = useState<SessionComment[]>([]);
-  const [audioInsightsStatus, setAudioInsightsStatus] = useState<AudioInsightsStatus>("pending");
-  const [audioInsights, setAudioInsights] = useState<AudioInsights | null>(null);
-  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<DTab>("overview");
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const sessionQuery = useSessionQuery(sessionId);
+  const analysisQuery = useAnalysisQuery(sessionId);
+  const actionsQuery = useActionsQuery(sessionId);
+  const transcriptQuery = useTranscriptQuery(sessionId);
+  const commentsQuery = useCommentsQuery(sessionId);
+  const session = sessionQuery.data?.session ?? null;
+  const analysis = analysisQuery.data?.analysis ?? null;
+  const actions = actionsQuery.data?.actions ?? [];
+  const transcript = transcriptQuery.data?.transcript ?? [];
+  const phases = sessionQuery.data?.phases ?? null;
+  const comments = commentsQuery.data?.comments ?? [];
+  const shouldFetchAudioInsights = session?.audioInsightsStatus === "ready" || session?.audioInsightsStatus === "processing";
+  const audioInsightsQuery = useAudioInsightsQuery(sessionId, shouldFetchAudioInsights);
+  const audioInsightsStatus = audioInsightsQuery.data?.status ?? session?.audioInsightsStatus ?? "pending";
+  const audioInsights = audioInsightsQuery.data?.insights ?? null;
+  const loading = sessionQuery.isLoading;
+  const error =
+    sessionQuery.error ??
+    analysisQuery.error ??
+    actionsQuery.error ??
+    transcriptQuery.error ??
+    commentsQuery.error ??
+    null;
 
   const load = useCallback(async () => {
-    setError(null);
-    try {
-      const [sRes, aRes, actRes, tRes, cRes] = await Promise.all([
-        fetchSession(sessionId),
-        fetchAnalysis(sessionId).catch(() => ({ analysis: null })),
-        fetchActions(sessionId).catch(() => ({ actions: [] as FollowUpAction[] })),
-        fetchTranscript(sessionId).catch(() => ({ transcript: [] })),
-        fetchComments(sessionId).catch(() => ({ comments: [] as SessionComment[] })),
-      ]);
-      setSession(sRes.session);
-      setPhases(sRes.phases ?? null);
-      setAudioInsightsStatus(sRes.session.audioInsightsStatus ?? "pending");
-      setAnalysis(aRes.analysis);
-      setActions(actRes.actions);
-      setTranscript(tRes.transcript);
-      setComments(cRes.comments);
+    await Promise.all([
+      sessionQuery.refetch(),
+      analysisQuery.refetch(),
+      actionsQuery.refetch(),
+      transcriptQuery.refetch(),
+      commentsQuery.refetch(),
+      shouldFetchAudioInsights ? audioInsightsQuery.refetch() : Promise.resolve(),
+    ]);
+  }, [actionsQuery, analysisQuery, audioInsightsQuery, commentsQuery, sessionQuery, shouldFetchAudioInsights, transcriptQuery]);
 
-      if (sRes.session.audioInsightsStatus === "ready" || sRes.session.audioInsightsStatus === "processing") {
-        const insightsRes = await fetchAudioInsights(sessionId).catch(() => null);
-        if (insightsRes) {
-          setAudioInsightsStatus(insightsRes.status);
-          setAudioInsights(insightsRes.insights);
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load session");
-    } finally { setLoading(false); }
-  }, [sessionId]);
-
-  useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (!session || analysis || !PROCESSING_STATUSES.has(session.status)) return;
     const poll = setInterval(() => {
-      if (AppState.currentState === "active") void load();
+      if (AppState.currentState === "active") {
+        void sessionQuery.refetch();
+        void analysisQuery.refetch();
+      }
     }, 4000);
     return () => clearInterval(poll);
-  }, [analysis, load, session]);
+  }, [analysis, analysisQuery, session, sessionQuery]);
   const onRefresh = useCallback(async () => { setRefreshing(true); await load(); setRefreshing(false); }, [load]);
 
   if (loading && !session) return <SessionReviewSkeleton onBack={onBack} />;
@@ -3337,7 +3363,7 @@ function SessionDetailScreen({
   if (!session) return (
     <View style={[st.flex1, st.center, { gap: 12 }]}>
       <Ionicons name="alert-circle-outline" size={48} color={C.red} />
-      <Text style={st.emptyTitle}>{error ?? "Session not found"}</Text>
+      <Text style={st.emptyTitle}>{error instanceof Error ? error.message : "Session not found"}</Text>
       <BackBtn label="Sessions" onPress={onBack} />
     </View>
   );
@@ -3387,7 +3413,7 @@ function SessionDetailScreen({
   return (
     <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
       <View style={st.page}>
-        {error && <ErrorBanner message={error} onRetry={load} />}
+        {error && <ErrorBanner message={error instanceof Error ? error.message : "Failed to load session"} onRetry={load} />}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <BackBtn label="Sessions" onPress={onBack} />
           <View style={st.flex1} />
@@ -3487,6 +3513,7 @@ function SessionReviewExperience({
   const [selectionBusy, setSelectionBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [followPlayback, setFollowPlayback] = useState(true);
+  const postCommentMutation = usePostCommentMutation(sessionId);
   const scrollRef = useRef<ScrollView | null>(null);
   const segmentY = useRef<Record<string, number>>({});
   const phaseY = useRef<Record<string, number>>({});
@@ -3664,7 +3691,7 @@ function SessionReviewExperience({
     if (!selectionRange || !selectionComment.trim()) return;
     setSelectionBusy(true);
     try {
-      await postComment(sessionId, {
+      await postCommentMutation.mutateAsync({
         body: selectionComment.trim(),
         kind: "comment",
         timestampSec: selectionRange.start,
@@ -3688,7 +3715,7 @@ function SessionReviewExperience({
     const rangeLabel = `${fmtSec(selectionRange.start)}–${fmtSec(selectionRange.end)}`;
     const clipUrl = `${getApiBaseUrl()}/api/sessions/${sessionId}/recording#t=${Math.floor(selectionRange.start)},${Math.ceil(selectionRange.end)}`;
     try {
-      await postComment(sessionId, {
+      await postCommentMutation.mutateAsync({
         body: `Clip ${rangeLabel}\n${excerpt}`,
         kind: "key_moment",
         timestampSec: selectionRange.start,
@@ -4980,6 +5007,7 @@ function ActionsTab({
   onActionsChange?: (next: FollowUpAction[] | ((prev: FollowUpAction[]) => FollowUpAction[])) => void;
 }) {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const updateActionMutation = useUpdateActionStatusMutation(sessionId);
   const priorityRank = { high: 0, medium: 1, low: 2 } as const;
   const open = actions
     .filter((a) => a.status === "open")
@@ -4991,7 +5019,7 @@ function ActionsTab({
     onActionsChange?.((prev) => prev.map((action) => (action.id === id ? { ...action, status } : action)));
     setUpdatingId(id);
     try {
-      await updateActionStatus(sessionId, id, status);
+      await updateActionMutation.mutateAsync({ actionId: id, status });
       showToast(status === "completed" ? "Marked as done" : "Dismissed", "success");
       onUpdate();
     } catch {
@@ -5079,28 +5107,23 @@ function SessionCommentsScreen({
   onBack: () => void;
 }) {
   const [title, setTitle] = useState(sessionTitle);
-  const [comments, setComments] = useState<SessionComment[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const commentsQuery = useCommentsQuery(sessionId);
+  const sessionQuery = useSessionQuery(sessionId);
+  const comments = commentsQuery.data?.comments ?? [];
+  const loading = commentsQuery.isLoading;
+  const error = commentsQuery.error ?? sessionQuery.error ?? null;
+
+  useEffect(() => {
+    if (!title && sessionQuery.data?.session?.title) setTitle(sessionQuery.data.session.title);
+  }, [sessionQuery.data, title]);
 
   const load = useCallback(async () => {
-    setError(null);
-    try {
-      const [commentData, sessionData] = await Promise.all([
-        fetchComments(sessionId),
-        title ? Promise.resolve(null) : fetchSession(sessionId).catch(() => null),
-      ]);
-      setComments(commentData.comments);
-      if (sessionData?.session?.title) setTitle(sessionData.session.title);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load comments");
-    } finally {
-      setLoading(false);
-    }
-  }, [sessionId, title]);
-
-  useEffect(() => { void load(); }, [load]);
+    await Promise.all([
+      commentsQuery.refetch(),
+      title ? Promise.resolve() : sessionQuery.refetch(),
+    ]);
+  }, [commentsQuery, sessionQuery, title]);
 
   async function refresh() {
     setRefreshing(true);
@@ -5121,7 +5144,7 @@ function SessionCommentsScreen({
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={C.brand} />}
         contentContainerStyle={reviewSt.commentsPageContent}
       >
-        {error ? <ErrorBanner message={error} onRetry={load} /> : null}
+        {error ? <ErrorBanner message={error instanceof Error ? error.message : "Could not load comments"} onRetry={load} /> : null}
         {loading ? (
           <LoadingBox />
         ) : (
@@ -5134,28 +5157,27 @@ function SessionCommentsScreen({
 
 function CommentsTab({ comments, sessionId, onUpdate }: { comments: SessionComment[]; sessionId: string; onUpdate: () => void }) {
   const [body, setBody] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [replyToId, setReplyToId] = useState<string | null>(null);
+  const postCommentMutation = usePostCommentMutation(sessionId);
+  const deleteCommentMutation = useDeleteCommentMutation(sessionId);
+  const submitting = postCommentMutation.isPending;
 
   async function handlePost() {
     if (!body.trim()) return;
-    setSubmitting(true);
     try {
-      await postComment(sessionId, { body: body.trim(), parentId: replyToId });
+      await postCommentMutation.mutateAsync({ body: body.trim(), parentId: replyToId });
       setBody("");
       setReplyToId(null);
       showToast("Comment posted", "success");
       onUpdate();
     } catch {
       showToast("Failed to post comment", "error");
-    } finally {
-      setSubmitting(false);
     }
   }
 
   async function handleDelete(commentId: string) {
     try {
-      await deleteComment(sessionId, commentId);
+      await deleteCommentMutation.mutateAsync(commentId);
       showToast("Comment deleted", "success");
       onUpdate();
     } catch {
@@ -5284,33 +5306,23 @@ function RubricsScreen({
   onBack: () => void;
   onSession: (id: string) => void;
 }) {
-  const [rubrics, setRubrics] = useState<Rubric[]>([]);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selected, setSelected] = useState<Rubric | null>(null);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const rubricsQuery = useRubricsQuery();
+  const sessionsQuery = useSessionsQuery({ limit: 100 });
+  const rubrics = rubricsQuery.data?.rubrics ?? [];
+  const sessions = sessionsQuery.data?.sessions ?? [];
+  const loading = rubricsQuery.isLoading || sessionsQuery.isLoading;
+  const error = rubricsQuery.error ?? sessionsQuery.error ?? null;
+
+  useEffect(() => {
+    if (!selected) return;
+    setSelected(rubrics.find((rubric) => rubric.id === selected.id) ?? null);
+  }, [rubrics, selected]);
 
   const load = useCallback(async () => {
-    setError(null);
-    try {
-      const [rubricData, sessionData] = await Promise.all([
-        fetchRubrics(),
-        fetchSessions({ limit: 100 }),
-      ]);
-      setRubrics(rubricData.rubrics);
-      setSessions(sessionData.sessions);
-      setSelected((current) => current
-        ? rubricData.rubrics.find((rubric) => rubric.id === current.id) ?? null
-        : null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load rubrics");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
+    await Promise.all([rubricsQuery.refetch(), sessionsQuery.refetch()]);
+  }, [rubricsQuery, sessionsQuery]);
 
   async function refresh() {
     setRefreshing(true);
@@ -5342,7 +5354,7 @@ function RubricsScreen({
               <Text style={st.pageTitle}>Rubrics</Text>
               <Text style={st.pageHeadingSub}>{session.workspace.community.name}</Text>
             </View>
-            {error && <ErrorBanner message={error} onRetry={load} />}
+            {error && <ErrorBanner message={error instanceof Error ? error.message : "Could not load rubrics"} onRetry={load} />}
           {loading ? <LoadingBox /> : rubrics.length === 0 ? (
             <EmptyState icon="clipboard-outline" title="No rubrics" subtitle="Evaluation templates will appear here" />
           ) : (

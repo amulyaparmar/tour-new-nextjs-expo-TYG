@@ -13,12 +13,6 @@ export const SESSION_AI_DEFAULT_PROMPTS: SessionAiPrompt[] = [
     text: "What can the rep do to improve on the next tour? Prioritize the 2–3 highest-impact changes based on rubric gaps and missed moments in this session.",
   },
   {
-    id: "strengths",
-    label: "Strengths",
-    description: "What the rep did well",
-    text: "What did the rep do well in this tour? Call out specific behaviors with timestamps and explain why they worked.",
-  },
-  {
     id: "close",
     label: "Close better",
     description: "Closing and next-step effectiveness",

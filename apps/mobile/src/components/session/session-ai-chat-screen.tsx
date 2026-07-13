@@ -1,9 +1,7 @@
-import type { AnalysisResult } from "@tour/shared";
-import React, { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 
-import { fetchAnalysis } from "@/api";
 import { SessionAiChat } from "@/components/SessionAiChat";
+import { useAnalysisQuery } from "@/queries";
 
 import { TourScreenHeader } from "./tour-screen-header";
 
@@ -18,23 +16,9 @@ export function SessionAiChatScreen({
   prospectName?: string;
   onBack: () => void;
 }) {
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-    void (async () => {
-      try {
-        const res = await fetchAnalysis(sessionId);
-        if (mounted) setAnalysis(res.analysis);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [sessionId]);
+  const analysisQuery = useAnalysisQuery(sessionId);
+  const analysis = analysisQuery.data?.analysis ?? null;
+  const loading = analysisQuery.isLoading;
 
   return (
     <View style={{ flex: 1, backgroundColor: "#f4f7fb", paddingTop: 50 }}>

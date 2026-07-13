@@ -1,10 +1,11 @@
 import type { AnalysisResult } from "@tour/shared";
-import { ArrowUp } from "lucide-react-native";
+import { ArrowUp, Sparkles } from "lucide-react-native";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,6 +15,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { getApiBaseUrl } from "../config";
 import { getCurrentSession } from "../auth";
@@ -54,7 +56,9 @@ export function SessionAiChat({ sessionId, analysis, onSeek, showHeader = true, 
   const [input, setInput] = useState("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const listRef = useRef<ScrollView>(null);
+  const insets = useSafeAreaInsets();
 
   const transport = useMemo(
     () =>
@@ -77,24 +81,24 @@ export function SessionAiChat({ sessionId, analysis, onSeek, showHeader = true, 
   const isBusy = status === "submitted" || status === "streaming";
   const mentionOptions = mentionQuery != null ? filterMentionPrompts(mentionQuery) : [];
 
-  const coachingPoints = useMemo(
-    () =>
-      [
-        ...analysis.opportunities.slice(0, 2).map((item, index) => ({
-          title: `Opportunity ${index + 1}`,
-          body: item,
-        })),
-        ...analysis.strengths.slice(0, 2).map((item, index) => ({
-          title: `Strength ${index + 1}`,
-          body: item,
-        })),
-      ].slice(0, 4),
-    [analysis]
-  );
+  void analysis;
 
   useEffect(() => {
     listRef.current?.scrollToEnd({ animated: true });
   }, [messages, status]);
+
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardWillShow", (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener("keyboardWillHide", () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   const submitText = useCallback(
     (text: string) => {
@@ -136,7 +140,7 @@ export function SessionAiChat({ sessionId, analysis, onSeek, showHeader = true, 
     <KeyboardAvoidingView
       style={styles.root}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={120}
+      keyboardVerticalOffset={0}
     >
       <View style={[styles.head, !showHeader && styles.headHidden]}>
         {showHeader ? (
@@ -151,16 +155,37 @@ export function SessionAiChat({ sessionId, analysis, onSeek, showHeader = true, 
         ) : null}
       </View>
 
-      <ScrollView ref={listRef} style={styles.list} contentContainerStyle={[styles.listContent, { paddingBottom: 8 + bottomInset }]} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={listRef}
+        style={styles.list}
+        contentContainerStyle={[styles.listContent, { paddingBottom: 8 + bottomInset }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        showsVerticalScrollIndicator={false}
+      >
         {messages.length === 0 ? (
           <View style={styles.starter}>
-            {coachingPoints.map((point) => (
-              <View key={point.title} style={styles.card}>
-                <Text style={styles.cardTitle}>{point.title}</Text>
-                <Text style={styles.cardBody}>{point.body}</Text>
-              </View>
-            ))}
-            <Text style={styles.hint}>Ask about this tour, or type @ for preset prompts.</Text>
+            <Icon as={Sparkles} size={26} color={C.brand} />
+            <Text style={styles.emptyTitle}>Ask Tour AI about this tour</Text>
+            <Text style={styles.emptyBody}>
+              It uses the session, scorecard, transcript, coaching moments, and community context.
+            </Text>
+            <View style={styles.emptyPromptGrid}>
+              {SESSION_AI_DEFAULT_PROMPTS.map((prompt) => (
+                <Pressable
+                  key={prompt.id}
+                  disabled={isBusy}
+                  onPress={() => submitText(prompt.text)}
+                  style={({ pressed }) => [
+                    styles.emptyPromptBubble,
+                    pressed && { opacity: 0.76, transform: [{ scale: 0.99 }] },
+                    isBusy && { opacity: 0.6 },
+                  ]}
+                >
+                  <Text style={styles.emptyPromptText}>{prompt.label}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         ) : (
           messages.map((message) => (
@@ -187,7 +212,14 @@ export function SessionAiChat({ sessionId, analysis, onSeek, showHeader = true, 
         {error && <Text style={styles.error}>{error.message || "Something went wrong."}</Text>}
       </ScrollView>
 
-      <View style={styles.composer}>
+      <View
+        style={[
+          styles.composer,
+          {
+            paddingBottom: keyboardHeight > 0 ? 8 : Math.max(insets.bottom, bottomInset, 10),
+          },
+        ]}
+      >
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.prompts}>
           {SESSION_AI_DEFAULT_PROMPTS.map((prompt) => (
             <Pressable
@@ -249,16 +281,21 @@ const styles = StyleSheet.create({
   clear: { fontSize: 13, fontWeight: "700", color: C.brand },
   list: { flex: 1 },
   listContent: { gap: 10, paddingBottom: 8 },
-  starter: { gap: 10 },
-  card: {
-    backgroundColor: C.brandSoft,
-    borderRadius: 12,
-    padding: 12,
-    gap: 4,
+  starter: { alignItems: "center", gap: 8, paddingHorizontal: 22, paddingTop: 24 },
+  emptyTitle: { color: C.text, fontSize: 19, fontWeight: "900", textAlign: "center" },
+  emptyBody: { color: C.textSec, fontSize: 14, lineHeight: 20, fontWeight: "700", textAlign: "center" },
+  emptyPromptGrid: { alignSelf: "stretch", gap: 10, marginTop: 14 },
+  emptyPromptBubble: {
+    minHeight: 48,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: "rgba(0,108,229,0.18)",
+    borderRadius: 18,
+    backgroundColor: "#F8FBFF",
   },
-  cardTitle: { fontSize: 12, fontWeight: "900", color: C.brand },
-  cardBody: { fontSize: 13, fontWeight: "600", color: C.text, lineHeight: 20 },
-  hint: { fontSize: 12, fontWeight: "600", color: C.textMuted },
+  emptyPromptText: { color: C.text, fontSize: 14, lineHeight: 18, fontWeight: "900", textAlign: "center" },
   message: { borderRadius: 12, padding: 12, gap: 4 },
   messageUser: { backgroundColor: C.brandSoft, alignSelf: "flex-end", maxWidth: "92%" },
   messageAssistant: { backgroundColor: "#f8fafc", alignSelf: "flex-start", maxWidth: "96%" },

@@ -94,9 +94,6 @@ export function BottomSheetModal({
     [backdropOpacity, finishDismiss, sheetHeight, translateY]
   );
 
-  const animateDismissRef = useRef(animateDismiss);
-  animateDismissRef.current = animateDismiss;
-
   const animatePresent = useCallback(() => {
     isClosing.current = false;
     cancelAnimation(translateY);
@@ -139,13 +136,13 @@ export function BottomSheetModal({
         .onEnd((event) => {
           if (dismissDisabledValue.value) return;
           if (event.translationY > DISMISS_DISTANCE || event.velocityY > DISMISS_VELOCITY) {
-            runOnJS(animateDismissRef.current)(true);
+            runOnJS(animateDismiss)(true);
             return;
           }
           translateY.value = withTiming(0, { duration: 200, easing: SHEET_EASING });
           backdropOpacity.value = withTiming(1, { duration: 160, easing: SHEET_EASING });
         }),
-    [backdropOpacity, dismissDisabled, dismissDisabledValue, sheetHeightValue, translateY]
+    [animateDismiss, backdropOpacity, dismissDisabled, dismissDisabledValue, sheetHeightValue, translateY]
   );
 
   const backdropStyle = useAnimatedStyle(() => ({

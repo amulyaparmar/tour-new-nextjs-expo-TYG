@@ -15,6 +15,7 @@ import {
 
 import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import {
+  authorizedCommunitiesForSession,
   listCommunityEnrichment,
   type CommunityEnrichment,
   type MobileAuthSession,
@@ -73,14 +74,18 @@ export function CommunityPickerModal({
     [enrichmentQuery.data]
   );
   const sheetHeight = Math.round(Math.min(windowHeight * SHEET_HEIGHT_RATIO, SHEET_MAX_HEIGHT));
+  const authorizedCommunities = useMemo(
+    () => authorizedCommunitiesForSession(session),
+    [session]
+  );
   const filteredCommunities = useMemo(() => {
     const value = query.trim().toLowerCase();
     return value
-      ? session.workspace.communities.filter((community) =>
+      ? authorizedCommunities.filter((community) =>
           `${community.name} ${community.alias ?? ""}`.toLowerCase().includes(value)
         )
-      : session.workspace.communities;
-  }, [query, session.workspace.communities]);
+      : authorizedCommunities;
+  }, [authorizedCommunities, query]);
   const activeCommunityId = session.workspace.community.id;
   const switchLocked = Boolean(switchingId);
   const interactionLocked = switchLocked || dismissDisabled;

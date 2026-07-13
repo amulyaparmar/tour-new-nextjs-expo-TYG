@@ -100,7 +100,7 @@ import {
 import { getApiBaseUrl, getSiteBaseUrl } from "./src/config";
 import { computeDashboardMetrics } from "./src/dashboard";
 import type { UploadProgressInfo } from "./src/presignedUpload";
-import { type MobileAuthSession, authenticatedFetch, clearSession, getCurrentSession, restoreSession, switchCommunity } from "./src/auth";
+import { authorizedCommunitiesForSession, type MobileAuthSession, authenticatedFetch, clearSession, getCurrentSession, restoreSession, switchCommunity } from "./src/auth";
 import { LoginScreen } from "./src/LoginScreen";
 import { TourLogo, TourMark } from "./src/components/TourLogo";
 import {
@@ -5524,6 +5524,8 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
   const [communityPickerOpen, setCommunityPickerOpen] = useState(false);
   const [communityQuery, setCommunityQuery] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const teamRole = session.workspace.teamMember?.role || "Property Team";
+  const authorizedPropertyCount = authorizedCommunitiesForSession(session).length;
 
   async function chooseCommunity(communityId: string) {
     if (communityId === session.workspace.community.id) {
@@ -5550,7 +5552,7 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
         <View style={st.avatar48}><Text style={st.avatar48Text}>{(session.workspace.user.fullName ?? session.workspace.user.email)[0]?.toUpperCase()}</Text></View>
         <View style={st.flex1}>
           <Text style={st.cardRowTitle}>{session.workspace.user.fullName ?? "Team member"}</Text>
-          <Text style={st.cardRowSub}>{session.workspace.user.email} · {session.workspace.teamMember.role}</Text>
+          <Text style={st.cardRowSub}>{session.workspace.user.email} · {teamRole}</Text>
         </View>
       </View>
 
@@ -5562,7 +5564,7 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
           </View>
           <View style={st.flex1}>
             <Text style={st.communitySettingName}>{session.workspace.community.name}</Text>
-            <Text style={st.cardRowSub}>{session.workspace.communities.length} available {session.workspace.communities.length === 1 ? "property" : "properties"}</Text>
+            <Text style={st.cardRowSub}>{authorizedPropertyCount} available {authorizedPropertyCount === 1 ? "property" : "properties"}</Text>
           </View>
           <Text style={st.settingsChangeText}>Change</Text>
         </View>
@@ -5648,13 +5650,14 @@ const logoutSheetSt = StyleSheet.create({
 function ProfileScreen({ session, onBack, onStartTour }: { session: MobileAuthSession; onBack: () => void; onStartTour: () => void }) {
   const name = session.workspace.user.fullName ?? "Team member";
   const initials = name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+  const teamRole = session.workspace.teamMember?.role || "Property Team";
   return (
     <View style={st.page}>
       <BackBtn label="Home" onPress={onBack} />
       <View style={[st.card, { alignItems: "center", padding: 22, gap: 14 }]}>
         <View style={st.avatarLg}><Text style={st.avatarLgText}>{initials}</Text></View>
         <Text style={{ fontSize: 28, fontWeight: "900", color: C.text }}>{name}</Text>
-        <Text style={{ fontSize: 15, fontWeight: "700", color: C.textSec, textAlign: "center" }}>{session.workspace.teamMember.role} at {session.workspace.community.name}</Text>
+        <Text style={{ fontSize: 15, fontWeight: "700", color: C.textSec, textAlign: "center" }}>{teamRole} at {session.workspace.community.name}</Text>
         <View style={{ alignSelf: "stretch", backgroundColor: "#f8fafc", borderRadius: 20, padding: 16, gap: 12 }}>
           <View style={{ gap: 4 }}><Text style={st.labelSmall}>Email</Text><Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{session.workspace.user.email}</Text></View>
           <View style={{ gap: 4 }}><Text style={st.labelSmall}>Company</Text><Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{session.workspace.organization.name}</Text></View>

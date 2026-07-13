@@ -105,16 +105,51 @@ export function getCurrentSession() {
   return currentSession;
 }
 
+export function authorizedCommunitiesForSession(
+  session: MobileAuthSession
+): MobileWorkspace["communities"] {
+  const email = session.workspace?.user?.email?.trim().toLowerCase();
+  const communities = Array.isArray(session.workspace?.communities)
+    ? session.workspace.communities
+    : [];
+  if (!email) return [];
+
+  const seen = new Set<string>();
+  return communities.filter((community) => {
+    if (!community?.id || seen.has(community.id) || !Array.isArray(community.teamMembers)) {
+      return false;
+    }
+    const authorized = community.teamMembers.some(
+      (member) => member?.email?.trim().toLowerCase() === email
+    );
+    if (authorized) seen.add(community.id);
+    return authorized;
+  });
+}
+
 export async function restoreSession() {
   const raw = await readStoredSession();
   if (!raw) return null;
+
+  let storedSession: MobileAuthSession;
   try {
-    currentSession = JSON.parse(raw) as MobileAuthSession;
-    if (currentSession.expiresAt <= Math.floor(Date.now() / 1000) + 30) {
-      return await refreshSession();
-    }
-    return currentSession;
+    storedSession = JSON.parse(raw) as MobileAuthSession;
   } catch {
+    await clearSession();
+    return null;
+  }
+
+  currentSession = storedSession;
+  try {
+    // Always re-resolve propertiesTYG.metadata.property_team on a cold launch.
+    // OTA updates can otherwise revive a workspace cached by an older access model.
+    return await refreshSession();
+  } catch {
+    const tokenStillValid = storedSession.expiresAt > Math.floor(Date.now() / 1000) + 30;
+    if (tokenStillValid && hasCanonicalWorkspace(storedSession)) {
+      currentSession = storedSession;
+      return storedSession;
+    }
     await clearSession();
     return null;
   }
@@ -366,9 +401,27 @@ async function refreshSession() {
 }
 
 async function persistSession(session: MobileAuthSession) {
+  if (!hasCanonicalWorkspace(session)) {
+    throw new Error("Your property access could not be verified. Please sign in again.");
+  }
   currentSession = session;
   await writeStoredSession(JSON.stringify(session));
   return session;
+}
+
+function hasCanonicalWorkspace(session: MobileAuthSession) {
+  const workspace = session?.workspace;
+  if (
+    !workspace?.teamMember?.role ||
+    !workspace.community?.id ||
+    !Array.isArray(workspace.communities)
+  ) return false;
+  const authorized = authorizedCommunitiesForSession(session);
+  return (
+    authorized.length > 0 &&
+    authorized.length === workspace.communities.length &&
+    authorized.some((community) => community.id === workspace.community.id)
+  );
 }
 
 function withAuth(init: RequestInit, session: MobileAuthSession): RequestInit {

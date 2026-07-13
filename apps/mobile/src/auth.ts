@@ -98,6 +98,16 @@ export type CommunityEnrichment = {
   teamRole: string | null;
 };
 
+export type PropertyOnboardingCandidate = {
+  placeId: string;
+  name: string;
+  address: string;
+  website: string | null;
+  state: "new" | "indexed" | "enriched";
+  alreadyAssigned: boolean;
+  thumbnailUrl: string | null;
+};
+
 let currentSession: MobileAuthSession | null = null;
 let refreshPromise: Promise<MobileAuthSession | null> | null = null;
 
@@ -342,6 +352,46 @@ export async function listCommunityEnrichment() {
     throw new Error(body?.error ?? "Could not load property intelligence.");
   }
   return body.communities;
+}
+
+export async function searchPropertiesForOnboarding(query: string) {
+  const normalizedQuery = query.trim();
+  if (normalizedQuery.length < 2) return [];
+  const response = await authenticatedFetch(
+    `/api/admin/properties/onboard?q=${encodeURIComponent(normalizedQuery)}`,
+    { cache: "no-store" }
+  );
+  const body = await response.json().catch(() => null) as {
+    properties?: PropertyOnboardingCandidate[];
+    error?: string;
+  } | null;
+  if (!response.ok || !Array.isArray(body?.properties)) {
+    throw new Error(body?.error ?? "Could not search properties.");
+  }
+  return body.properties;
+}
+
+export async function onboardProperty(placeId: string) {
+  const response = await authenticatedFetch("/api/admin/properties/onboard", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ placeId }),
+  });
+  const body = await response.json().catch(() => null) as {
+    workspace?: MobileWorkspace;
+    property?: {
+      id: string;
+      name: string | null;
+      state: "indexed" | "enriched";
+      enrichmentStarted: boolean;
+    };
+    error?: string;
+  } | null;
+  if (!response.ok || !body?.workspace || !body.property || !currentSession) {
+    throw new Error(body?.error ?? "Could not add this property.");
+  }
+  const session = await persistSession({ ...currentSession, workspace: body.workspace });
+  return { session, property: body.property };
 }
 
 export async function clearSession() {

@@ -168,14 +168,6 @@ import { Text as UiText } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 
 const loginBackground = require("./assets/videos/login-bg.mp4");
-const PROPERTY_ENRICHMENT_ADD_URL = "https://tour.report/property-enrichment/add";
-
-function openPropertyEnrichmentAdd(query: string) {
-  const url = query
-    ? `${PROPERTY_ENRICHMENT_ADD_URL}?search=${encodeURIComponent(query)}`
-    : PROPERTY_ENRICHMENT_ADD_URL;
-  void Linking.openURL(url);
-}
 
 type ProspectData = { name: string; email: string; phone: string; moveIn: string; bedrooms: string; budget: string };
 type MainTab = "home" | "sessions" | "calendar" | "materials" | "settings";
@@ -956,7 +948,12 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
         session={authSession}
         query={communityQuery}
         switchingId={switchingCommunityId}
-        onAddProperty={openPropertyEnrichmentAdd}
+        onPropertyAdded={(nextSession) => {
+          onAuthSession(nextSession);
+          resetCommunityPicker();
+          showToast(`Added ${nextSession.workspace.community.name}`, "success");
+          void queryClient.invalidateQueries();
+        }}
         onQueryChange={setCommunityQuery}
         onClose={() => {
           if (!switchingCommunityId) {
@@ -2017,10 +2014,11 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     () => sessionsQuery.data?.pages.flatMap((pageData) => pageData.sessions) ?? [],
     [sessionsQuery.data]
   );
-  const ownSessionCheck = useSessionsQuery({ limit: 1, sort: "newest" });
-  const hasNoOwnSessions = !ownSessionCheck.isLoading && (ownSessionCheck.data?.total ?? 0) === 0;
-  const sampleSessionsQuery = useSampleSessionsQuery(showSamples && hasNoOwnSessions);
+  // The protected endpoint is the single authority for sample eligibility.
+  // This avoids a stale duplicate count when the user switches properties.
+  const sampleSessionsQuery = useSampleSessionsQuery(true);
   const sampleSessions = sampleSessionsQuery.data?.sessions ?? [];
+  const samplesAvailable = sampleSessionsQuery.isSuccess && sampleSessions.length > 0;
   const visibleSessions = showSamples ? sampleSessions : sessions;
   const hasMore = sessionsQuery.hasNextPage;
   const loading = sessionsQuery.isLoading;
@@ -2030,11 +2028,10 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     setRefreshing(true);
     await Promise.all([
       sessionsQuery.refetch(),
-      ownSessionCheck.refetch(),
-      showSamples ? sampleSessionsQuery.refetch() : Promise.resolve(),
+      sampleSessionsQuery.refetch(),
     ]);
     setRefreshing(false);
-  }, [ownSessionCheck, sampleSessionsQuery, sessionsQuery, showSamples]);
+  }, [sampleSessionsQuery, sessionsQuery]);
 
   const onEndReached = useCallback(() => {
     if (hasMore && !loadingMore && !loading) void sessionsQuery.fetchNextPage();
@@ -2248,7 +2245,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
   }, [hasMore, loadingMore, sessions.length, showSamples]);
 
   const ListEmpty = useMemo(() => {
-    if (loading || ownSessionCheck.isLoading || (showSamples && sampleSessionsQuery.isLoading)) return (
+    if (loading || (sessions.length === 0 && sampleSessionsQuery.isLoading)) return (
       <View style={{ paddingTop: 20 }}>
         <LoadingShimmer rows={5} />
       </View>
@@ -2267,7 +2264,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     if (showSamples) {
       return <EmptyState icon="albums-outline" title="Samples unavailable" subtitle="The curated examples could not be loaded." />;
     }
-    if (hasNoOwnSessions && !search && statusFilter === "all") {
+    if (samplesAvailable && !search && statusFilter === "all") {
       return (
         <Reanimated.View entering={FadeInDown.duration(280).springify()} style={slst.sampleEmptyCard}>
           <View style={slst.sampleEmptyIcon}><Ionicons name="sparkles" size={25} color={C.purple} /></View>
@@ -2296,7 +2293,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
         subtitle="Recent tours will appear here"
       />
     );
-  }, [hasNoOwnSessions, loading, ownSessionCheck.isLoading, sampleSessionsQuery, search, showSamples, statusFilter]);
+  }, [loading, sampleSessionsQuery, samplesAvailable, search, sessions.length, showSamples, statusFilter]);
 
   return (
     <FlatList
@@ -5755,7 +5752,12 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
         session={session}
         query={communityQuery}
         switchingId={switchingId}
-        onAddProperty={openPropertyEnrichmentAdd}
+        onPropertyAdded={(nextSession) => {
+          onSessionChange(nextSession);
+          setCommunityPickerOpen(false);
+          setCommunityQuery("");
+          showToast(`Added ${nextSession.workspace.community.name}`, "success");
+        }}
         onQueryChange={setCommunityQuery}
         onClose={() => {
           if (!switchingId) {

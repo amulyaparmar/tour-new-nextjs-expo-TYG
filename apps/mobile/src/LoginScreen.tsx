@@ -8,7 +8,6 @@ import {
   AppState,
   BackHandler,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -38,7 +37,6 @@ import { TourLogo } from "./components/TourLogo";
 
 const TOUR_BLUE = "#1674ff";
 const RESEND_COOLDOWN_SECONDS = 30;
-const PROPERTY_ENRICHMENT_ADD_URL = "https://tour.report/property-enrichment/add";
 
 type LoginStep = "welcome" | "email" | "code" | "property";
 type TransitionDirection = "forward" | "back";
@@ -321,12 +319,7 @@ export function LoginScreen({
           subtitle="Your sessions, assets, and integrations will match this property."
           closeButtonVisible={false}
           dismissDisabled
-          onAddProperty={(query) => {
-            const url = query
-              ? `${PROPERTY_ENRICHMENT_ADD_URL}?search=${encodeURIComponent(query)}`
-              : PROPERTY_ENRICHMENT_ADD_URL;
-            void Linking.openURL(url);
-          }}
+          onPropertyAdded={onAuthenticated}
           onQueryChange={setPropertyQuery}
           onClose={() => undefined}
           onSelect={(communityId) => void chooseProperty(communityId)}

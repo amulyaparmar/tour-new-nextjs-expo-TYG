@@ -1,95 +1,56 @@
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import type { VideoPlayer } from "expo-video";
 import { VideoView } from "expo-video";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
+  Alert,
+  AppState,
+  BackHandler,
   KeyboardAvoidingView,
+  Linking,
   Platform,
+  Pressable,
   StyleSheet,
+  Text,
+  TextInput,
   View,
 } from "react-native";
+import Reanimated, {
+  Easing,
+  LinearTransition,
+  SlideInLeft,
+  SlideInRight,
+  SlideOutLeft,
+  SlideOutRight,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { CommunityListRow } from "@/components/community-list-row";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Text } from "@/components/ui/text";
-import { UIColors } from "@/lib/ui-colors";
+import { CommunityPickerModal } from "@/components/community-picker-modal";
 
 import {
-  type BusinessOption,
   type MobileAuthSession,
-  listBusinesses,
-  signIn,
+  requestSignInCode,
+  switchCommunity,
+  verifySignInCode,
 } from "./auth";
 import { TourLogo } from "./components/TourLogo";
 
-const TOUR_BRAND = "#006ce5";
+const TOUR_BLUE = "#1674ff";
+const RESEND_COOLDOWN_SECONDS = 30;
+const PROPERTY_ENRICHMENT_ADD_URL = "https://tour.report/property-enrichment/add";
 
-const st = StyleSheet.create({
-  root: { flex: 1, backgroundColor: UIColors.background },
-  hero: { minHeight: 245, overflow: "hidden", backgroundColor: "#0f172a" },
-  heroBody: { flex: 1, justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 24 },
-  heroKicker: { marginBottom: 8, fontSize: 11, fontWeight: "800", letterSpacing: 0.6, color: "rgba(255,255,255,0.7)" },
-  heroTitle: { maxWidth: 390, fontSize: 29, fontWeight: "900", lineHeight: 34, color: "#fff" },
-  form: { flex: 1, backgroundColor: UIColors.background, paddingHorizontal: 20, paddingTop: 20 },
-  stepHeader: { marginBottom: 16, minHeight: 56, flexDirection: "row", alignItems: "flex-start", gap: 12 },
-  stepHeaderText: { flex: 1 },
-  stepTitle: { fontSize: 22, fontWeight: "900", color: UIColors.foreground },
-  stepSub: { marginTop: 4, fontSize: 14, color: UIColors.mutedForeground },
-  stepBadge: { borderRadius: 8 },
-  searchBar: {
-    marginBottom: 12,
-    minHeight: 48,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: UIColors.input,
-    backgroundColor: "rgba(241,245,249,0.7)",
-    paddingHorizontal: 12,
-  },
-  searchInput: { flex: 1, borderWidth: 0, backgroundColor: "transparent", shadowOpacity: 0, minHeight: 44 },
-  loadingBox: { alignItems: "center", gap: 8, paddingVertical: 32 },
-  loadingText: { fontSize: 14, fontWeight: "600", color: UIColors.mutedForeground },
-  communityCard: {
-    borderWidth: 1,
-    borderColor: UIColors.border,
-    borderRadius: 12,
-    backgroundColor: UIColors.card,
-    overflow: "hidden",
-  },
-  calendarBadge: { flexDirection: "row", alignItems: "center", gap: 4, borderColor: "transparent", backgroundColor: UIColors.emerald50 },
-  calendarDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: UIColors.emerald500 },
-  calendarText: { fontSize: 10, fontWeight: "700", color: UIColors.emerald700 },
-  emptyList: { alignItems: "center", gap: 8, paddingVertical: 32 },
-  backBtn: { width: 40, height: 40, borderRadius: 8 },
-  continueBtn: { marginTop: 4, minHeight: 52, borderRadius: 8 },
-  fieldWrap: { marginBottom: 14, gap: 6 },
-  fieldLabel: { fontSize: 11, fontWeight: "800", color: UIColors.mutedForeground },
-  fieldRow: {
-    minHeight: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: UIColors.input,
-    backgroundColor: UIColors.card,
-    paddingHorizontal: 12,
-  },
-  fieldInput: { flex: 1, borderWidth: 0, backgroundColor: "transparent", minHeight: 44 },
-  errorCard: { marginBottom: 12, borderColor: "rgba(239,68,68,0.2)", backgroundColor: "rgba(239,68,68,0.05)", paddingVertical: 8 },
-  errorRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 8 },
-  errorText: { flex: 1, fontSize: 12, fontWeight: "600", color: UIColors.destructive },
-});
+type LoginStep = "welcome" | "email" | "code" | "property";
+type TransitionDirection = "forward" | "back";
+
+const CARD_LAYOUT_TRANSITION = LinearTransition.springify()
+  .damping(24)
+  .stiffness(220)
+  .mass(0.8);
+const FORWARD_ENTERING = SlideInRight.duration(360).easing(Easing.out(Easing.cubic));
+const FORWARD_EXITING = SlideOutLeft.duration(260).easing(Easing.inOut(Easing.cubic));
+const BACK_ENTERING = SlideInLeft.duration(340).easing(Easing.out(Easing.cubic));
+const BACK_EXITING = SlideOutRight.duration(240).easing(Easing.inOut(Easing.cubic));
 
 export function LoginScreen({
   player,
@@ -99,222 +60,482 @@ export function LoginScreen({
   onAuthenticated: (session: MobileAuthSession) => void;
 }) {
   const insets = useSafeAreaInsets();
-  const [step, setStep] = useState<"community" | "credentials">("community");
-  const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
-  const [selected, setSelected] = useState<BusinessOption | null>(null);
-  const [query, setQuery] = useState("");
+  const [step, setStep] = useState<LoginStep>("welcome");
+  const [transitionDirection, setTransitionDirection] = useState<TransitionDirection>("forward");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [code, setCode] = useState("");
+  const [expectedCode, setExpectedCode] = useState("");
+  const [pendingSession, setPendingSession] = useState<MobileAuthSession | null>(null);
+  const [propertyQuery, setPropertyQuery] = useState("");
+  const [switchingPropertyId, setSwitchingPropertyId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
-  useEffect(() => {
-    let active = true;
-    listBusinesses()
-      .then((items) => active && setBusinesses(items))
-      .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load communities."))
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
+  const transitionTo = useCallback((nextStep: LoginStep, direction: TransitionDirection) => {
+    setTransitionDirection(direction);
+    setStep(nextStep);
   }, []);
 
-  const filtered = useMemo(() => {
-    const value = query.trim().toLowerCase();
-    return value
-      ? businesses.filter((item) => `${item.name} ${item.companyName}`.toLowerCase().includes(value))
-      : businesses;
-  }, [businesses, query]);
+  useEffect(() => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        player.muted = true;
+        player.play();
+      }
+    });
+    return () => {
+      subscription.remove();
+      player.pause();
+    };
+  }, [player]);
 
-  async function submit() {
-    if (!selected || !email.trim() || !password) return;
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (step === "welcome") return false;
+      if (step === "email") transitionTo("welcome", "back");
+      if (step === "code") transitionTo("email", "back");
+      return true;
+    });
+    return () => subscription.remove();
+  }, [step, transitionTo]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  async function sendCode() {
+    if (!email.trim() || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      onAuthenticated(await signIn(email.trim(), password, selected.id));
+      const challenge = await requestSignInCode(email);
+      setEmail(challenge.email);
+      setExpectedCode(challenge.expectedCode);
+      setCode("");
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
+      transitionTo("code", "forward");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Sign in failed.");
+      setError(caught instanceof Error ? caught.message : "Could not send a sign-in code.");
     } finally {
       setSubmitting(false);
     }
   }
 
+  async function verifyCode() {
+    if (code.length < 4 || !expectedCode || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const session = await verifySignInCode(email, code, expectedCode);
+      if (session.workspace.communities.length > 1) {
+        setPendingSession(session);
+        transitionTo("property", "forward");
+        return;
+      }
+      onAuthenticated(session);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The verification code is invalid.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function chooseProperty(communityId: string) {
+    if (!pendingSession || switchingPropertyId) return;
+    if (communityId === pendingSession.workspace.community.id) {
+      onAuthenticated(pendingSession);
+      return;
+    }
+
+    setSwitchingPropertyId(communityId);
+    try {
+      onAuthenticated(await switchCommunity(communityId));
+    } catch (caught) {
+      Alert.alert(
+        "Could not switch property",
+        caught instanceof Error ? caught.message : "Please try again."
+      );
+    } finally {
+      setSwitchingPropertyId(null);
+    }
+  }
+
   return (
-    <View style={st.root}>
-      <View style={[st.hero, { height: "35%" }]}>
-        <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
-        <LinearGradient colors={["rgba(7,18,34,0.08)", "rgba(7,18,34,0.9)"]} style={StyleSheet.absoluteFill} />
-        <View style={[st.heroBody, { paddingTop: insets.top + 12 }]}>
-          <TourLogo width={78} color="#fff" />
-          <View>
-            <Text style={st.heroKicker}>LEASING OPERATIONS</Text>
-            <Text style={st.heroTitle}>Tours, coaching, and follow-up in one place.</Text>
+    <View style={styles.root}>
+      <VideoView
+        player={player}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        nativeControls={false}
+      />
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.keyboardView}
+      >
+        <View
+          style={[
+            styles.content,
+            {
+              paddingTop: insets.top + 16,
+              paddingBottom: Math.max(24, insets.bottom + 12),
+            },
+          ]}
+        >
+          <View style={styles.cardShadow}>
+            <Reanimated.View layout={CARD_LAYOUT_TRANSITION} style={styles.card}>
+              <Reanimated.View
+                key={step}
+                entering={transitionDirection === "forward" ? FORWARD_ENTERING : BACK_ENTERING}
+                exiting={transitionDirection === "forward" ? FORWARD_EXITING : BACK_EXITING}
+                style={styles.stepContent}
+              >
+              {step === "welcome" ? (
+              <>
+                <View style={styles.brandBlock}>
+                  <TourLogo width={97} />
+                  <Text style={styles.tagline}>
+                    Every great business deserves a great tour. Build yours today.
+                  </Text>
+                </View>
+                <PrimaryButton label="Login with Email" onPress={() => transitionTo("email", "forward")} />
+              </>
+            ) : step === "email" ? (
+              <>
+                <LoginHeader
+                  icon="mail-outline"
+                  title="Enter your work email"
+                  subtitle="We’ll send a one-time verification code."
+                />
+                <View style={styles.formBlock}>
+                  <Field
+                    value={email}
+                    onChangeText={(value) => {
+                      setEmail(value);
+                      setExpectedCode("");
+                      setError(null);
+                    }}
+                    placeholder="you@company.com"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    returnKeyType="go"
+                    onSubmitEditing={() => void sendCode()}
+                    editable={!submitting}
+                  />
+                  <LoginError message={error} />
+                  <PrimaryButton
+                    label="Send verification code"
+                    onPress={() => void sendCode()}
+                    loading={submitting}
+                    disabled={!email.trim()}
+                  />
+                  <BackLink label="Back" onPress={() => { setError(null); transitionTo("welcome", "back"); }} />
+                </View>
+              </>
+            ) : step === "code" ? (
+              <>
+                <LoginHeader
+                  icon="key-outline"
+                  title="Check your email"
+                  subtitle={`We sent a sign-in code to ${email}.`}
+                />
+                <View style={styles.formBlock}>
+                  <View style={styles.deliveryCard}>
+                    <View style={styles.deliveryDotWrap}>
+                      <View style={styles.deliveryDot} />
+                    </View>
+                    <View style={styles.deliveryCopy}>
+                      <Text style={styles.deliveryTitle}>Waiting for your 4-digit code</Text>
+                      <Text style={styles.deliveryText}>
+                        Look for an email from Tour. Delivery can take up to a minute.
+                      </Text>
+                    </View>
+                  </View>
+                  <Field
+                    value={code}
+                    onChangeText={(value) => {
+                      setCode(value.replace(/\D/g, "").slice(0, 4));
+                      setError(null);
+                    }}
+                    placeholder="0000"
+                    keyboardType="number-pad"
+                    autoComplete="one-time-code"
+                    textContentType="oneTimeCode"
+                    returnKeyType="go"
+                    onSubmitEditing={() => void verifyCode()}
+                    editable={!submitting}
+                    autoFocus
+                    style={styles.codeInput}
+                  />
+                  <LoginError message={error} />
+                  <PrimaryButton
+                    label="Verify and continue"
+                    onPress={() => void verifyCode()}
+                    loading={submitting}
+                    disabled={code.length < 4}
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={submitting || resendCooldown > 0}
+                    onPress={() => void sendCode()}
+                    style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
+                  >
+                    <Text style={[styles.linkText, resendCooldown > 0 && styles.linkTextDisabled]}>
+                      {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "Resend code"}
+                    </Text>
+                  </Pressable>
+                  <BackLink label="Use a different email" onPress={() => { setError(null); transitionTo("email", "back"); }} />
+                </View>
+              </>
+            ) : (
+              <LoginHeader
+                icon="business-outline"
+                title="Choose your property"
+                subtitle="Select the property you’re working from today."
+              />
+              )}
+              </Reanimated.View>
+            </Reanimated.View>
           </View>
         </View>
-      </View>
-
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={st.form}>
-        {step === "community" ? (
-          <>
-            <View style={st.stepHeader}>
-              <View style={st.stepHeaderText}>
-                <Text style={st.stepTitle}>Choose community</Text>
-                <Text style={st.stepSub}>Select the property you are working from.</Text>
-              </View>
-              <Badge variant="secondary" style={st.stepBadge}>
-                <Text style={{ fontSize: 11, fontWeight: "800" }}>1 of 2</Text>
-              </Badge>
-            </View>
-
-            <View style={st.searchBar}>
-              <Ionicons name="search" size={18} color="#667085" />
-              <Input
-                value={query}
-                onChangeText={setQuery}
-                placeholder="Search communities"
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={st.searchInput}
-              />
-            </View>
-
-            {error ? <LoginError message={error} /> : null}
-
-            {loading ? (
-              <View style={st.loadingBox}>
-                <ActivityIndicator color={TOUR_BRAND} />
-                <Text style={st.loadingText}>Loading communities</Text>
-              </View>
-            ) : (
-              <FlatList
-                data={filtered}
-                keyExtractor={(item) => item.id}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingTop: 8, paddingBottom: 28, gap: 8 }}
-                renderItem={({ item }) => (
-                  <CommunityListRow
-                    name={item.name}
-                    subtitle={item.companyName}
-                    showBorder={false}
-                    style={st.communityCard}
-                    accessory={
-                      item.calendarConnected ? (
-                        <Badge variant="outline" style={st.calendarBadge}>
-                          <View style={st.calendarDot} />
-                          <Text style={st.calendarText}>Calendar</Text>
-                        </Badge>
-                      ) : null
-                    }
-                    onPress={() => {
-                      setSelected(item);
-                      setError(null);
-                      setStep("credentials");
-                    }}
-                  />
-                )}
-                ListEmptyComponent={
-                  <View style={st.emptyList}>
-                    <Ionicons name="business-outline" size={24} color="#98a2b3" />
-                    <Text style={st.loadingText}>No matching communities</Text>
-                  </View>
-                }
-              />
-            )}
-          </>
-        ) : (
-          <>
-            <View style={st.stepHeader}>
-              <Button
-                variant="outline"
-                size="icon"
-                onPress={() => {
-                  setStep("community");
-                  setError(null);
-                }}
-                style={st.backBtn}
-              >
-                <Ionicons name="arrow-back" size={20} color="#344054" />
-              </Button>
-              <View style={st.stepHeaderText}>
-                <Text style={st.stepTitle}>Sign in</Text>
-                <Text style={st.stepSub} numberOfLines={1}>{selected?.name}</Text>
-              </View>
-              <Badge variant="secondary" style={st.stepBadge}>
-                <Text style={{ fontSize: 11, fontWeight: "800" }}>2 of 2</Text>
-              </Badge>
-            </View>
-
-            <LoginField
-              label="EMAIL"
-              icon="mail-outline"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="you@company.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              textContentType="username"
-            />
-            <LoginField
-              label="PASSWORD"
-              icon="lock-closed-outline"
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Enter your password"
-              secureTextEntry
-              textContentType="password"
-              onSubmitEditing={() => void submit()}
-            />
-
-            {error ? <LoginError message={error} /> : null}
-
-            <Button
-              size="lg"
-              disabled={submitting || !email.trim() || !password}
-              onPress={() => void submit()}
-              style={st.continueBtn}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Text style={{ fontSize: 16, fontWeight: "800", color: UIColors.primaryForeground }}>Continue</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#fff" />
-                </>
-              )}
-            </Button>
-          </>
-        )}
       </KeyboardAvoidingView>
+
+      {pendingSession ? (
+        <CommunityPickerModal
+          visible={step === "property"}
+          session={pendingSession}
+          query={propertyQuery}
+          switchingId={switchingPropertyId}
+          title="Choose a property"
+          subtitle="Your sessions, assets, and integrations will match this property."
+          closeButtonVisible={false}
+          dismissDisabled
+          onAddProperty={(query) => {
+            const url = query
+              ? `${PROPERTY_ENRICHMENT_ADD_URL}?search=${encodeURIComponent(query)}`
+              : PROPERTY_ENRICHMENT_ADD_URL;
+            void Linking.openURL(url);
+          }}
+          onQueryChange={setPropertyQuery}
+          onClose={() => undefined}
+          onSelect={(communityId) => void chooseProperty(communityId)}
+        />
+      ) : null}
     </View>
   );
 }
 
-function LoginField({
-  label,
+function LoginHeader({
   icon,
-  style,
-  ...props
-}: React.ComponentProps<typeof Input> & { label: string; icon: keyof typeof Ionicons.glyphMap }) {
+  title,
+  subtitle,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle: string;
+}) {
   return (
-    <View style={st.fieldWrap}>
-      <Label style={st.fieldLabel}>{label}</Label>
-      <View style={st.fieldRow}>
-        <Ionicons name={icon} size={18} color="#667085" />
-        <Input {...props} style={[st.fieldInput, style]} />
+    <View style={styles.headerBlock}>
+      <View style={styles.headerIcon}>
+        <Ionicons name={icon} size={22} color={TOUR_BLUE} />
       </View>
+      <Text style={styles.title}>{title}</Text>
+      <Text style={styles.subtitle}>{subtitle}</Text>
     </View>
   );
 }
 
-function LoginError({ message }: { message: string }) {
+function Field(props: React.ComponentProps<typeof TextInput>) {
   return (
-    <Card style={st.errorCard}>
-      <CardContent style={st.errorRow}>
-        <Ionicons name="alert-circle-outline" size={18} color="#b42318" />
-        <Text style={st.errorText}>{message}</Text>
-      </CardContent>
-    </Card>
+    <TextInput
+      {...props}
+      placeholderTextColor="#98a2b3"
+      selectionColor={TOUR_BLUE}
+      style={[styles.input, props.style]}
+    />
   );
 }
+
+function PrimaryButton({
+  label,
+  onPress,
+  loading = false,
+  disabled = false,
+}: {
+  label: string;
+  onPress: () => void;
+  loading?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      disabled={disabled || loading}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.primaryButton,
+        (disabled || loading) && styles.primaryButtonDisabled,
+        pressed && styles.primaryButtonPressed,
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator color="#fff" />
+      ) : (
+        <Text style={styles.primaryButtonText}>{label}</Text>
+      )}
+    </Pressable>
+  );
+}
+
+function BackLink({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
+    >
+      <Ionicons name="arrow-back" size={15} color="#667085" />
+      <Text style={styles.backText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function LoginError({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <View style={styles.errorRow} accessibilityRole="alert">
+      <Ionicons name="alert-circle-outline" size={17} color="#d92d20" />
+      <Text style={styles.errorText}>{message}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#000" },
+  keyboardView: { flex: 1 },
+  content: {
+    flex: 1,
+    justifyContent: "flex-end",
+    paddingHorizontal: 24,
+  },
+  cardShadow: {
+    width: "100%",
+    borderRadius: 16,
+    backgroundColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  card: {
+    width: "100%",
+    overflow: "hidden",
+    paddingHorizontal: 16,
+    paddingVertical: 32,
+    borderWidth: 1,
+    borderColor: "#e8e8e8",
+    borderRadius: 16,
+    backgroundColor: "#fff",
+  },
+  stepContent: { gap: 24 },
+  brandBlock: { alignItems: "center", gap: 12 },
+  tagline: {
+    width: 265,
+    color: "#666",
+    fontSize: 16,
+    lineHeight: 26,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  headerBlock: { alignItems: "center", gap: 8, paddingHorizontal: 8 },
+  headerIcon: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 22,
+    backgroundColor: "#eaf2ff",
+  },
+  title: { color: "#312a2a", fontSize: 22, lineHeight: 28, fontWeight: "800", textAlign: "center" },
+  subtitle: { maxWidth: 285, color: "#667085", fontSize: 14, lineHeight: 20, fontWeight: "500", textAlign: "center" },
+  formBlock: { gap: 12 },
+  deliveryCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#abefc6",
+    borderRadius: 10,
+    backgroundColor: "#ecfdf3",
+  },
+  deliveryDotWrap: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: "#d1fadf",
+  },
+  deliveryDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#17b26a" },
+  deliveryCopy: { flex: 1, gap: 2 },
+  deliveryTitle: { color: "#067647", fontSize: 12, lineHeight: 17, fontWeight: "800" },
+  deliveryText: { color: "#027a48", fontSize: 11, lineHeight: 16, fontWeight: "500" },
+  input: {
+    width: "100%",
+    minHeight: 52,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "#d0d5dd",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    color: "#101828",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  codeInput: { fontSize: 24, fontWeight: "800", letterSpacing: 8, textAlign: "center" },
+  primaryButton: {
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: TOUR_BLUE,
+  },
+  primaryButtonDisabled: { opacity: 0.45 },
+  primaryButtonPressed: { opacity: 0.86, transform: [{ scale: 0.995 }] },
+  primaryButtonText: { color: "#fff", fontSize: 16, fontWeight: "500" },
+  linkButton: {
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  linkText: { color: TOUR_BLUE, fontSize: 13, fontWeight: "700" },
+  linkTextDisabled: { color: "#98a2b3" },
+  backText: { color: "#667085", fontSize: 13, fontWeight: "700" },
+  pressed: { opacity: 0.65 },
+  errorRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: "#fef3f2",
+  },
+  errorText: { flex: 1, color: "#b42318", fontSize: 12, lineHeight: 17, fontWeight: "600" },
+});

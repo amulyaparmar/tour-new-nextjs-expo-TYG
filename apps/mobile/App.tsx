@@ -158,6 +158,7 @@ import {
   useUpdateActionStatusMutation,
 } from "./src/queries";
 import { useAppStore } from "./src/stores/app-store";
+import { queryClient as appQueryClient } from "./src/query-client";
 import type { SortOption, StatusFilter } from "./src/types/ui";
 import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import { Card, CardContent } from "@/components/ui/card";
@@ -165,6 +166,14 @@ import { Text as UiText } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 
 const loginBackground = require("./assets/videos/login-bg.mp4");
+const PROPERTY_ENRICHMENT_ADD_URL = "https://tour.report/property-enrichment/add";
+
+function openPropertyEnrichmentAdd(query: string) {
+  const url = query
+    ? `${PROPERTY_ENRICHMENT_ADD_URL}?search=${encodeURIComponent(query)}`
+    : PROPERTY_ENRICHMENT_ADD_URL;
+  void Linking.openURL(url);
+}
 
 type ProspectData = { name: string; email: string; phone: string; moveIn: string; bedrooms: string; budget: string };
 type MainTab = "home" | "sessions" | "calendar" | "materials" | "settings";
@@ -616,7 +625,6 @@ export default function App() {
   const player = useVideoPlayer(loginBackground, (vp) => {
     vp.loop = true;
     vp.muted = true;
-    vp.play();
   });
 
   const [screen, setScreen] = useState<Screen>({ type: "main", tab: "home" });
@@ -626,12 +634,6 @@ export default function App() {
   const [prospect, setProspect] = useState<ProspectData>({ name: "", email: "", phone: "", moveIn: "", bedrooms: "2 bed", budget: "$2,200 - $2,600" });
   const [transitionDirection, setTransitionDirection] = useState<SlideDirection>("forward");
   const [pendingCreateUpload, setPendingCreateUpload] = useState<PendingCreateSessionUpload | null>(null);
-
-  useEffect(() => {
-    player.play();
-    const sub = AppState.addEventListener("change", (s) => { if (s === "active") player.play(); });
-    return () => sub.remove();
-  }, [player]);
 
   useEffect(() => {
     restoreSession()
@@ -660,7 +662,7 @@ export default function App() {
   if (!authSession) {
     return (
       <AppProviders>
-        <StatusBar style="light" />
+        <StatusBar style="dark" />
         <LoginScreen player={player} onAuthenticated={setAuthSession} />
       </AppProviders>
     );
@@ -695,7 +697,12 @@ export default function App() {
                   onProfile={() => nav({ type: "profile" })}
                   onRubrics={() => nav({ type: "rubrics" })}
                   onSignOut={() => {
-                    void clearSession().then(() => setAuthSession(null));
+                    void clearSession().then(() => {
+                      appQueryClient.clear();
+                      useAppStore.getState().resetCommunityPicker();
+                      setScreen({ type: "main", tab: "home" });
+                      setAuthSession(null);
+                    });
                   }}
                   authSession={authSession}
                   onAuthSession={setAuthSession}
@@ -789,7 +796,7 @@ function CommunityTopBar({
       <View style={homeSt.topBarSide}>{left}</View>
       <View style={homeSt.topBarCenter}>
         <Pressable
-          accessibilityLabel="Switch community"
+          accessibilityLabel="Switch property"
           onPress={onCommunityPress}
           style={({ pressed }) => [homeSt.propertyPicker, pressed && st.pressed]}
         >
@@ -880,7 +887,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistr
       showToast(`Switched to ${nextSession.workspace.community.name}`, "success");
       void queryClient.invalidateQueries({ queryKey: queryKeys.all() });
     } catch (caught) {
-      showToast(caught instanceof Error ? caught.message : "Could not switch community", "error");
+      showToast(caught instanceof Error ? caught.message : "Could not switch property", "error");
     } finally {
       setSwitchingCommunityId(null);
     }
@@ -941,6 +948,7 @@ function MainTabs({ tab, onTab, onSession, onCreate, onAudioTest, onGuestRegistr
         session={authSession}
         query={communityQuery}
         switchingId={switchingCommunityId}
+        onAddProperty={openPropertyEnrichmentAdd}
         onQueryChange={setCommunityQuery}
         onClose={() => {
           if (!switchingCommunityId) {
@@ -1769,19 +1777,19 @@ const metricSt = StyleSheet.create({
   label: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", color: C.textMuted },
 });
 
-function CardRow({ icon, title, sub, onPress }: { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string; onPress: () => void }) {
+function CardRow({ icon, title, sub, onPress, destructive = false }: { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string; onPress: () => void; destructive?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => pressed && st.pressed}>
-      <Card style={cardRowSt.card}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => pressed && st.pressed}>
+      <Card style={[cardRowSt.card, destructive && cardRowSt.cardDestructive]}>
         <CardContent style={cardRowSt.content}>
-          <View style={cardRowSt.iconWrap}>
-            <Ionicons name={icon} size={22} color={C.brand} />
+          <View style={[cardRowSt.iconWrap, destructive && cardRowSt.iconWrapDestructive]}>
+            <Ionicons name={icon} size={22} color={destructive ? C.red : C.brand} />
           </View>
           <View style={st.flex1}>
-            <UiText style={cardRowSt.title}>{title}</UiText>
+            <UiText style={[cardRowSt.title, destructive && cardRowSt.titleDestructive]}>{title}</UiText>
             <UiText style={cardRowSt.sub}>{sub}</UiText>
           </View>
-          <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+          <Ionicons name={destructive ? "log-out-outline" : "chevron-forward"} size={18} color={destructive ? C.red : C.textMuted} />
         </CardContent>
       </Card>
     </Pressable>
@@ -1790,6 +1798,7 @@ function CardRow({ icon, title, sub, onPress }: { icon: keyof typeof Ionicons.gl
 
 const cardRowSt = StyleSheet.create({
   card: { flexDirection: "row", alignItems: "center", gap: 12, borderColor: C.border, paddingVertical: 12 },
+  cardDestructive: { borderColor: "#fecdca", backgroundColor: "#fffafa" },
   content: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 0 },
   iconWrap: {
     width: 44,
@@ -1799,7 +1808,9 @@ const cardRowSt = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#e8f2ff",
   },
+  iconWrapDestructive: { backgroundColor: C.redBg },
   title: { fontSize: 14, fontWeight: "900", color: C.text },
+  titleDestructive: { color: C.red },
   sub: { marginTop: 2, fontSize: 12, color: C.textSec },
 });
 
@@ -5488,6 +5499,7 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [communityPickerOpen, setCommunityPickerOpen] = useState(false);
   const [communityQuery, setCommunityQuery] = useState("");
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   async function chooseCommunity(communityId: string) {
     if (communityId === session.workspace.community.id) {
@@ -5499,9 +5511,9 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
       onSessionChange(await switchCommunity(communityId));
       setCommunityPickerOpen(false);
       setCommunityQuery("");
-      showToast("Community switched", "success");
+      showToast("Property switched", "success");
     } catch (caught) {
-      showToast(caught instanceof Error ? caught.message : "Could not switch community", "error");
+      showToast(caught instanceof Error ? caught.message : "Could not switch property", "error");
     } finally {
       setSwitchingId(null);
     }
@@ -5518,7 +5530,7 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
         </View>
       </View>
 
-      <Text style={st.settingsSectionLabel}>ACTIVE COMMUNITY</Text>
+      <Text style={st.settingsSectionLabel}>ACTIVE PROPERTY</Text>
       <Pressable onPress={() => setCommunityPickerOpen(true)} style={({ pressed }) => [st.settingsIdentity, pressed && st.pressed]}>
         <View style={st.settingsCommunityRow}>
           <View style={[st.communitySettingIcon, { backgroundColor: C.greenBg }]}>
@@ -5526,14 +5538,15 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
           </View>
           <View style={st.flex1}>
             <Text style={st.communitySettingName}>{session.workspace.community.name}</Text>
-            <Text style={st.cardRowSub}>{session.workspace.communities.length} available communities</Text>
+            <Text style={st.cardRowSub}>{session.workspace.communities.length} available {session.workspace.communities.length === 1 ? "property" : "properties"}</Text>
           </View>
           <Text style={st.settingsChangeText}>Change</Text>
         </View>
       </Pressable>
       <Text style={st.settingsSectionLabel}>EVALUATION</Text>
       <CardRow icon="clipboard-outline" title="Rubrics" sub="Templates, criteria, and session applications" onPress={onRubrics} />
-      <CardRow icon="log-out-outline" title="Sign out" sub="Remove this account from the device" onPress={onSignOut} />
+      <Text style={st.settingsSectionLabel}>ACCOUNT</Text>
+      <CardRow icon="log-out-outline" title="Log out" sub="Remove this account from this device" onPress={() => setLogoutOpen(true)} destructive />
       <Text style={st.settingsVersion}>Tour mobile 0.1.0 · {session.workspace.membership.companyName}</Text>
 
       <CommunityPickerModal
@@ -5541,6 +5554,7 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
         session={session}
         query={communityQuery}
         switchingId={switchingId}
+        onAddProperty={openPropertyEnrichmentAdd}
         onQueryChange={setCommunityQuery}
         onClose={() => {
           if (!switchingId) {
@@ -5550,9 +5564,58 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
         }}
         onSelect={(communityId) => void chooseCommunity(communityId)}
       />
+      <BottomSheetModal
+        visible={logoutOpen}
+        onClose={() => setLogoutOpen(false)}
+        sheetHeight={310}
+        dragHeader={
+          <View style={logoutSheetSt.header}>
+            <View style={logoutSheetSt.icon}>
+              <Ionicons name="log-out-outline" size={22} color={C.red} />
+            </View>
+            <View style={st.flex1}>
+              <Text style={logoutSheetSt.title}>Log out of Tour?</Text>
+              <Text style={logoutSheetSt.subtitle}>Your account will be removed from this device.</Text>
+            </View>
+          </View>
+        }
+      >
+        <View style={logoutSheetSt.body}>
+          <Text style={logoutSheetSt.note}>
+            You’ll need a new email verification code the next time you sign in.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onSignOut}
+            style={({ pressed }) => [logoutSheetSt.logoutButton, pressed && st.pressed]}
+          >
+            <Text style={logoutSheetSt.logoutText}>Log out</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setLogoutOpen(false)}
+            style={({ pressed }) => [logoutSheetSt.cancelButton, pressed && st.pressed]}
+          >
+            <Text style={logoutSheetSt.cancelText}>Cancel</Text>
+          </Pressable>
+        </View>
+      </BottomSheetModal>
     </View>
   );
 }
+
+const logoutSheetSt = StyleSheet.create({
+  header: { flexDirection: "row", alignItems: "center", gap: 12 },
+  icon: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: C.redBg },
+  title: { color: C.text, fontSize: 20, lineHeight: 25, fontWeight: "900" },
+  subtitle: { marginTop: 2, color: C.textSec, fontSize: 12, lineHeight: 17 },
+  body: { flex: 1, gap: 10, paddingTop: 16 },
+  note: { color: C.textSec, fontSize: 13, lineHeight: 19 },
+  logoutButton: { minHeight: 50, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: C.red },
+  logoutText: { color: "#fff", fontSize: 15, fontWeight: "900" },
+  cancelButton: { minHeight: 46, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: C.card },
+  cancelText: { color: C.textSec, fontSize: 14, fontWeight: "800" },
+});
 
 // ═══════════════════════════════════════
 // Profile & Tour (preserved)

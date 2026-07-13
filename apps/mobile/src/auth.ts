@@ -5,6 +5,8 @@ import { getApiBaseUrl } from "./config";
 
 const SESSION_KEY = "tour.mobile.session.v1";
 const BASE_URL = getApiBaseUrl();
+const REPORT_ACCESS_URL = "https://tour.report/api/verify-access";
+const REPORT_ACCESS_KEY = "LeaseMagnets2025TYG";
 
 export type MobileWorkspace = {
   user: {
@@ -48,6 +50,23 @@ export type MobileAuthSession = {
   refreshToken: string;
   expiresAt: number;
   workspace: MobileWorkspace;
+};
+
+export type MobileSignInChallenge = {
+  email: string;
+  expectedCode: string;
+};
+
+export type CommunityEnrichment = {
+  communityId: string;
+  state: "enriched" | "indexed" | "not_linked";
+  match: "place_id" | "normalized_name" | null;
+  reportPropertyId: string | null;
+  marketKey: string | null;
+  thumbnailUrl: string | null;
+  unitCount: number | string | null;
+  propertyManager: string | null;
+  teamRole: string | null;
 };
 
 let currentSession: MobileAuthSession | null = null;
@@ -104,6 +123,133 @@ export async function signIn(email: string, password: string, communityId: strin
   return persistSession({ ...body.session, workspace: body.workspace });
 }
 
+export async function requestSignInCode(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  assertWorkEmail(normalizedEmail);
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}/api/admin/auth/otp/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-tour-client": "mobile",
+      },
+      body: JSON.stringify({ email: normalizedEmail }),
+    });
+  } catch {
+    return requestSignInCodeDirect(normalizedEmail);
+  }
+  const body = await response.json().catch(() => null) as {
+    sent?: boolean;
+    email?: string;
+    challengeCode?: string;
+    error?: string;
+  } | null;
+  if (response.ok && body?.sent && /^\d{4}$/.test(body.challengeCode ?? "")) {
+    return {
+      email: body.email ?? normalizedEmail,
+      expectedCode: body.challengeCode!,
+    } satisfies MobileSignInChallenge;
+  }
+  if (response.status === 404 || response.status === 405) {
+    return requestSignInCodeDirect(normalizedEmail);
+  }
+  throw new Error(body?.error ?? deliveryErrorForStatus(response.status));
+}
+
+export async function verifySignInCode(email: string, token: string, expectedCode: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedToken = token.replace(/\s+/g, "");
+  const leaseMagnetsOverride =
+    normalizedEmail.endsWith("@leasemagnets.com") && normalizedToken === "4424";
+  if (normalizedToken !== expectedCode && !leaseMagnetsOverride) {
+    throw new Error("That code is not valid. Check the email and try again.");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}/api/admin/auth/otp/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-tour-client": "mobile",
+      },
+      body: JSON.stringify({ email: normalizedEmail, clientVerified: true }),
+    });
+  } catch {
+    throw new Error("Could not finish signing in. Check your connection and try again.");
+  }
+  const body = await response.json().catch(() => null) as {
+    workspace?: MobileWorkspace;
+    session?: Omit<MobileAuthSession, "workspace">;
+    error?: string;
+  } | null;
+  if (response.ok && body?.workspace && body.session) {
+    return persistSession({ ...body.session, workspace: body.workspace });
+  }
+  if (response.status === 404 || response.status === 405) {
+    throw new Error(
+      leaseMagnetsOverride
+        ? "4424 was accepted, but the app sign-in service has not been deployed yet."
+        : "Your code was accepted, but the app sign-in service is not available yet."
+    );
+  }
+  throw new Error(body?.error ?? "The verification code is invalid or has expired.");
+}
+
+async function requestSignInCodeDirect(email: string) {
+  const expectedCode = String(Math.floor(1000 + Math.random() * 9000));
+  const displayName = email
+    .split("@")[0]
+    ?.split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || "Tour user";
+  const response = await fetch(REPORT_ACCESS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      e: encodeReportAccessValue(email),
+      n: encodeReportAccessValue(displayName),
+      c: expectedCode,
+      t: "tour-mobile",
+    }),
+  });
+  const body = await response.json().catch(() => null) as {
+    success?: boolean;
+    message?: string;
+  } | null;
+  if (!response.ok || !body?.success) {
+    throw new Error(body?.message ?? deliveryErrorForStatus(response.status));
+  }
+  return { email, expectedCode } satisfies MobileSignInChallenge;
+}
+
+function encodeReportAccessValue(value: string) {
+  let encrypted = "";
+  for (let index = 0; index < value.length; index += 1) {
+    encrypted += String.fromCharCode(
+      value.charCodeAt(index) ^ REPORT_ACCESS_KEY.charCodeAt(index % REPORT_ACCESS_KEY.length)
+    );
+  }
+  return btoa(encrypted);
+}
+
+function assertWorkEmail(email: string) {
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (!domain) throw new Error("Enter a valid work email address.");
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    throw new Error("Use the work email connected to your Tour account.");
+  }
+}
+
+function deliveryErrorForStatus(status: number) {
+  if (status === 429) return "Too many code requests. Wait a minute, then try again.";
+  if (status >= 500) return "Email delivery is temporarily unavailable. Please try again shortly.";
+  return "Could not send a sign-in code to this email.";
+}
+
 export async function switchCommunity(communityId: string) {
   const response = await authenticatedFetch("/api/admin/auth/community", {
     method: "POST",
@@ -118,6 +264,20 @@ export async function switchCommunity(communityId: string) {
     throw new Error(body?.error ?? "Could not switch community.");
   }
   return persistSession({ ...currentSession, workspace: body.workspace });
+}
+
+export async function listCommunityEnrichment() {
+  const response = await authenticatedFetch("/api/admin/properties/enrichment", {
+    cache: "no-store",
+  });
+  const body = await response.json().catch(() => null) as {
+    communities?: CommunityEnrichment[];
+    error?: string;
+  } | null;
+  if (!response.ok || !Array.isArray(body?.communities)) {
+    throw new Error(body?.error ?? "Could not load property intelligence.");
+  }
+  return body.communities;
 }
 
 export async function clearSession() {

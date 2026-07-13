@@ -33,6 +33,7 @@ type RubricRow = {
   property_id?: string | null;
   is_template?: boolean | null;
   template_source_id?: string | null;
+  bootstrap_key?: string | null;
   created_at: string;
   /** Legacy columns — may exist before migration. */
   definition_json?: unknown;
@@ -140,6 +141,76 @@ export async function listRubricsForCommunity(propertyIds: string | string[]): P
 
 export async function listRubricTemplates(): Promise<Rubric[]> {
   return (await listRubrics()).filter((rubric) => rubric.isTemplate);
+}
+
+/**
+ * Give a property its editable Tour rubric the first time it is opened.
+ * `bootstrap_key` makes simultaneous login/switch requests collapse to one row.
+ */
+export async function ensurePropertyRubric(
+  propertyId: string,
+  compatibilityPropertyIds: string[] = []
+): Promise<Rubric> {
+  const supabase = getSupabaseServiceClient();
+  const propertyIds = Array.from(new Set([propertyId, ...compatibilityPropertyIds].filter(Boolean)));
+  const { data: existing, error: existingError } = await supabase
+    .from("rubrics")
+    .select("*")
+    .eq("is_template", false)
+    .in("property_id", propertyIds)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle<RubricRow>();
+  if (existingError) throw new Error(existingError.message);
+  if (existing) return mapRow(existing);
+
+  const { data: templateRows, error: templateError } = await supabase
+    .from("rubrics")
+    .select("*")
+    .eq("is_template", true)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true });
+  if (templateError) throw new Error(templateError.message);
+  const templates = (templateRows ?? []) as RubricRow[];
+  const template =
+    templates.find((row) => row.name.trim().toLowerCase() === "tour") ??
+    templates.find((row) => /in-person tour/i.test(row.name) && !/^survey/i.test(row.name)) ??
+    templates.find((row) => row.is_default) ??
+    templates[0];
+  if (!template) throw new Error("The frozen Tour rubric template is missing.");
+
+  const bootstrapKey = `property:${propertyId}`;
+  const payload = {
+    name: "Tour",
+    definition: normalizeRubricDefinition(template.definition ?? template.definition_json),
+    analysis_model: normalizeAnalysisModelId(template.analysis_model, defaultAnalysisModelId()),
+    transcribe_provider: normalizeTranscribeProviderId(template.transcribe_provider),
+    audio_understanding_enabled: Boolean(template.audio_understanding_enabled),
+    session_type: normalizeSessionType(template.session_type),
+    segmentation_prompt: template.segmentation_prompt ?? null,
+    analysis_prompt: template.analysis_prompt ?? null,
+    source_url: template.source_url ?? template.source_file_url ?? null,
+    is_default: false,
+    property_id: propertyId,
+    is_template: false,
+    template_source_id: template.id,
+    bootstrap_key: bootstrapKey,
+  };
+  const { data: inserted, error: insertError } = await supabase
+    .from("rubrics")
+    .upsert(payload as never, { onConflict: "bootstrap_key", ignoreDuplicates: true })
+    .select("*")
+    .maybeSingle<RubricRow>();
+  if (insertError) throw new Error(insertError.message);
+  if (inserted) return mapRow(inserted);
+
+  const { data: raced, error: racedError } = await supabase
+    .from("rubrics")
+    .select("*")
+    .eq("bootstrap_key", bootstrapKey)
+    .single<RubricRow>();
+  if (racedError || !raced) throw new Error(racedError?.message ?? "Could not create the property Tour rubric.");
+  return mapRow(raced);
 }
 
 export async function getRubricById(rubricId: string): Promise<Rubric | null> {

@@ -7,8 +7,10 @@ import {
   AdminAuthError,
   adminCookieOptions,
   createSupabaseAnonClient,
+  propertySessionKeys,
   resolveAdminContextForUser,
 } from "@/lib/admin-auth";
+import { ensurePropertyRubric } from "@/lib/rubrics";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {
@@ -51,6 +53,10 @@ export async function POST(request: Request) {
     if (body.communityId && workspace.community.id !== body.communityId) {
       throw new AdminAuthError("You do not have access to the selected business.", 403);
     }
+    await ensurePropertyRubric(
+      workspace.community.propertyTygId,
+      propertySessionKeys(workspace.community)
+    );
 
     const isMobileClient = request.headers.get("x-tour-client") === "mobile";
     const response = NextResponse.json({

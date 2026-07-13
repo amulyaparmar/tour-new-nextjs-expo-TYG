@@ -4,8 +4,10 @@ import {
   ADMIN_COMMUNITY_COOKIE,
   AdminAuthError,
   adminCookieOptions,
+  propertySessionKeys,
   requireAdminContext,
 } from "@/lib/admin-auth";
+import { ensurePropertyRubric } from "@/lib/rubrics";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as { communityId?: string };
@@ -19,6 +21,10 @@ export async function POST(request: Request) {
     });
     scopedRequest.headers.set("x-admin-community-id", body.communityId);
     const workspace = await requireAdminContext(scopedRequest);
+    await ensurePropertyRubric(
+      workspace.community.propertyTygId,
+      propertySessionKeys(workspace.community)
+    );
     const response = NextResponse.json({ workspace });
     response.cookies.set(
       ADMIN_COMMUNITY_COOKIE,

@@ -3,8 +3,10 @@ import { NextResponse } from "next/server";
 import {
   AdminAuthError,
   createSupabaseAnonClient,
+  propertySessionKeys,
   resolveAdminContextForUser,
 } from "@/lib/admin-auth";
+import { ensurePropertyRubric } from "@/lib/rubrics";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
 export async function POST(request: Request) {
@@ -45,6 +47,10 @@ export async function POST(request: Request) {
     }
 
     const workspace = await resolveAdminContextForUser(data.user);
+    await ensurePropertyRubric(
+      workspace.community.propertyTygId,
+      propertySessionKeys(workspace.community)
+    );
     return NextResponse.json({
       workspace,
       session: {

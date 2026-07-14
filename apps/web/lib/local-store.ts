@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, SessionDetail, SessionLead, SessionSource, SessionSummary, AnalysisRun, AnalysisRunSummary, AnalysisRunTrigger } from "@tour/shared";
+import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, SessionDetail, SessionLead, SessionSource, SessionStatus, SessionSummary, AnalysisRun, AnalysisRunSummary, AnalysisRunTrigger } from "@tour/shared";
 import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeParticipantName } from "@tour/shared";
 
 type TranscriptSegment = {
@@ -82,6 +82,7 @@ export async function listLocalSessions(): Promise<SessionSummary[]> {
 
 export async function createLocalSession(input: {
   title: string;
+  status?: SessionStatus;
   scheduledAt?: string | null;
   location?: string | null;
   prospectName?: string | null;
@@ -90,6 +91,8 @@ export async function createLocalSession(input: {
   source?: SessionSource;
   leads?: SessionLead[];
   rubricId?: string | null;
+  agentId?: string | null;
+  propertyId?: string | null;
 }): Promise<SessionSummary> {
   const store = await loadStore();
   const session: SessionDetail = {
@@ -99,10 +102,12 @@ export async function createLocalSession(input: {
     agentName: normalizeParticipantName(input.agentName),
     scheduledAt: input.scheduledAt ?? null,
     location: input.location ?? null,
-    status: "scheduled",
+    status: input.status ?? "scheduled",
     source: input.source ?? "manual",
     leads: input.leads ?? [],
     rubricId: input.rubricId ?? null,
+    agentId: input.agentId ?? null,
+    propertyId: input.propertyId ?? null,
     overallScore: null,
     createdAt: new Date().toISOString(),
     audioInsightsStatus: "pending",
@@ -175,14 +180,20 @@ export async function setLocalSessionStatus(
   await saveStore(store);
 }
 
-export async function findOpenLocalQrSession(cutoffIso: string): Promise<SessionSummary | null> {
+export async function findOpenLocalQrSession(
+  cutoffIso: string,
+  propertyId?: string | null,
+  agentId?: string | null
+): Promise<SessionSummary | null> {
   const store = await loadStore();
   return (
     store.sessions
       .filter(
         (session) =>
           session.source === "qr" &&
-          session.status === "scheduled" &&
+          session.status === "in_progress" &&
+          (session.propertyId ?? null) === (propertyId ?? null) &&
+          (session.agentId ?? null) === (agentId ?? null) &&
           session.createdAt >= cutoffIso
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null

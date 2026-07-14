@@ -109,6 +109,7 @@ export type CheckInLeadPayload = {
   reason?: string | null;
   questionAnswers?: Record<string, string>;
   repSlug?: string | null;
+  repName?: string | null;
   propertyId?: string | null;
 };
 

@@ -384,6 +384,7 @@ function ContactSheet({
           reason,
           questionAnswers: answers,
           repSlug: rep.slug,
+          repName: rep.name,
           propertyName: property.name,
           propertyId: property.id ?? null,
         })

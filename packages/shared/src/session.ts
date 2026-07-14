@@ -60,6 +60,7 @@ export type SessionDetail = SessionSummary & {
 
 export type CreateSessionInput = {
   title: string;
+  status?: SessionStatus;
   scheduledAt?: string | null;
   location?: string | null;
   prospectName?: string | null;

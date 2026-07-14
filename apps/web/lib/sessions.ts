@@ -315,12 +315,12 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
   );
   const payload = {
     title: normalizedTitle,
+    status: input.status ?? "scheduled",
     scheduled_at: input.scheduledAt ?? null,
     location: input.location?.trim() ? input.location.trim() : null,
     prospect_name: normalizeParticipantName(input.prospectName),
     agent_name: normalizeParticipantName(input.agentName),
     notes: input.notes?.trim() ? input.notes.trim() : null,
-    status: "scheduled" as const,
     source: input.source ?? "manual",
     leads: input.leads ?? [],
     rubric_id: rubricId,
@@ -346,6 +346,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     rethrowInProduction(error);
     return createLocalSession({
       title: normalizedTitle,
+      status: input.status ?? "scheduled",
       scheduledAt: input.scheduledAt ?? null,
       location: input.location ?? null,
       prospectName: normalizeParticipantName(input.prospectName),
@@ -353,7 +354,9 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       notes: input.notes ?? null,
       source: input.source ?? "manual",
       leads: input.leads ?? [],
-      rubricId
+      rubricId,
+      agentId: input.agentId ?? null,
+      propertyId: input.propertyId ?? null,
     });
   }
 }
@@ -361,51 +364,45 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
 const QR_GROUP_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 /**
- * Most recent QR-created session still in `scheduled` within the grouping
- * window — additional prospects scanning the same QR join this session group
- * instead of creating duplicates.
+ * Most recent QR-created session still `in_progress` for the same property and
+ * team member within the grouping window. Additional people scanning that QR
+ * join the session instead of creating duplicate tours.
  */
-export async function findOpenQrSession(propertyId?: string | null): Promise<SessionSummary | null> {
+export async function findOpenQrSession(
+  propertyId?: string | null,
+  agentId?: string | null
+): Promise<SessionSummary | null> {
   const cutoff = new Date(Date.now() - QR_GROUP_WINDOW_MS).toISOString();
   try {
     const supabase = getSupabaseServiceClient();
-    const { data, error } = await supabase
+    let query = supabase
       .from("sessions")
       .select(SESSION_COLUMNS)
       .eq("source", "qr")
-      .eq("status", "scheduled")
-      .match(propertyId ? { property_id: propertyId } : {})
+      .eq("status", "in_progress")
       .gte("created_at", cutoff)
       .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle<SessionRow>();
+      .limit(1);
+    query = propertyId ? query.eq("property_id", propertyId) : query.is("property_id", null);
+    query = agentId ? query.eq("agent_id", agentId) : query.is("agent_id", null);
+    const { data, error } = await query.maybeSingle<SessionRow>();
 
     if (error) throw new Error(error.message);
     return data ? mapSessionRow(data) : null;
   } catch (error) {
     rethrowInProduction(error);
-    return findOpenLocalQrSession(cutoff);
+    return findOpenLocalQrSession(cutoff, propertyId, agentId);
   }
 }
 
 export async function addSessionLead(sessionId: string, lead: SessionLead): Promise<void> {
   try {
     const supabase = getSupabaseServiceClient();
-    const { data, error } = await supabase
-      .from("sessions")
-      .select("leads")
-      .eq("id", sessionId)
-      .single<{ leads: SessionLead[] | null }>();
-
+    const { error } = await supabase.rpc("append_session_check_in" as never, {
+      p_session_id: sessionId,
+      p_lead: lead,
+    } as never);
     if (error) throw new Error(error.message);
-
-    const leads = [...(data?.leads ?? []), lead];
-    const { error: updateError } = await supabase
-      .from("sessions")
-      .update({ leads } as never)
-      .eq("id", sessionId);
-
-    if (updateError) throw new Error(updateError.message);
   } catch (error) {
     rethrowInProduction(error);
     await addLocalSessionLead(sessionId, lead);

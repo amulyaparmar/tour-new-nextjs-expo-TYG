@@ -115,6 +115,37 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
         </div>
       </div>
 
+      {session.source === "qr" && session.leads.length > 0 && (
+        <section className="card" style={{ marginBottom: 16 }} aria-labelledby="checked-in-heading">
+          <div className="card-header">
+            <div>
+              <h2 id="checked-in-heading">Checked in</h2>
+              <p style={{ margin: "4px 0 0", color: "var(--slate-500)", fontSize: 13 }}>
+                {session.leads.length} {session.leads.length === 1 ? "visitor" : "visitors"} ready for this tour
+              </p>
+            </div>
+          </div>
+          <div className="card-body" style={{ display: "grid", gap: 10 }}>
+            {session.leads.map((lead) => (
+              <article
+                key={`${lead.createdAt}-${lead.email ?? ""}-${lead.phone ?? ""}`}
+                style={{ padding: 12, border: "1px solid var(--slate-200)", borderRadius: 12 }}
+              >
+                <div style={{ fontWeight: 750, color: "var(--slate-900)" }}>{lead.name}</div>
+                {lead.jobTitle || lead.reason ? (
+                  <div style={{ marginTop: 3, color: "var(--slate-500)", fontSize: 13 }}>
+                    {[lead.jobTitle, lead.reason].filter(Boolean).join(" · ")}
+                  </div>
+                ) : null}
+                <div style={{ marginTop: 5, color: "var(--slate-600)", fontSize: 13 }}>
+                  {[lead.email, lead.phone].filter(Boolean).join(" · ")}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       {!hasAnalysis && isScheduled && (
         <UploadAndProcess sessionId={id} hasRecording={false} variant="new-session" defaults={defaults ?? undefined} noteAssets={noteAssets} />
       )}

@@ -1183,6 +1183,7 @@ function validCheckInEmail(value: string) {
 
 function CheckInSheet({ visible, onClose, session }: { visible: boolean; onClose: () => void; session: MobileAuthSession }) {
   const { height: windowHeight } = useWindowDimensions();
+  const queryClient = useQueryClient();
   const propertyLabel = session.workspace.community.name || CHECK_IN_PROPERTY;
   const repName = session.workspace.teamMember?.name || session.workspace.user.fullName || session.workspace.user.email.split("@")[0] || "your leasing agent";
   const repFirstName = repName.split(/\s+/)[0] || "your leasing agent";
@@ -1270,9 +1271,11 @@ function CheckInSheet({ visible, onClose, session }: { visible: boolean; onClose
         reason: reason.trim() || null,
         questionAnswers: answers,
         repSlug: memberKey,
+        repName,
         propertyName: propertyLabel,
-        propertyId: getCurrentSession()?.workspace.community.propertyTygId ?? null,
+        propertyId: session.workspace.community.propertyTygId,
       });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.all() });
       setStepDirection("forward");
       setStep("done");
       showToast("Guest checked in", "success");
@@ -1850,6 +1853,9 @@ function SessionListSwipeRow({
 }) {
   const swipeableRef = useRef<SwipeableMethods | null>(null);
   const needsReview = ["uploaded", "failed", "analysis_ready"].includes(session.status);
+  const checkedInSummary = session.source === "qr" && session.leads.length
+    ? `${session.leads.map((lead) => lead.name).join(", ")} · ${session.leads.length} checked in`
+    : null;
 
   return (
     <Swipeable
@@ -1910,7 +1916,7 @@ function SessionListSwipeRow({
             <Text style={slst.sessionName} numberOfLines={1}>{session.title}</Text>
           </View>
           <Text style={slst.sessionMeta} numberOfLines={1}>
-            {[session.location, session.scheduledAt ? `${fmtDate(session.scheduledAt)}, ${fmtTime(session.scheduledAt)}` : null].filter(Boolean).join(" · ") || session.prospectName || "Session details pending"}
+            {checkedInSummary || [session.location, session.scheduledAt ? `${fmtDate(session.scheduledAt)}, ${fmtTime(session.scheduledAt)}` : null].filter(Boolean).join(" · ") || session.prospectName || "Session details pending"}
           </Text>
         </View>
         <View style={slst.sessionRight}>
@@ -3453,6 +3459,41 @@ function SampleSessionDetailScreen({ sessionId, onBack }: { sessionId: string; o
   );
 }
 
+function CheckedInVisitorsCard({
+  leads,
+  description,
+}: {
+  leads: SessionSummary["leads"];
+  description: string;
+}) {
+  return (
+    <View style={st.checkedInCard}>
+      <View style={st.checkedInHeader}>
+        <View style={st.checkedInIcon}>
+          <Ionicons name="people" size={18} color={C.green} />
+        </View>
+        <View style={st.flex1}>
+          <Text style={st.checkedInTitle}>Checked in</Text>
+          <Text style={st.checkedInSubtitle}>{description}</Text>
+        </View>
+      </View>
+      {leads.map((lead) => (
+        <View key={`${lead.createdAt}-${lead.email ?? ""}-${lead.phone ?? ""}`} style={st.checkedInPerson}>
+          <View style={st.checkedInAvatar}>
+            <Text style={st.checkedInAvatarText}>{lead.name.slice(0, 1).toUpperCase()}</Text>
+          </View>
+          <View style={st.flex1}>
+            <Text style={st.checkedInName}>{lead.name}</Text>
+            <Text style={st.checkedInContact} numberOfLines={1}>
+              {[lead.email, lead.phone].filter(Boolean).join(" · ") || lead.reason || "Contact details pending"}
+            </Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function SessionDetailScreen({
   sessionId,
   onBack,
@@ -3588,6 +3629,13 @@ function SessionDetailScreen({
           {session.prospectName && <DetailMeta icon="person-outline" text={session.prospectName} />}
           {session.location && <DetailMeta icon="location-outline" text={session.location} />}
         </View>
+
+        {session.source === "qr" && session.leads.length > 0 ? (
+          <CheckedInVisitorsCard
+            leads={session.leads}
+            description={`${session.leads.length} ${session.leads.length === 1 ? "visitor" : "visitors"} ready for this tour`}
+          />
+        ) : null}
 
         {/* Upload / Process section for non-analyzed sessions */}
         {!hasAnalysis && (
@@ -3987,6 +4035,12 @@ function SessionReviewExperience({
               <Text style={reviewSt.sampleReadOnlySub}>Read only · Explore the scoring, coaching, audio, and transcript.</Text>
             </View>
           </View>
+        ) : null}
+        {!readOnly && session.source === "qr" && session.leads?.length > 0 ? (
+          <CheckedInVisitorsCard
+            leads={session.leads}
+            description={`${session.leads.length} ${session.leads.length === 1 ? "visitor" : "visitors"} joined this session`}
+          />
         ) : null}
         {reviewMode === "rubric" && (
           <AnimatedTabContent tabKey="rubric">
@@ -6439,6 +6493,16 @@ const st = StyleSheet.create({
 
   // Detail
   detailTitle: { fontSize: 28, fontWeight: "900", color: C.text },
+  checkedInCard: { gap: 10, padding: 14, borderWidth: 1, borderColor: "#bbf7d0", borderRadius: 16, backgroundColor: "#f0fdf4" },
+  checkedInHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  checkedInIcon: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: "#dcfce7" },
+  checkedInTitle: { color: C.text, fontSize: 15, fontWeight: "900" },
+  checkedInSubtitle: { marginTop: 2, color: C.textSec, fontSize: 11, fontWeight: "600" },
+  checkedInPerson: { flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 12, backgroundColor: "#fff" },
+  checkedInAvatar: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, backgroundColor: "#e0f2fe" },
+  checkedInAvatarText: { color: C.brand, fontSize: 13, fontWeight: "900" },
+  checkedInName: { color: C.text, fontSize: 13, fontWeight: "800" },
+  checkedInContact: { marginTop: 2, color: C.textSec, fontSize: 11, fontWeight: "600" },
 
   // Score Hero
   scoreHero: { backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: C.border, padding: 18, gap: 18 },

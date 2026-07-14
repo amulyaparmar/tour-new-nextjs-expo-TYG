@@ -58,6 +58,8 @@ import {
   type SessionSummary,
   type AudioInsights,
   type AudioInsightsStatus,
+  formatSessionCardDescription,
+  formatSessionCardMeta,
   rubricItemCount,
   rubricTotalPoints,
 } from "@tour/shared";
@@ -90,7 +92,6 @@ import {
   fetchTranscript,
   postComment,
   processSession,
-  submitCheckInLead,
   syncCalendar,
   materialUrl,
   updateActionStatus,
@@ -102,6 +103,9 @@ import { getApiBaseUrl, getSiteBaseUrl } from "./src/config";
 import { computeDashboardMetrics } from "./src/dashboard";
 import type { UploadProgressInfo } from "./src/presignedUpload";
 import { authorizedCommunitiesForSession, type MobileAuthSession, authenticatedFetch, clearSession, getCurrentSession, restoreSession, switchCommunity, updateWorkspaceAliases } from "./src/auth";
+import { useEasUpdateCheck } from "./src/hooks/use-eas-update-check";
+import { registerForPushNotifications, addNotificationResponseListener } from "./src/push-notifications";
+import { trackAnalyticsEvent, setAnalyticsUserId } from "./src/analytics";
 import { LoginScreen } from "./src/LoginScreen";
 import { TourLogo, TourMark } from "./src/components/TourLogo";
 import {
@@ -113,6 +117,20 @@ import {
   useRecording,
   type LiveSessionSnapshot,
 } from "./src/recording";
+import {
+  copyRecordingToDurableStore,
+  deleteLocalSession,
+  findLocalSessionByRemoteId,
+  getRecordingUri,
+  listLocalSessions,
+  listPendingSyncSessions,
+  listRecoverableRecordingSessions,
+  markReadyToSync,
+  type LocalSessionMeta,
+  updateLocalSession,
+} from "./src/offline/session-local-store";
+import { drainSyncOutbox, isOnline, startSyncOutbox, syncLocalSessionNow } from "./src/offline/sync-outbox";
+import { promoteLocalRecordingToCache, resolveSessionPlaybackUri } from "./src/session-audio-cache";
 import { MotionBlock, MotionPressable, AnimatedTabContent } from "./src/components/ui/motion";
 import {
   CollapsibleSection,
@@ -140,6 +158,8 @@ import {
   TourStatusBadge,
 } from "./src/components/tour";
 import { CommunityPickerModal } from "@/components/community-picker-modal";
+import { CheckInSheet } from "./src/components/check-in/check-in-sheet";
+import { ProfileEditorScreen, resolveCardAccent } from "./src/components/profile/profile-editor-screen";
 import {
   queryKeys,
   useCalendarEventsQuery,
@@ -148,6 +168,7 @@ import {
   useInfiniteSessionsQuery,
   useMaterialsQuery,
   usePostCommentMutation,
+  useProfileQuery,
   useActionsQuery,
   useAnalysisQuery,
   useAudioInsightsQuery,
@@ -163,7 +184,6 @@ import {
 import { useAppStore } from "./src/stores/app-store";
 import { queryClient as appQueryClient } from "./src/query-client";
 import type { SortOption, StatusFilter } from "./src/types/ui";
-import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text as UiText } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
@@ -174,7 +194,7 @@ type ProspectData = { name: string; email: string; phone: string; moveIn: string
 type MainTab = "home" | "sessions" | "calendar" | "materials" | "settings";
 type Screen =
   | { type: "main"; tab: MainTab }
-  | { type: "session-detail"; sessionId: string; sample?: boolean }
+  | { type: "session-detail"; sessionId: string; sample?: boolean; autoStartRecording?: boolean }
   | { type: "session-comments"; sessionId: string; sessionTitle?: string }
   | { type: "session-ai-chat"; sessionId: string; sessionTitle?: string; prospectName?: string }
   | { type: "session-audio-insights"; sessionId: string; sessionTitle?: string; initialStatus?: AudioInsightsStatus; initialInsights?: AudioInsights | null }
@@ -214,6 +234,7 @@ type PendingRecordingUpload = {
 
 /** Handed back to Create Session after live recording so the upload journey can remount. */
 type PendingCreateSessionUpload = {
+  localId: string | null;
   uri: string;
   mimeType: string;
   name: string;
@@ -227,6 +248,35 @@ type PendingCreateSessionUpload = {
     selectedAssetIds: string[];
   };
 };
+
+function localSessionToSummary(local: LocalSessionMeta): SessionSummary {
+  const pendingStatus = local.status === "failed" ? "failed" : "uploaded";
+  return {
+    id: local.remoteSessionId ?? `local:${local.localId}`,
+    title: local.title || "Tour conversation",
+    prospectName: local.draft.prospect || local.prospectName,
+    agentName: local.agentName,
+    scheduledAt: null,
+    location: local.draft.location || local.propertyName,
+    status: pendingStatus,
+    source: "manual",
+    leads: [],
+    rubricId: local.draft.rubricId,
+    overallScore: null,
+    duration: local.durationSec,
+    createdAt: local.createdAt,
+    audioInsightsStatus: "pending",
+    cardSummary: null,
+    needsImprovement: null,
+  };
+}
+
+function sessionStatusLabel(session: SessionSummary): string {
+  if (session.id.startsWith("local:")) {
+    return session.status === "failed" ? "Sync failed" : "Pending sync";
+  }
+  return STATUS_LABELS[session.status] ?? session.status;
+}
 
 const AGENT = {
   name: "Alex Johnson",
@@ -279,16 +329,42 @@ function pendingUploadKey(sessionId: string) {
   return `tour.pendingRecordingUpload.${sessionId}`;
 }
 
-async function savePendingRecordingUpload(upload: PendingRecordingUpload) {
+async function savePendingRecordingUpload(upload: PendingRecordingUpload & { localId?: string | null }) {
   try {
+    if (upload.localId) {
+      markReadyToSync(upload.localId, {
+        durationSec: upload.durationSec ?? 1,
+        sourceUri: upload.uri,
+        remoteSessionId: upload.sessionId,
+        fileName: upload.name,
+        mimeType: upload.mimeType,
+      });
+      return;
+    }
+    // Legacy fallback for uploads without a local session folder.
     await SecureStore.setItemAsync(pendingUploadKey(upload.sessionId), JSON.stringify(upload));
   } catch {
     // Best-effort local retry metadata only.
   }
 }
 
-async function loadPendingRecordingUpload(sessionId: string): Promise<PendingRecordingUpload | null> {
+async function loadPendingRecordingUpload(sessionId: string): Promise<(PendingRecordingUpload & { localId?: string | null }) | null> {
   try {
+    const local = findLocalSessionByRemoteId(sessionId);
+    if (local && (local.status === "ready_to_sync" || local.status === "failed" || local.status === "syncing")) {
+      const uri = getRecordingUri(local.localId);
+      if (uri) {
+        return {
+          sessionId,
+          localId: local.localId,
+          uri,
+          mimeType: local.mimeType,
+          name: local.fileName,
+          durationSec: local.durationSec ?? undefined,
+          savedAt: Date.parse(local.updatedAt) || Date.now(),
+        };
+      }
+    }
     const raw = await SecureStore.getItemAsync(pendingUploadKey(sessionId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PendingRecordingUpload;
@@ -298,8 +374,14 @@ async function loadPendingRecordingUpload(sessionId: string): Promise<PendingRec
   }
 }
 
-async function clearPendingRecordingUpload(sessionId: string) {
+async function clearPendingRecordingUpload(sessionId: string, localId?: string | null) {
   try {
+    if (localId) {
+      updateLocalSession(localId, { status: "uploaded", remoteSessionId: sessionId, lastError: null });
+    } else {
+      const local = findLocalSessionByRemoteId(sessionId);
+      if (local) updateLocalSession(local.localId, { status: "uploaded", lastError: null });
+    }
     await SecureStore.deleteItemAsync(pendingUploadKey(sessionId));
   } catch {
     // Best-effort local retry metadata only.
@@ -589,11 +671,67 @@ function showToast(msg: string, type?: "error" | "success" | "info") {
   _showToast?.(msg, type);
 }
 
+function OfflineSyncHost({ onOpenRemoteSession }: { onOpenRemoteSession: (sessionId: string) => void }) {
+  const recoveryShownRef = useRef(false);
+
+  useEffect(() => {
+    const stop = startSyncOutbox();
+    return stop;
+  }, []);
+
+  useEffect(() => {
+    if (recoveryShownRef.current) return;
+    const recoverable = listRecoverableRecordingSessions();
+    if (recoverable.length === 0) return;
+    recoveryShownRef.current = true;
+    const first = recoverable[0]!;
+    Alert.alert(
+      "Recover recording?",
+      `“${first.title}” was interrupted. Upload the saved audio when you’re back online?`,
+      [
+        {
+          text: "Discard",
+          style: "destructive",
+          onPress: () => {
+            for (const session of recoverable) deleteLocalSession(session.localId);
+          },
+        },
+        {
+          text: "Keep & sync",
+          onPress: () => {
+            for (const session of recoverable) {
+              markReadyToSync(session.localId, {
+                durationSec: session.durationSec ?? Math.max(1, session.elapsedSec),
+                sourceUri: getRecordingUri(session.localId) ?? session.recordingSourceUri,
+                remoteSessionId: session.remoteSessionId,
+                draft: session.draft,
+                fileName: session.fileName,
+                mimeType: session.mimeType,
+              });
+            }
+            void drainSyncOutbox().then(() => {
+              const synced = listLocalSessions().find((s) => s.localId === first.localId);
+              if (synced?.remoteSessionId && synced.status === "uploaded") {
+                onOpenRemoteSession(synced.remoteSessionId);
+              } else {
+                showToast("Saved on device — will upload when online", "info");
+              }
+            });
+          },
+        },
+      ],
+    );
+  }, [onOpenRemoteSession]);
+
+  return null;
+}
+
 // ═══════════════════════════════════════
 // Root App
 // ═══════════════════════════════════════
 
 export default function App() {
+  useEasUpdateCheck();
   const player = useVideoPlayer(loginBackground, (vp) => {
     vp.loop = true;
     vp.muted = true;
@@ -609,9 +747,22 @@ export default function App() {
 
   useEffect(() => {
     restoreSession()
-      .then(setAuthSession)
+      .then((session) => {
+        setAuthSession(session);
+        if (session) {
+          setAnalyticsUserId(session.workspace.user.id);
+          void trackAnalyticsEvent("login");
+          void registerForPushNotifications();
+        }
+      })
       .finally(() => setAuthLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!authSession) return;
+    setAnalyticsUserId(authSession.workspace.user.id);
+    void registerForPushNotifications();
+  }, [authSession?.workspace.user.id]);
 
   const tourIdx = useMemo(() => tourSteps.findIndex((s) => s.id === tourStep), [tourStep]);
   const routeKey = screen.type === "main" ? "main" : screenKey(screen);
@@ -619,6 +770,12 @@ export default function App() {
     setTransitionDirection(screenRank(next) >= screenRank(screen) ? "forward" : "back");
     setScreen(next);
   }, [screen]);
+
+  useEffect(() => {
+    return addNotificationResponseListener((sessionId) => {
+      nav({ type: "session-detail", sessionId });
+    });
+  }, [nav]);
 
   if (authLoading) {
     return (
@@ -652,6 +809,7 @@ export default function App() {
       <StatusBar style="dark" />
       <RecordingProvider onNotify={showToast}>
         <ToastProvider>
+          <OfflineSyncHost onOpenRemoteSession={(sessionId) => nav({ type: "session-detail", sessionId })} />
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={st.flex1}>
             <ScreenTransition transitionKey={routeKey} direction={transitionDirection}>
               {screen.type === "main" && (
@@ -659,7 +817,11 @@ export default function App() {
                   key={authSession.workspace.community.id}
                   tab={screen.tab}
                   onTab={(t) => nav({ type: "main", tab: t })}
-                  onSession={(id) => nav({ type: "session-detail", sessionId: id })}
+                  onSession={(id, opts) => nav({
+                    type: "session-detail",
+                    sessionId: id,
+                    autoStartRecording: opts?.autoStartRecording,
+                  })}
                   onSampleSession={(id) => nav({ type: "session-detail", sessionId: id, sample: true })}
                   onCreate={() => nav({ type: "create-session" })}
                   onAudioTest={() => nav({ type: "audio-test" })}
@@ -691,6 +853,7 @@ export default function App() {
               ) : screen.type === "session-detail" ? (
                 <SessionDetailScreen
                   sessionId={screen.sessionId}
+                  autoStartRecording={Boolean(screen.autoStartRecording)}
                   onBack={() => nav({ type: "main", tab: "sessions" })}
                   onOpenComments={(meta) => nav({ type: "session-comments", ...meta })}
                   onOpenAiChat={(meta) => nav({ type: "session-ai-chat", ...meta })}
@@ -738,9 +901,12 @@ export default function App() {
               {screen.type === "audio-test" && <AudioTestScreen onBack={() => nav({ type: "main", tab: "home" })} />}
               {screen.type === "rubrics" && <RubricsScreen session={authSession} onBack={() => nav({ type: "main", tab: "settings" })} onSession={(id) => nav({ type: "session-detail", sessionId: id })} />}
               {screen.type === "profile" && (
-                <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-                  <ProfileScreen session={authSession} onBack={() => nav({ type: "main", tab: "home" })} onStartTour={() => { setTourStep("contact"); nav({ type: "tour" }); }} />
-                </ScrollView>
+                <ProfileEditorScreen
+                  session={authSession}
+                  onBack={() => nav({ type: "main", tab: "home" })}
+                  onSaved={setAuthSession}
+                  onStartTour={() => { setTourStep("contact"); nav({ type: "tour" }); }}
+                />
               )}
               {screen.type === "tour" && (
                 <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
@@ -800,7 +966,20 @@ const TAB_ITEMS: Array<{ id: MainTab; label: string; icon: keyof typeof Ionicons
 ];
 
 function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTest, onGuestRegistration, onProfile, onRubrics, onSignOut, authSession, onAuthSession, agentName, property }: {
-  tab: MainTab; onTab: (t: MainTab) => void; onSession: (id: string) => void; onSampleSession: (id: string) => void; onCreate: () => void; onAudioTest: () => void; onGuestRegistration: () => void; onProfile: () => void; onRubrics: () => void; onSignOut: () => void; authSession: MobileAuthSession; onAuthSession: (session: MobileAuthSession) => void; agentName: string; property: string;
+  tab: MainTab;
+  onTab: (t: MainTab) => void;
+  onSession: (id: string, opts?: { autoStartRecording?: boolean }) => void;
+  onSampleSession: (id: string) => void;
+  onCreate: () => void;
+  onAudioTest: () => void;
+  onGuestRegistration: () => void;
+  onProfile: () => void;
+  onRubrics: () => void;
+  onSignOut: () => void;
+  authSession: MobileAuthSession;
+  onAuthSession: (session: MobileAuthSession) => void;
+  agentName: string;
+  property: string;
 }) {
   const { width: tabBarWidth } = useWindowDimensions();
   const queryClient = useQueryClient();
@@ -808,11 +987,13 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
   const upcomingSessionsQuery = useSessionsQuery({ limit: 10, upcoming: true, sort: "scheduled_asc" });
   const materialsQuery = useMaterialsQuery();
   const calendarQuery = useCalendarEventsQuery();
+  const profileQuery = useProfileQuery();
   const sessions = sessionsQuery.data?.sessions ?? [];
   const upcomingSessions = upcomingSessionsQuery.data?.sessions ?? [];
   const materials = materialsQuery.data?.materials ?? [];
   const tourLibrary = materialsQuery.data?.tourLibrary ?? null;
   const calendarEvents = calendarQuery.data?.events ?? [];
+  const profile = profileQuery.data;
   const loading = sessionsQuery.isLoading || upcomingSessionsQuery.isLoading || calendarQuery.isLoading;
   const materialsLoading = materialsQuery.isLoading;
   const [refreshing, setRefreshing] = useState(false);
@@ -842,6 +1023,12 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
     });
   }, [tab, tabBarWidth, tabIndicatorX]);
 
+  useEffect(() => {
+    if (!profile) return;
+    const next = getCurrentSession();
+    if (next) onAuthSession(next);
+  }, [profile, onAuthSession]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
@@ -849,9 +1036,10 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
       upcomingSessionsQuery.refetch(),
       calendarQuery.refetch(),
       materialsQuery.refetch(),
+      profileQuery.refetch(),
     ]);
     setRefreshing(false);
-  }, [calendarQuery, materialsQuery, sessionsQuery, upcomingSessionsQuery]);
+  }, [calendarQuery, materialsQuery, profileQuery, sessionsQuery, upcomingSessionsQuery]);
 
   const chooseCommunity = useCallback(async (communityId: string) => {
     if (communityId === authSession.workspace.community.id) {
@@ -891,10 +1079,39 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
                 onRetry={() => void onRefresh()}
               />
             )}
-            {tab === "home" && <DashboardScreen sessions={sessions} upcomingSessions={upcomingSessions} materialCount={materials.length} tourLibrary={tourLibrary} loading={loading} onSession={onSession} onProfile={onProfile} onCheckIn={() => setCheckInOpen(true)} onCreate={onCreate} onAudioTest={onAudioTest} onAssets={() => handleTabPress("materials")} onCommunityPress={() => setCommunityPickerOpen(true)} agentName={agentName} userEmail={authSession.workspace.user.email} property={property} />}
+            {tab === "home" && (
+              <DashboardScreen
+                sessions={sessions}
+                upcomingSessions={upcomingSessions}
+                materialCount={materials.length}
+                tourLibrary={tourLibrary}
+                loading={loading}
+                onSession={onSession}
+                onProfile={onProfile}
+                onCheckIn={() => setCheckInOpen(true)}
+                onCreate={onCreate}
+                onAudioTest={onAudioTest}
+                onAssets={() => handleTabPress("materials")}
+                onCommunityPress={() => setCommunityPickerOpen(true)}
+                agentName={agentName}
+                userTitle={profile?.title ?? authSession.workspace.user.title ?? "Leasing Consultant"}
+                userPhone={profile?.phone ?? authSession.workspace.user.phone ?? null}
+                userEmail={authSession.workspace.user.email}
+                cardAccent={profile?.cardAccent ?? authSession.workspace.user.cardAccent ?? "#006CE5"}
+                property={property}
+              />
+            )}
             {tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={async () => { await calendarQuery.refetch(); }} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
             {tab === "materials" && <MaterialsScreen materials={materials} tourLibrary={tourLibrary} loading={materialsLoading} onCreate={onCreate} onReload={async () => { await materialsQuery.refetch(); }} onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
-            {tab === "settings" && <SettingsScreen session={authSession} onSessionChange={onAuthSession} onRubrics={onRubrics} onSignOut={onSignOut} />}
+            {tab === "settings" && (
+              <SettingsScreen
+                session={authSession}
+                onSessionChange={onAuthSession}
+                onProfile={onProfile}
+                onRubrics={onRubrics}
+                onSignOut={onSignOut}
+              />
+            )}
           </ScrollView>
         </ScreenTransition>
       )}
@@ -942,7 +1159,31 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
         }}
         onSelect={(communityId) => void chooseCommunity(communityId)}
       />
-      <CheckInSheet visible={checkInOpen} onClose={() => setCheckInOpen(false)} session={authSession} />
+      <CheckInSheet
+        visible={checkInOpen}
+        onClose={() => setCheckInOpen(false)}
+        property={property}
+        propertyId={authSession.workspace.community.id}
+        agentName={agentName}
+        repSlug={
+          authSession.workspace.teamMember?.alias
+          || authSession.workspace.teamMember?.id
+          || authSession.workspace.user.email.split("@")[0]
+          || authSession.workspace.user.id
+        }
+        checkInUrl={`${getSiteBaseUrl().replace(/\/$/, "")}/p/${encodeURIComponent(
+          authSession.workspace.community.alias || authSession.workspace.community.propertyTygId
+        )}/${encodeURIComponent(
+          authSession.workspace.teamMember?.alias
+          || authSession.workspace.teamMember?.id
+          || authSession.workspace.user.email.split("@")[0]
+          || authSession.workspace.user.id
+        )}?check-in=true`}
+        onCheckedIn={(sessionId) => {
+          setCheckInOpen(false);
+          onSession(sessionId, { autoStartRecording: true });
+        }}
+      />
     </View>
   );
 }
@@ -985,13 +1226,13 @@ const errorBannerSt = StyleSheet.create({
 // Dashboard
 // ═══════════════════════════════════════
 
-function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrary, loading, onSession, onProfile, onCheckIn, onCreate, onAudioTest, onAssets, onCommunityPress, agentName, userEmail, property }: {
+function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrary, loading, onSession, onProfile, onCheckIn, onCreate, onAudioTest, onAssets, onCommunityPress, agentName, userTitle, userPhone, userEmail, cardAccent, property }: {
   sessions: SessionSummary[];
   upcomingSessions: SessionSummary[];
   materialCount: number;
   tourLibrary: TourLibraryLink | null;
   loading: boolean;
-  onSession: (id: string) => void;
+  onSession: (id: string, opts?: { autoStartRecording?: boolean }) => void;
   onProfile: () => void;
   onCheckIn: () => void;
   onCreate: () => void;
@@ -999,7 +1240,10 @@ function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrar
   onAssets: () => void;
   onCommunityPress: () => void;
   agentName: string;
+  userTitle: string;
+  userPhone: string | null;
   userEmail: string;
+  cardAccent: string;
   property: string;
 }) {
   const todayTours = useMemo(() => {
@@ -1012,6 +1256,7 @@ function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrar
       .slice(0, 2);
   }, [upcomingSessions]);
   const initials = agentName.split(" ").map((name) => name[0]).join("").slice(0, 2).toUpperCase();
+  const accent = resolveCardAccent(cardAccent);
 
   return (
     <View style={[st.page, { gap: 18 }]}>
@@ -1020,29 +1265,34 @@ function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrar
         onCommunityPress={onCommunityPress}
         left={<Pressable accessibilityLabel="Open profile" onPress={onProfile}><TourLogo width={62} /></Pressable>}
         right={
-          <Pressable accessibilityLabel="Notifications" style={homeSt.headerIcon}>
-            <Ionicons name="notifications-outline" size={20} color={C.text} />
+          <Pressable accessibilityLabel="Edit profile" onPress={onProfile} style={homeSt.headerIcon}>
+            <Ionicons name="person-circle-outline" size={22} color={C.text} />
           </Pressable>
         }
       />
 
-      <MotionBlock delay={40} style={homeSt.profileCard}>
-        <View style={homeSt.profileHeader} />
+      <MotionPressable
+        onPress={onProfile}
+        haptic="selection"
+        entering={FadeInDown.delay(40).duration(420).springify()}
+        style={homeSt.profileCard}
+      >
+        <View style={[homeSt.profileHeader, { backgroundColor: accent }]} />
         <View style={homeSt.profileBody}>
-          <View style={homeSt.profileAvatarLarge}>
-            <Text style={homeSt.profileAvatarLargeText}>{initials}</Text>
+          <View style={[homeSt.profileAvatarLarge, { backgroundColor: accent }]}>
+            <Text style={[homeSt.profileAvatarLargeText, { color: "#fff" }]}>{initials}</Text>
           </View>
           <Text style={homeSt.profileNameLarge}>{agentName}</Text>
-          <Text style={homeSt.profileRoleLarge}>Leasing Consultant</Text>
+          <Text style={homeSt.profileRoleLarge}>{userTitle || "Leasing Consultant"}</Text>
           <Text style={homeSt.profileProperty}>{property}</Text>
 
           <View style={homeSt.contactList}>
             <ProfileContact icon="mail" text={userEmail || "team@tour.video"} />
-            <ProfileContact icon="call" text="(586) 258-8588" />
-            <ProfileContact icon="sparkles" text="Favorite feature: rooftop views and resident events" />
+            <ProfileContact icon="call" text={userPhone?.trim() || "Add phone in profile"} />
           </View>
+          <Text style={homeSt.editProfileHint}>Tap to edit card color & details</Text>
         </View>
-      </MotionBlock>
+      </MotionPressable>
 
       <LiveRecordingCard />
 
@@ -1066,8 +1316,11 @@ function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrar
                   <Text style={homeSt.tourTitle} numberOfLines={1}>{session.title}</Text>
                   <View style={homeSt.tourMetaRow}>
                     <Text style={homeSt.timePill}>{session.status === "in_progress" ? "Now" : session.scheduledAt ? fmtTime(session.scheduledAt) : "Today"}</Text>
-                    <Text style={homeSt.tourMeta} numberOfLines={1}>{session.prospectName ?? "Guest ready for tour"}</Text>
+                    <Text style={homeSt.tourMeta} numberOfLines={1}>{session.prospectName ?? session.agentName ?? "Guest ready for tour"}</Text>
                   </View>
+                  {formatSessionCardDescription(session) ? (
+                    <Text style={homeSt.tourMeta} numberOfLines={2}>{formatSessionCardDescription(session)}</Text>
+                  ) : null}
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
               </MotionPressable>
@@ -1128,585 +1381,6 @@ function ProfileContact({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; 
   );
 }
 
-type MobileCheckInQuestion = {
-  id: string;
-  label: string;
-  type: "select" | "text";
-  options?: string[];
-  placeholder?: string;
-  required?: boolean;
-};
-
-const CHECK_IN_PROPERTY = "27 North";
-const CHECK_IN_CONTACT_SHEET_RATIO = 0.94;
-const CHECK_IN_DETAIL_SHEET_RATIO = 0.94;
-const CHECK_IN_SHEET_MAX_HEIGHT = 820;
-const CHECK_IN_QUESTIONS: MobileCheckInQuestion[] = [
-  {
-    id: "hear_about",
-    label: "Where did you hear about us?",
-    type: "select",
-    options: ["Google", "Apartments.com", "Drive by", "Referral", "Social media", "Other"],
-    placeholder: "Select one",
-  },
-  {
-    id: "move_in",
-    label: "When are you looking to move in?",
-    type: "select",
-    options: ["ASAP", "Within 1 month", "1-3 months", "3-6 months", "Just browsing"],
-    placeholder: "Select a timeframe",
-  },
-  {
-    id: "floor_plan",
-    label: "Which floor plan interests you most?",
-    type: "select",
-    options: ["Studio", "1 bedroom", "2 bedroom", "3 bedroom", "Not sure yet"],
-    placeholder: "Select a floor plan",
-  },
-];
-
-function formatCheckInPhone(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 10);
-  if (digits.length <= 3) return digits;
-  if (digits.length <= 6) return `${digits.slice(0, 3)} ${digits.slice(3)}`;
-  return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
-}
-
-function normalizeCountryCode(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 4);
-  return `+${digits || "1"}`;
-}
-
-function validCheckInEmail(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-}
-
-function CheckInSheet({ visible, onClose, session }: { visible: boolean; onClose: () => void; session: MobileAuthSession }) {
-  const { height: windowHeight } = useWindowDimensions();
-  const queryClient = useQueryClient();
-  const propertyLabel = session.workspace.community.name || CHECK_IN_PROPERTY;
-  const repName = session.workspace.teamMember?.name || session.workspace.user.fullName || session.workspace.user.email.split("@")[0] || "your leasing agent";
-  const repFirstName = repName.split(/\s+/)[0] || "your leasing agent";
-  const memberKey = session.workspace.teamMember?.alias
-    || session.workspace.teamMember?.id
-    || session.workspace.user.email.split("@")[0]
-    || session.workspace.user.id;
-  const propertyKey = session.workspace.community.alias || session.workspace.community.propertyTygId;
-  const checkInUrl = `${getSiteBaseUrl().replace(/\/$/, "")}/p/${encodeURIComponent(propertyKey)}/${encodeURIComponent(memberKey)}?check-in=true`;
-  const checkInQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=12&format=png&data=${encodeURIComponent(checkInUrl)}`;
-  const [mode, setMode] = useState<"checkin" | "qr">("checkin");
-  const [step, setStep] = useState<"contact" | "questions" | "done">("contact");
-  const [stepDirection, setStepDirection] = useState<SlideDirection>("forward");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [countryCode, setCountryCode] = useState("+1");
-  const [reason, setReason] = useState(`Tour ${propertyLabel}`);
-  const [jobTitle, setJobTitle] = useState("");
-  const [showJobTitle, setShowJobTitle] = useState(false);
-  const [wantsSummary, setWantsSummary] = useState(true);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [highlightedField, setHighlightedField] = useState<"firstName" | "email" | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const checkInScrollRef = useRef<ScrollView>(null);
-  const contactFieldOffsets = useRef<Record<string, number>>({});
-  const firstNameRef = useRef<TextInput>(null);
-  const lastNameRef = useRef<TextInput>(null);
-  const emailRef = useRef<TextInput>(null);
-  const countryCodeRef = useRef<TextInput>(null);
-  const phoneRef = useRef<TextInput>(null);
-  const reasonRef = useRef<TextInput>(null);
-  const jobTitleRef = useRef<TextInput>(null);
-  const closeSheet = useCallback(() => {
-    onClose();
-  }, [onClose]);
-  const sheetHeight = useMemo(() => {
-    const compactContact = mode === "checkin" && step === "contact";
-    const ratio = compactContact ? CHECK_IN_CONTACT_SHEET_RATIO : CHECK_IN_DETAIL_SHEET_RATIO;
-    return Math.round(Math.min(windowHeight * ratio, CHECK_IN_SHEET_MAX_HEIGHT));
-  }, [mode, step, windowHeight]);
-
-  useEffect(() => {
-    if (!visible) return;
-    setMode("checkin");
-    setStep("contact");
-    setStepDirection("forward");
-    setHighlightedField(null);
-    setReason(`Tour ${propertyLabel}`);
-    setWantsSummary(true);
-    setError(null);
-  }, [propertyLabel, visible]);
-
-  useEffect(() => {
-    if (!visible) return undefined;
-    const show = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      (event) => setKeyboardHeight(event.endCoordinates.height),
-    );
-    const hide = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      () => setKeyboardHeight(0),
-    );
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, [visible]);
-
-  async function submitLead() {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const phoneDigits = phone.replace(/\D/g, "");
-      await submitCheckInLead({
-        firstName: firstName.trim(),
-        lastName: lastName.trim() || null,
-        email: email.trim(),
-        phone: phoneDigits ? `${normalizeCountryCode(countryCode)}${phoneDigits}` : null,
-        wantsSummary,
-        jobTitle: showJobTitle ? jobTitle.trim() || null : null,
-        reason: reason.trim() || null,
-        questionAnswers: answers,
-        repSlug: memberKey,
-        repName,
-        propertyName: propertyLabel,
-        propertyId: session.workspace.community.propertyTygId,
-      });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.all() });
-      setStepDirection("forward");
-      setStep("done");
-      showToast("Guest checked in", "success");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Something went wrong. Please try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  function nextFromContact() {
-    setError(null);
-    if (!firstName.trim()) {
-      scrollToContactField("firstName");
-      setError("First name is required.");
-      return;
-    }
-    if (!email.trim()) {
-      scrollToContactField("email");
-      setError("Email is required.");
-      return;
-    }
-    if (!validCheckInEmail(email)) {
-      scrollToContactField("email");
-      setError("Enter a valid email.");
-      return;
-    }
-    setHighlightedField(null);
-    if (CHECK_IN_QUESTIONS.length) {
-      setStepDirection("forward");
-      setStep("questions");
-      return;
-    }
-    void submitLead();
-  }
-
-  function scrollToContactField(field: "firstName" | "email") {
-    setHighlightedField(field);
-    const y = contactFieldOffsets.current[field] ?? 0;
-    requestAnimationFrame(() => {
-      checkInScrollRef.current?.scrollTo({ y: Math.max(0, y - 14), animated: true });
-    });
-  }
-
-  function goBackFromQuestions() {
-    setError(null);
-    setStepDirection("back");
-    setStep("contact");
-  }
-
-  function nextFromQuestion() {
-    setError(null);
-    void submitLead();
-  }
-
-  function toggleFollowUpNotes() {
-    if (!wantsSummary) {
-      setWantsSummary(true);
-      return;
-    }
-    Alert.alert(
-      "Skip follow-up notes?",
-      "Follow-up notes help us send tour details after the visit. Are you sure you do not want them?",
-      [
-        { text: "Keep follow-ups", style: "cancel" },
-        { text: "Skip follow-ups", style: "destructive", onPress: () => setWantsSummary(false) },
-      ],
-    );
-  }
-
-  function focusNextInput(ref: React.RefObject<TextInput | null>) {
-    requestAnimationFrame(() => ref.current?.focus());
-  }
-
-  function submitReasonField() {
-    if (showJobTitle) {
-      focusNextInput(jobTitleRef);
-      return;
-    }
-    nextFromContact();
-  }
-
-  async function shareCheckInLink() {
-    await Share.share({ title: "Tour check-in", message: checkInShareText(), url: checkInUrl });
-  }
-
-  function checkInShareText() {
-    return `Check in for your tour with ${repFirstName} at ${propertyLabel}: ${checkInUrl}`;
-  }
-
-  async function sendCheckInSms() {
-    const body = encodeURIComponent(checkInShareText());
-    const separator = Platform.OS === "ios" ? "&" : "?";
-    await Linking.openURL(`sms:${separator}body=${body}`);
-  }
-
-  async function sendCheckInWhatsApp() {
-    const text = encodeURIComponent(checkInShareText());
-    try {
-      await Linking.openURL(`whatsapp://send?text=${text}`);
-    } catch {
-      await Linking.openURL(`https://wa.me/?text=${text}`);
-    }
-  }
-
-  return (
-    <BottomSheetModal
-      visible={visible}
-      onClose={closeSheet}
-      sheetHeight={sheetHeight}
-      contentStyle={homeSt.checkInSheetBody}
-    >
-          <View style={homeSt.sheetTabs}>
-            <Pressable onPress={() => setMode("checkin")} style={[homeSt.sheetTab, mode === "checkin" && homeSt.sheetTabActive]}>
-              <Ionicons name="send-outline" size={16} color={mode === "checkin" ? C.brand : C.textMuted} />
-              <Text style={[homeSt.sheetTabText, mode === "checkin" && homeSt.sheetTabTextActive]}>Check in</Text>
-            </Pressable>
-            <Pressable onPress={() => setMode("qr")} style={[homeSt.sheetTab, mode === "qr" && homeSt.sheetTabActive]}>
-              <BrandedQrIcon size={17} />
-              <Text style={[homeSt.sheetTabText, mode === "qr" && homeSt.sheetTabTextActive]}>QR</Text>
-            </Pressable>
-          </View>
-
-          {mode === "qr" ? (
-            <Reanimated.View key="qr-step" entering={FadeIn.duration(160)} style={homeSt.checkInStepPane}>
-              <View style={homeSt.qrPanel}>
-                <View style={homeSt.qrCard}>
-                  <Image source={{ uri: checkInQrUrl }} style={homeSt.qrImage} resizeMode="contain" />
-                </View>
-                <Text style={homeSt.qrTitle}>Scan to check in</Text>
-                <Text style={homeSt.qrSub}>{checkInUrl}</Text>
-                <View style={homeSt.qrShareGrid}>
-                  <Pressable onPress={() => void sendCheckInSms()} style={({ pressed }) => [homeSt.qrShareButton, homeSt.qrShareButtonPrimary, pressed && st.pressed]}>
-                    <Ionicons name="chatbubble-outline" size={17} color="#fff" />
-                    <Text style={homeSt.qrShareButtonPrimaryText}>SMS</Text>
-                  </Pressable>
-                  <Pressable onPress={() => void sendCheckInWhatsApp()} style={({ pressed }) => [homeSt.qrShareButton, pressed && st.pressed]}>
-                    <Ionicons name="logo-whatsapp" size={17} color="#16a34a" />
-                    <Text style={homeSt.qrShareButtonText}>WhatsApp</Text>
-                  </Pressable>
-                  <Pressable onPress={() => void shareCheckInLink()} style={({ pressed }) => [homeSt.qrShareButton, pressed && st.pressed]}>
-                    <Ionicons name="share-social-outline" size={17} color={C.text} />
-                    <Text style={homeSt.qrShareButtonText}>Share</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </Reanimated.View>
-          ) : step === "done" ? (
-            <Reanimated.View
-              key="done-step"
-              entering={SlideInRight.duration(260).easing(Easing.out(Easing.cubic))}
-              exiting={SlideOutLeft.duration(180).easing(Easing.in(Easing.cubic))}
-              style={[homeSt.checkInStepPane, homeSt.donePanel]}
-            >
-              <View style={homeSt.doneIcon}><Ionicons name="checkmark" size={34} color="#fff" /></View>
-              <Text style={homeSt.qrTitle}>You're checked in</Text>
-              <Text style={homeSt.qrSub}>Thanks for visiting {propertyLabel}. {repFirstName} has the guest details and can start the tour.</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Finish check-in"
-                onPress={closeSheet}
-                style={({ pressed }) => [homeSt.sheetPrimary, pressed && st.pressed]}
-              >
-                <Text style={homeSt.sheetPrimaryText}>Done</Text>
-              </Pressable>
-            </Reanimated.View>
-          ) : step === "questions" ? (
-            <Reanimated.View
-              key="questions-step"
-              entering={(stepDirection === "forward" ? SlideInRight : SlideInLeft).duration(260).easing(Easing.out(Easing.cubic))}
-              exiting={(stepDirection === "forward" ? SlideOutLeft : SlideOutRight).duration(180).easing(Easing.in(Easing.cubic))}
-              style={homeSt.checkInStepPane}
-            >
-              <ScrollView
-                ref={checkInScrollRef}
-                style={homeSt.checkInScroll}
-                contentContainerStyle={[homeSt.checkInForm, keyboardHeight > 0 && homeSt.checkInFormKeyboard]}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-              >
-                <View style={homeSt.stepHeader}>
-                  <Text style={homeSt.stepKicker}>Optional details</Text>
-                  <Text style={homeSt.questionTitle}>{firstName ? `${firstName}, ` : ""}a few quick questions</Text>
-                </View>
-                {CHECK_IN_QUESTIONS.map((question) => (
-                  <CheckInQuestionField
-                    key={question.id}
-                    question={question}
-                    value={answers[question.id] ?? ""}
-                    onChange={(value) => setAnswers((current) => ({ ...current, [question.id]: value }))}
-                  />
-                ))}
-                <Pressable onPress={toggleFollowUpNotes} style={homeSt.toggleRow}>
-                  <Text style={homeSt.toggleText}>Send me follow-up notes after the tour</Text>
-                  <Ionicons name={wantsSummary ? "checkbox" : "square-outline"} size={21} color={wantsSummary ? C.brand : C.textMuted} />
-                </Pressable>
-                {error && <Text style={homeSt.fieldError}>{error}</Text>}
-              </ScrollView>
-            </Reanimated.View>
-          ) : (
-            <Reanimated.View
-              key="contact-step"
-              entering={(stepDirection === "forward" ? SlideInRight : SlideInLeft).duration(260).easing(Easing.out(Easing.cubic))}
-              exiting={(stepDirection === "forward" ? SlideOutLeft : SlideOutRight).duration(180).easing(Easing.in(Easing.cubic))}
-              style={homeSt.checkInStepPane}
-            >
-              <ScrollView
-                ref={checkInScrollRef}
-                style={homeSt.checkInScroll}
-                contentContainerStyle={[homeSt.checkInForm, keyboardHeight > 0 && homeSt.checkInFormKeyboard]}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-              >
-                <View style={homeSt.checkInHead}>
-                  <View style={homeSt.formHeadAvatar}><Ionicons name="person-outline" size={23} color="#fff" /></View>
-                  <Text style={homeSt.formHeadText}>Check in for your tour{"\n"}with {repFirstName}</Text>
-                </View>
-                <View style={homeSt.formRow2}>
-                  <CheckInField
-                    label="First name"
-                    value={firstName}
-                    onChangeText={(value) => {
-                      setFirstName(value);
-                      if (highlightedField === "firstName") setHighlightedField(null);
-                    }}
-                    autoComplete="given-name"
-                    autoFocus
-                    inputRef={firstNameRef}
-                    returnKeyType="next"
-                    blurOnSubmit={false}
-                    onSubmitEditing={() => focusNextInput(lastNameRef)}
-                    highlighted={highlightedField === "firstName"}
-                    onLayoutY={(y) => { contactFieldOffsets.current.firstName = y; }}
-                  />
-                  <CheckInField
-                    label="Last name"
-                    value={lastName}
-                    onChangeText={setLastName}
-                    autoComplete="family-name"
-                    inputRef={lastNameRef}
-                    returnKeyType="next"
-                    blurOnSubmit={false}
-                    onSubmitEditing={() => focusNextInput(emailRef)}
-                  />
-                </View>
-                <CheckInField
-                  label="Email"
-                  value={email}
-                  onChangeText={(value) => {
-                    setEmail(value);
-                    if (error) setError(null);
-                    if (highlightedField === "email") setHighlightedField(null);
-                  }}
-                  keyboardType="email-address"
-                  autoComplete="email"
-                  inputRef={emailRef}
-                  returnKeyType="next"
-                  blurOnSubmit={false}
-                  onSubmitEditing={() => focusNextInput(phoneRef)}
-                  highlighted={highlightedField === "email"}
-                  onLayoutY={(y) => { contactFieldOffsets.current.email = y; }}
-                />
-                <View style={homeSt.phoneRow}>
-                  <Pressable hitSlop={6} onPress={() => countryCodeRef.current?.focus()} style={homeSt.phoneCc}>
-                    <Text style={homeSt.phoneFlag}>🇺🇸</Text>
-                    <TextInput
-                      ref={countryCodeRef}
-                      value={countryCode}
-                      onChangeText={setCountryCode}
-                      keyboardType="phone-pad"
-                      autoComplete="tel-country-code"
-                      returnKeyType="next"
-                      blurOnSubmit={false}
-                      onSubmitEditing={() => focusNextInput(phoneRef)}
-                      placeholder="+1"
-                      placeholderTextColor="#6b7280"
-                      style={homeSt.phoneCcInput}
-                    />
-                  </Pressable>
-                  <View style={st.flex1}>
-                    <CheckInField
-                      label="Phone number"
-                      value={phone}
-                      onChangeText={(value) => setPhone(formatCheckInPhone(value))}
-                      keyboardType="phone-pad"
-                      autoComplete="tel"
-                      inputRef={phoneRef}
-                      returnKeyType="next"
-                      blurOnSubmit={false}
-                      onSubmitEditing={() => focusNextInput(reasonRef)}
-                    />
-                  </View>
-                </View>
-                <CheckInField
-                  label="Reason for visit (optional)"
-                  value={reason}
-                  onChangeText={setReason}
-                  inputRef={reasonRef}
-                  returnKeyType={showJobTitle ? "next" : "done"}
-                  blurOnSubmit={!showJobTitle}
-                  onSubmitEditing={submitReasonField}
-                />
-                {showJobTitle ? (
-                  <CheckInField
-                    label="Job title"
-                    value={jobTitle}
-                    onChangeText={setJobTitle}
-                    autoComplete="organization-title"
-                    inputRef={jobTitleRef}
-                    returnKeyType="done"
-                    onSubmitEditing={nextFromContact}
-                  />
-                ) : (
-                  <Pressable onPress={() => { setShowJobTitle(true); setTimeout(() => jobTitleRef.current?.focus(), 0); }} style={({ pressed }) => [homeSt.addJobButton, pressed && st.pressed]}>
-                    <Ionicons name="briefcase-outline" size={15} color="#111827" />
-                    <Text style={homeSt.addJobText}>Job title</Text>
-                  </Pressable>
-                )}
-                {error && <Text style={homeSt.fieldError}>{error}</Text>}
-              </ScrollView>
-            </Reanimated.View>
-          )}
-
-          {mode === "checkin" && step !== "done" ? (
-            <View style={[homeSt.floatingActionWrap, keyboardHeight > 0 && { marginBottom: keyboardHeight }]}>
-              {step === "questions" ? (
-                <Pressable onPress={goBackFromQuestions} style={({ pressed }) => [homeSt.floatingBackButton, pressed && st.pressed]}>
-                  <Ionicons name="chevron-back" size={18} color={C.text} />
-                </Pressable>
-              ) : null}
-              <Pressable
-                onPress={step === "questions" ? nextFromQuestion : nextFromContact}
-                disabled={submitting}
-                style={({ pressed }) => [homeSt.floatingNextButton, submitting && { opacity: 0.64 }, pressed && st.pressed]}
-              >
-                {submitting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name={step === "questions" ? "send-outline" : "arrow-forward"} size={18} color="#fff" />}
-                <Text style={homeSt.nextButtonText}>{submitting ? "Checking in..." : step === "questions" ? "Check in" : "Next"}</Text>
-              </Pressable>
-            </View>
-          ) : null}
-    </BottomSheetModal>
-  );
-}
-
-function CheckInField({
-  label,
-  value,
-  onChangeText,
-  keyboardType,
-  autoComplete,
-  autoFocus,
-  inputRef,
-  returnKeyType,
-  blurOnSubmit,
-  onSubmitEditing,
-  highlighted,
-  onLayoutY,
-}: {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  keyboardType?: "default" | "email-address" | "phone-pad";
-  autoComplete?: "given-name" | "family-name" | "email" | "tel" | "organization-title";
-  autoFocus?: boolean;
-  inputRef?: React.RefObject<TextInput | null>;
-  returnKeyType?: "next" | "done";
-  blurOnSubmit?: boolean;
-  onSubmitEditing?: () => void;
-  highlighted?: boolean;
-  onLayoutY?: (y: number) => void;
-}) {
-  return (
-    <Pressable
-      hitSlop={6}
-      onPress={() => inputRef?.current?.focus()}
-      onLayout={(event) => onLayoutY?.(event.nativeEvent.layout.y)}
-      style={[homeSt.floatingField, highlighted && homeSt.floatingFieldHighlighted]}
-    >
-      {value.length > 0 && <Text pointerEvents="none" style={homeSt.floatingLabel}>{label}</Text>}
-      <TextInput
-        ref={inputRef}
-        autoFocus={autoFocus}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={label}
-        placeholderTextColor="#6b7280"
-        keyboardType={keyboardType}
-        autoComplete={autoComplete}
-        returnKeyType={returnKeyType}
-        blurOnSubmit={blurOnSubmit}
-        onSubmitEditing={onSubmitEditing}
-        style={homeSt.floatingInput}
-      />
-    </Pressable>
-  );
-}
-
-function CheckInQuestionField({ question, value, onChange }: { question: MobileCheckInQuestion; value: string; onChange: (value: string) => void }) {
-  if (question.type === "select") {
-    const isMultiSelect = question.id === "floor_plan";
-    const selectedOptions = isMultiSelect ? value.split(", ").filter(Boolean) : [];
-    function selectOption(option: string) {
-      if (!isMultiSelect) {
-        onChange(option);
-        return;
-      }
-      const next = selectedOptions.includes(option)
-        ? selectedOptions.filter((item) => item !== option)
-        : [...selectedOptions, option];
-      onChange(next.join(", "));
-    }
-
-    return (
-      <View style={homeSt.questionField}>
-        <Text style={homeSt.questionLabel}>{question.label}</Text>
-        {isMultiSelect && <Text style={homeSt.questionHint}>Select all that fit.</Text>}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={homeSt.questionOptions}>
-          {(question.options ?? []).map((option) => {
-            const active = isMultiSelect ? selectedOptions.includes(option) : value === option;
-            return (
-              <Pressable key={option} onPress={() => selectOption(option)} style={[homeSt.questionOption, active && homeSt.questionOptionActive]}>
-                <Text style={[homeSt.questionOptionText, active && homeSt.questionOptionTextActive]}>{option}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
-    );
-  }
-  return <CheckInField label={question.label} value={value} onChangeText={onChange} />;
-}
 
 function HomeSection({ title, action, showLogo = false, onAction, children }: { title: string; action?: string; showLogo?: boolean; onAction?: () => void; children: React.ReactNode }) {
   return (
@@ -1722,18 +1396,6 @@ function HomeSection({ title, action, showLogo = false, onAction, children }: { 
       </View>
       {children}
     </MotionBlock>
-  );
-}
-
-function BrandedQrIcon({ size = 32 }: { size?: number }) {
-  const markSize = Math.max(8, Math.round(size * 0.38));
-  return (
-    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
-      <Ionicons name="qr-code-outline" size={size} color={C.text} />
-      <View style={[homeSt.qrBrandCenter, { width: markSize + 3, height: markSize + 3 }]}>
-        <TourMark size={markSize} />
-      </View>
-    </View>
   );
 }
 
@@ -1796,13 +1458,18 @@ const cardRowSt = StyleSheet.create({
 });
 
 function SessionRow({ session, onPress, isLast }: { session: SessionSummary; onPress: () => void; isLast: boolean }) {
-  const colors = STATUS_COLORS[session.status] ?? { bg: "#eaf4ff", text: C.brand };
-  const label = STATUS_LABELS[session.status] ?? session.status;
+  const colors = session.id.startsWith("local:")
+    ? { bg: C.amberBg, text: C.amber }
+    : (STATUS_COLORS[session.status] ?? { bg: "#eaf4ff", text: C.brand });
+  const label = sessionStatusLabel(session);
   return (
     <MotionPressable onPress={onPress} haptic="selection" style={[st.sessionRow, !isLast && st.rowBorder]}>
       <View style={st.flex1}>
         <Text style={st.sessionTitle} numberOfLines={1}>{session.title}</Text>
-        <Text style={st.sessionMeta} numberOfLines={1}>{session.prospectName ?? "No prospect"}{session.scheduledAt ? ` \u00B7 ${fmtDate(session.scheduledAt)}` : ""}</Text>
+        <Text style={st.sessionMeta} numberOfLines={1}>{formatSessionCardMeta(session)}</Text>
+        {formatSessionCardDescription(session) ? (
+          <Text style={st.sessionMeta} numberOfLines={2}>{formatSessionCardDescription(session)}</Text>
+        ) : null}
       </View>
       <TourStatusBadge label={label} bg={colors.bg} color={colors.text} />
       {session.overallScore !== null && <Text style={[st.scoreNum, { color: scoreColor(session.overallScore) }]}>{session.overallScore}%</Text>}
@@ -1853,9 +1520,18 @@ function SessionListSwipeRow({
 }) {
   const swipeableRef = useRef<SwipeableMethods | null>(null);
   const needsReview = ["uploaded", "failed", "analysis_ready"].includes(session.status);
+  const isLocalPending = session.id.startsWith("local:");
   const checkedInSummary = session.source === "qr" && session.leads.length
     ? `${session.leads.map((lead) => lead.name).join(", ")} · ${session.leads.length} checked in`
     : null;
+  const badgeLabel = isLocalPending
+    ? (session.status === "failed" ? "SYNC FAILED" : "PENDING SYNC")
+    : needsReview
+      ? "REVIEW"
+      : session.status === "in_progress"
+        ? "LIVE"
+        : "SYNCED";
+  const badgeReviewStyle = isLocalPending || needsReview;
 
   return (
     <Swipeable
@@ -1916,12 +1592,17 @@ function SessionListSwipeRow({
             <Text style={slst.sessionName} numberOfLines={1}>{session.title}</Text>
           </View>
           <Text style={slst.sessionMeta} numberOfLines={1}>
-            {checkedInSummary || [session.location, session.scheduledAt ? `${fmtDate(session.scheduledAt)}, ${fmtTime(session.scheduledAt)}` : null].filter(Boolean).join(" · ") || session.prospectName || "Session details pending"}
+            {checkedInSummary || formatSessionCardMeta(session)}
           </Text>
+          {formatSessionCardDescription(session) ? (
+            <Text style={slst.sessionDescription} numberOfLines={2}>
+              {formatSessionCardDescription(session)}
+            </Text>
+          ) : null}
         </View>
         <View style={slst.sessionRight}>
-          <View style={[slst.syncBadge, needsReview && slst.reviewBadge]}>
-            <Text style={[slst.syncText, needsReview && slst.reviewText]}>{needsReview ? "REVIEW" : session.status === "in_progress" ? "LIVE" : "SYNCED"}</Text>
+          <View style={[slst.syncBadge, badgeReviewStyle && slst.reviewBadge]}>
+            <Text style={[slst.syncText, badgeReviewStyle && slst.reviewText]}>{badgeLabel}</Text>
           </View>
           {session.overallScore !== null && <Text style={slst.sessionScore}>{session.overallScore}</Text>}
         </View>
@@ -1988,12 +1669,27 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     sort,
     search: debouncedSearch.trim() || undefined,
   });
-  const sessions = useMemo(
-    () => sessionsQuery.data?.pages.flatMap((pageData) => pageData.sessions) ?? [],
-    [sessionsQuery.data]
-  );
-  // The protected endpoint is the single authority for sample eligibility.
-  // This avoids a stale duplicate count when the user switches properties.
+  const [localPending, setLocalPending] = useState<LocalSessionMeta[]>([]);
+
+  const refreshLocalPending = useCallback(() => {
+    setLocalPending(listPendingSyncSessions());
+  }, []);
+
+  useEffect(() => {
+    refreshLocalPending();
+    const interval = setInterval(refreshLocalPending, 4000);
+    return () => clearInterval(interval);
+  }, [refreshLocalPending]);
+
+  const sessions = useMemo(() => {
+    const remote = sessionsQuery.data?.pages.flatMap((pageData) => pageData.sessions) ?? [];
+    const remoteIds = new Set(remote.map((session) => session.id));
+    const locals = localPending
+      .filter((local) => !local.remoteSessionId || !remoteIds.has(local.remoteSessionId))
+      .map(localSessionToSummary);
+    return [...locals, ...remote];
+  }, [localPending, sessionsQuery.data]);
+  const total = sessionsQuery.data?.pages[0]?.total ?? sessions.length;
   const sampleSessionsQuery = useSampleSessionsQuery(true);
   const sampleSessions = sampleSessionsQuery.data?.sessions ?? [];
   const samplesAvailable = sampleSessionsQuery.isSuccess && sampleSessions.length > 0;
@@ -2004,12 +1700,15 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    refreshLocalPending();
+    await drainSyncOutbox();
+    refreshLocalPending();
     await Promise.all([
       sessionsQuery.refetch(),
       sampleSessionsQuery.refetch(),
     ]);
     setRefreshing(false);
-  }, [sampleSessionsQuery, sessionsQuery]);
+  }, [refreshLocalPending, sampleSessionsQuery, sessionsQuery]);
 
   const onEndReached = useCallback(() => {
     if (hasMore && !loadingMore && !loading) void sessionsQuery.fetchNextPage();
@@ -2038,19 +1737,25 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     setDeletingId(sessionId);
     closeOpenSwipeable();
     try {
-      await deleteSessionMutation.mutateAsync(sessionId);
-      showToast("Session deleted", "success");
+      if (sessionId.startsWith("local:")) {
+        deleteLocalSession(sessionId.slice("local:".length));
+        refreshLocalPending();
+        showToast("Pending session discarded", "success");
+      } else {
+        await deleteSessionMutation.mutateAsync(sessionId);
+        showToast("Session deleted", "success");
+      }
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : "Could not delete session", "error");
     } finally {
       setDeletingId(null);
     }
-  }, [closeOpenSwipeable, deleteSessionMutation, deletingId]);
+  }, [closeOpenSwipeable, deleteSessionMutation, deletingId, refreshLocalPending]);
 
   const confirmDeleteSession = useCallback((session: SessionSummary) => {
     Alert.alert(
       "Delete session?",
-      `Delete “${session.title}” and its generated analysis? This can’t be undone.`,
+      `Delete “${session.title}”${session.id.startsWith("local:") ? " pending sync data" : " and its generated analysis"}? This can’t be undone.`,
       [
         { text: "Cancel", style: "cancel", onPress: closeOpenSwipeable },
         {
@@ -2061,6 +1766,28 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
       ],
     );
   }, [closeOpenSwipeable, performDeleteSession]);
+
+  const openSession = useCallback((session: SessionSummary) => {
+    if (session.id.startsWith("local:")) {
+      const localId = session.id.slice("local:".length);
+      void (async () => {
+        showToast("Uploading when online…", "info");
+        const synced = await syncLocalSessionNow(localId);
+        refreshLocalPending();
+        if (synced?.remoteSessionId && synced.status === "uploaded") {
+          onSession(synced.remoteSessionId);
+          return;
+        }
+        if (!(await isOnline())) {
+          showToast("Saved on device — will upload when online", "info");
+        } else if (synced?.lastError) {
+          showToast(synced.lastError, "error");
+        }
+      })();
+      return;
+    }
+    onSession(session.id);
+  }, [onSession, refreshLocalPending]);
 
   type SessionListItem =
     | { kind: "header"; id: string; label: string; count: number }
@@ -2108,7 +1835,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
       <SessionListSwipeRow
         session={session}
         isDeleting={deletingId === session.id}
-        onOpen={() => onSession(session.id)}
+        onOpen={() => openSession(session)}
         onDelete={() => confirmDeleteSession(session)}
         onSwipeOpen={handleSwipeOpen}
         onSwipeClose={handleSwipeClose}
@@ -2116,7 +1843,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
         isAnyOpen={() => openSwipeableRef.current !== null}
       />
     );
-  }, [closeOpenSwipeable, confirmDeleteSession, deletingId, handleSwipeClose, handleSwipeOpen, onSampleSession, onSession, showSamples]);
+  }, [closeOpenSwipeable, confirmDeleteSession, deletingId, handleSwipeClose, handleSwipeOpen, onSampleSession, onSession, openSession, showSamples]);
 
   const keyExtractor = useCallback((item: SessionListItem) => item.id, []);
   const sessionMetrics = useMemo(() => computeDashboardMetrics(visibleSessions), [visibleSessions]);
@@ -2385,6 +2112,7 @@ const slst = StyleSheet.create({
   sessionNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   sessionName: { flex: 1, color: "#1a1a1a", fontSize: 15, fontWeight: "900" },
   sessionMeta: { color: "#666", fontSize: 12, marginTop: 5 },
+  sessionDescription: { color: "#667085", fontSize: 12, marginTop: 4, lineHeight: 16 },
   sessionRight: { alignItems: "flex-end", gap: 5 },
   syncBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: "#ebf5ff" },
   syncText: { color: C.brand, fontSize: 9, fontWeight: "900" },
@@ -2529,6 +2257,9 @@ function CalendarScreen({
                     </Text>
                     <Text style={homeSt.tourMeta} numberOfLines={1}>{session.prospectName ?? "Prospect details pending"}</Text>
                   </View>
+                  {formatSessionCardDescription(session) ? (
+                    <Text style={homeSt.tourMeta} numberOfLines={2}>{formatSessionCardDescription(session)}</Text>
+                  ) : null}
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
               </MotionPressable>
@@ -3150,6 +2881,7 @@ function CreateSessionScreen({
       location?: string;
       rubricId?: string | null;
     },
+    localId?: string | null,
   ) {
     setFileName(name);
     setFileSizeMB(size ? (size / 1024 / 1024).toFixed(1) : null);
@@ -3161,10 +2893,38 @@ function CreateSessionScreen({
     const nextNotes = draftOverrides?.notes ?? notes;
     const nextRubricId = draftOverrides?.rubricId !== undefined ? draftOverrides.rubricId : rubricId;
     let sid = existingSessionId ?? sessionId;
+    const durableUri = localId
+      ? (copyRecordingToDurableStore(localId, uri) ?? getRecordingUri(localId) ?? uri)
+      : uri;
+
+    if (localId) {
+      markReadyToSync(localId, {
+        durationSec: durationSec ?? 1,
+        sourceUri: uri,
+        remoteSessionId: sid,
+        draft: {
+          notes: nextNotes,
+          assets,
+          selectedAssetIds,
+          prospect: nextProspect,
+          location: nextLocation,
+          rubricId: nextRubricId,
+        },
+        fileName: name,
+        mimeType,
+      });
+    }
 
     try {
       const defaultTitle = name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
       if (!sid) {
+        if (!(await isOnline())) {
+          showToast("Saved on device — will upload when online", "info");
+          recorderOpenedRef.current = false;
+          setPhase("choose");
+          void drainSyncOutbox();
+          return;
+        }
         const sessionData = await createSession({
           title: title.trim() || defaultTitle,
           prospectName: nextProspect.trim() || null,
@@ -3174,6 +2934,7 @@ function CreateSessionScreen({
         });
         sid = sessionData.session.id;
         setSessionId(sid);
+        if (localId) updateLocalSession(localId, { remoteSessionId: sid });
       }
       if (!title.trim()) setTitle(defaultTitle);
       if (draftOverrides?.notes !== undefined) setNotes(draftOverrides.notes);
@@ -3181,16 +2942,34 @@ function CreateSessionScreen({
       if (draftOverrides?.location !== undefined) setLocation(draftOverrides.location);
       if (draftOverrides?.rubricId !== undefined && draftOverrides.rubricId) setRubricId(draftOverrides.rubricId);
 
-      await uploadRecording(sid, uri, mimeType, name, durationSec, (next) => setUploadStats(uploadStatsFromProgress(next)));
-      await clearPendingRecordingUpload(sid);
+      await uploadRecording(sid, durableUri, mimeType, name, durationSec, (next) => setUploadStats(uploadStatsFromProgress(next)));
+      await clearPendingRecordingUpload(sid, localId);
+      promoteLocalRecordingToCache(sid, durableUri);
+      void trackAnalyticsEvent("session_upload_complete", { sessionId: sid });
       setUploadStats((current) => ({ ...current, phase: "finalizing", percent: 100, etaSeconds: 0 }));
       showToast("Recording uploaded", "success");
       setPhase("details");
     } catch (err) {
-      if (sid) {
+      if (localId) {
+        markReadyToSync(localId, {
+          durationSec: durationSec ?? 1,
+          sourceUri: durableUri,
+          remoteSessionId: sid,
+          draft: {
+            notes: nextNotes,
+            assets,
+            selectedAssetIds,
+            prospect: nextProspect,
+            location: nextLocation,
+            rubricId: nextRubricId,
+          },
+          fileName: name,
+          mimeType,
+        });
+      } else if (sid) {
         await savePendingRecordingUpload({
           sessionId: sid,
-          uri,
+          uri: durableUri,
           mimeType,
           name,
           size: size ?? undefined,
@@ -3198,9 +2977,14 @@ function CreateSessionScreen({
           savedAt: Date.now(),
         });
       }
-      showToast(err instanceof Error ? err.message : "Upload failed", "error");
+      const online = await isOnline();
+      showToast(
+        online ? (err instanceof Error ? err.message : "Upload failed") : "Saved on device — will upload when online",
+        online ? "error" : "info",
+      );
       recorderOpenedRef.current = false;
       setPhase("choose");
+      void drainSyncOutbox();
     }
   }
 
@@ -3225,6 +3009,7 @@ function CreateSessionScreen({
       pendingUpload.durationSec,
       pendingUpload.sessionId,
       pendingUpload.draft,
+      pendingUpload.localId,
     );
     // Intentionally run once per pending upload payload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3264,13 +3049,26 @@ function CreateSessionScreen({
         const result = await snapshot.stop();
         const meta = snapshot.meta;
         const draft = snapshot.draft;
-        snapshot.clearLiveSession();
+        const localId = snapshot.localId;
         if (!result?.uri) {
+          snapshot.clearLiveSession();
           showToast("Failed to save recording", "error");
           return;
         }
+        const durableUri = localId
+          ? (markReadyToSync(localId, {
+              durationSec: result.durationSec,
+              sourceUri: result.uri,
+              remoteSessionId: meta.sessionId,
+              draft,
+              fileName: `tour-${Date.now()}.m4a`,
+              mimeType: "audio/m4a",
+            }) && getRecordingUri(localId)) ?? result.uri
+          : result.uri;
+        snapshot.clearLiveSession();
         onRecordingFinished({
-          uri: result.uri,
+          localId,
+          uri: durableUri,
           mimeType: "audio/m4a",
           name: `tour-${Date.now()}.m4a`,
           durationSec: result.durationSec,
@@ -3496,12 +3294,14 @@ function CheckedInVisitorsCard({
 
 function SessionDetailScreen({
   sessionId,
+  autoStartRecording = false,
   onBack,
   onOpenComments,
   onOpenAiChat,
   onOpenAudioInsights,
 }: {
   sessionId: string;
+  autoStartRecording?: boolean;
   onBack: () => void;
   onOpenComments: (meta: { sessionId: string; sessionTitle?: string }) => void;
   onOpenAiChat: (meta: { sessionId: string; sessionTitle?: string; prospectName?: string }) => void;
@@ -3537,6 +3337,10 @@ function SessionDetailScreen({
     transcriptQuery.error ??
     commentsQuery.error ??
     null;
+
+  useEffect(() => {
+    void trackAnalyticsEvent("session_view_detail", { sessionId });
+  }, [sessionId]);
 
   const load = useCallback(async () => {
     await Promise.all([
@@ -3647,6 +3451,7 @@ function SessionDetailScreen({
             prospectName={session.prospectName}
             agentName={session.agentName}
             propertyName={session.location || session.title}
+            autoStartRecording={autoStartRecording}
             onDone={load}
           />
         )}
@@ -3735,12 +3540,11 @@ function SessionReviewExperience({
   const reviewModeRef = useRef<SessionReviewMode>("transcript");
   const followPlaybackRef = useRef(true);
   const longPressedSegmentRef = useRef<string | null>(null);
+  const lastTranscriptTapRef = useRef<{ id: string; at: number } | null>(null);
 
   useEffect(() => { setLocalActions(actions); }, [actions]);
   useEffect(() => { reviewModeRef.current = reviewMode; }, [reviewMode]);
   useEffect(() => { followPlaybackRef.current = followPlayback; }, [followPlayback]);
-
-  const playbackUrl = getRecordingPlaybackUrl(sessionId);
 
   const scrollToSegment = useCallback((segment: any, animated = true) => {
     if (!segment) return;
@@ -3755,7 +3559,8 @@ function SessionReviewExperience({
     void (async () => {
       try {
         await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-        const result = await Audio.Sound.createAsync({ uri: playbackUrl }, { shouldPlay: false, progressUpdateIntervalMillis: 250 });
+        const resolved = await resolveSessionPlaybackUri(sessionId);
+        const result = await Audio.Sound.createAsync({ uri: resolved.uri }, { shouldPlay: false, progressUpdateIntervalMillis: 250 });
         if (!mounted) {
           await result.sound.unloadAsync();
           return;
@@ -3792,7 +3597,7 @@ function SessionReviewExperience({
       mounted = false;
       void loadedSound?.unloadAsync();
     };
-  }, [playbackUrl, scrollToSegment, transcript]);
+  }, [sessionId, scrollToSegment, transcript]);
 
   const seekToSeconds = useCallback(async (seconds: number, shouldPlay = false) => {
     if (!sound) return;
@@ -3818,7 +3623,10 @@ function SessionReviewExperience({
   async function togglePlayback() {
     if (!sound) return;
     if (playing) await sound.pauseAsync();
-    else await sound.playAsync();
+    else {
+      void trackAnalyticsEvent("session_playback_start", { sessionId });
+      await sound.playAsync();
+    }
   }
 
   async function changeSpeed() {
@@ -3882,6 +3690,34 @@ function SessionReviewExperience({
     setSelectedSegmentIds([segmentId]);
   }
 
+  function beginCommentOnSegment(segmentId: string) {
+    impactHaptic();
+    longPressedSegmentRef.current = segmentId;
+    setSelectedSegmentIds([segmentId]);
+    setCommentComposerOpen(true);
+  }
+
+  function handleTranscriptPress(segment: { id: string; startTime: number }) {
+    const now = Date.now();
+    const last = lastTranscriptTapRef.current;
+    if (last && last.id === segment.id && now - last.at < 320) {
+      lastTranscriptTapRef.current = null;
+      beginCommentOnSegment(segment.id);
+      return;
+    }
+    lastTranscriptTapRef.current = { id: segment.id, at: now };
+
+    if (longPressedSegmentRef.current === segment.id) {
+      longPressedSegmentRef.current = null;
+      return;
+    }
+    if (selectedSegmentIds.length > 0) toggleSegmentSelection(segment.id);
+    else {
+      setPlaybackFollowing(true);
+      void seekToSeconds(segment.startTime, true);
+    }
+  }
+
   function toggleSegmentSelection(segmentId: string) {
     selectionHaptic();
     setSelectedSegmentIds((current) =>
@@ -3907,6 +3743,7 @@ function SessionReviewExperience({
         body: selectionComment.trim(),
         kind: "comment",
         timestampSec: selectionRange.start,
+        authorName: getCurrentSession()?.workspace.user.fullName ?? undefined,
       });
       setCommentComposerOpen(false);
       setSelectionComment("");
@@ -4141,6 +3978,14 @@ function SessionReviewExperience({
             <EmptyState icon="chatbubble-outline" title="No transcript yet" subtitle="The transcript will appear after processing." />
           </AnimatedTabContent>
         )}
+        {reviewMode === "transcript" && transcript.length > 0 && (
+          <View style={reviewSt.commentHint}>
+            <Ionicons name="hand-left-outline" size={14} color={C.brand} />
+            <Text style={reviewSt.commentHintText}>
+              Long-press to select lines, or double-tap a line to comment at that timestamp.
+            </Text>
+          </View>
+        )}
         {reviewMode === "transcript" && transcriptGroups.map((group) => (
           <View
             key={group.id}
@@ -4186,17 +4031,7 @@ function SessionReviewExperience({
                     accessibilityHint={readOnly ? "Tap to play from this timestamp." : "Tap to play from this timestamp. Long press to select transcript segments."}
                     onLongPress={readOnly ? undefined : () => beginSegmentSelection(segment.id)}
                     delayLongPress={360}
-                    onPress={() => {
-                      if (longPressedSegmentRef.current === segment.id) {
-                        longPressedSegmentRef.current = null;
-                        return;
-                      }
-                      if (selectedSegmentIds.length > 0) toggleSegmentSelection(segment.id);
-                      else {
-                        setPlaybackFollowing(true);
-                        void seekToSeconds(segment.startTime, true);
-                      }
-                    }}
+                    onPress={() => handleTranscriptPress(segment)}
                     style={reviewSt.turnMain}
                   >
                     <View style={reviewSt.turnInitialSlot}>
@@ -4234,10 +4069,14 @@ function SessionReviewExperience({
                             <Pressable
                               key={comment.id}
                               accessibilityLabel={`${comment.kind === "key_moment" ? "Saved clip" : "Comment"} at ${fmtSec(comment.timestampSec ?? segment.startTime)}`}
-                              onPress={() => Alert.alert(
-                                comment.kind === "key_moment" ? "Saved clip" : comment.authorName,
-                                comment.body
-                              )}
+                              onPress={() => {
+                                void seekToSeconds(comment.timestampSec ?? segment.startTime, true);
+                                Alert.alert(
+                                  comment.kind === "key_moment" ? "Saved clip" : comment.authorName,
+                                  comment.body,
+                                  [{ text: "Close", style: "cancel" }],
+                                );
+                              }}
                               style={reviewSt.annotationChip}
                             >
                               <Ionicons
@@ -4512,6 +4351,7 @@ function UploadProcessCard({
   prospectName,
   agentName,
   propertyName,
+  autoStartRecording = false,
   onDone,
 }: {
   sessionId: string;
@@ -4521,6 +4361,7 @@ function UploadProcessCard({
   prospectName?: string | null;
   agentName?: string | null;
   propertyName?: string | null;
+  autoStartRecording?: boolean;
   onDone: () => void;
 }) {
   const rec = useRecording();
@@ -4531,6 +4372,7 @@ function UploadProcessCard({
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [errorKind, setErrorKind] = useState<"upload" | "processing" | null>(null);
   const [pickedFile, setPickedFile] = useState<RecordingUploadFile | null>(null);
+  const [pendingLocalId, setPendingLocalId] = useState<string | null>(null);
   const [pendingUploadChecked, setPendingUploadChecked] = useState(false);
 
   // Details form fields
@@ -4545,6 +4387,7 @@ function UploadProcessCard({
   const [rubricId, setRubricId] = useState<string | null>(initialRubricId);
   const [rubricOpen, setRubricOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const autoStartedRef = useRef(false);
 
   useEffect(() => {
     Promise.all([
@@ -4591,6 +4434,7 @@ function UploadProcessCard({
         size: pending.size,
         durationSec: pending.durationSec,
       });
+      setPendingLocalId(pending.localId ?? null);
       setUploadStats(initialUploadStats(pending.size));
       setErrMsg("Upload did not finish. Retry when you have a stable connection.");
       setErrorKind("upload");
@@ -4623,29 +4467,52 @@ function UploadProcessCard({
     }
   }
 
-  async function uploadPickedFile(file: RecordingUploadFile) {
+  async function uploadPickedFile(file: RecordingUploadFile, localId?: string | null) {
     setPickedFile(file);
     setPhase("uploading");
     setErrMsg(null);
     setErrorKind(null);
     setUploadStats(initialUploadStats(file.size));
+    const durableUri = localId
+      ? (copyRecordingToDurableStore(localId, file.uri) ?? getRecordingUri(localId) ?? file.uri)
+      : file.uri;
+    if (localId) {
+      markReadyToSync(localId, {
+        durationSec: file.durationSec ?? 1,
+        sourceUri: file.uri,
+        remoteSessionId: sessionId,
+        fileName: file.name,
+        mimeType: file.mimeType,
+      });
+    }
     try {
+      if (!(await isOnline())) {
+        setPhase("error");
+        setErrorKind("upload");
+        setErrMsg("Saved on device — will upload when online.");
+        showToast("Saved on device — will upload when online", "info");
+        void drainSyncOutbox();
+        return;
+      }
       await uploadRecording(
         sessionId,
-        file.uri,
+        durableUri,
         file.mimeType,
         file.name,
         file.durationSec,
         (next) => setUploadStats(uploadStatsFromProgress(next)),
       );
-      await clearPendingRecordingUpload(sessionId);
+      await clearPendingRecordingUpload(sessionId, localId);
+      promoteLocalRecordingToCache(sessionId, durableUri);
+      void trackAnalyticsEvent("session_upload_complete", { sessionId });
       setUploadStats((current) => ({ ...current, phase: "finalizing", percent: 100, etaSeconds: 0 }));
       showToast("Recording uploaded", "success");
       setPhase("details");
     } catch (caught) {
       await savePendingRecordingUpload({
         sessionId,
-        uri: file.uri,
+        localId,
+        uri: durableUri,
         mimeType: file.mimeType,
         name: file.name,
         size: file.size,
@@ -4656,6 +4523,7 @@ function UploadProcessCard({
       setErrorKind("upload");
       setErrMsg(caught instanceof Error ? caught.message : "Upload failed");
       showToast(caught instanceof Error ? caught.message : "Upload failed", "error");
+      void drainSyncOutbox();
     }
   }
 
@@ -4678,12 +4546,14 @@ function UploadProcessCard({
         rubricId,
       },
       onBeforeRecordingStart: async () => {
-        const response = await authenticatedFetch(`/api/sessions/${sessionId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "in_progress" }),
-        });
-        if (!response.ok) throw new Error("Could not activate the tour session");
+        if (await isOnline()) {
+          const response = await authenticatedFetch(`/api/sessions/${sessionId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "in_progress" }),
+          });
+          if (!response.ok) throw new Error("Could not activate the tour session");
+        }
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       },
       onCancel: async (snapshot) => {
@@ -4692,12 +4562,14 @@ function UploadProcessCard({
           await snapshot.stop();
           snapshot.clearLiveSession();
           setSelectedAssetIds([]);
-          const response = await authenticatedFetch(`/api/sessions/${sessionId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "scheduled" }),
-          });
-          if (!response.ok) throw new Error("Could not reset the session");
+          if (await isOnline()) {
+            const response = await authenticatedFetch(`/api/sessions/${sessionId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "scheduled" }),
+            });
+            if (!response.ok) throw new Error("Could not reset the session");
+          }
           showToast("Recording cancelled. Session returned to scheduled.", "success");
           await onDone();
         } catch (caught) {
@@ -4710,16 +4582,45 @@ function UploadProcessCard({
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         const result = await snapshot.stop();
         const notes = snapshot.draft.notes;
-        snapshot.clearLiveSession();
+        const localId = snapshot.localId;
         if (!result?.uri) {
+          snapshot.clearLiveSession();
           showToast("Failed to save recording", "error");
           return;
         }
+        if (localId) {
+          markReadyToSync(localId, {
+            durationSec: result.durationSec,
+            sourceUri: result.uri,
+            remoteSessionId: sessionId,
+            draft: snapshot.draft,
+            fileName: `tour-${Date.now()}.m4a`,
+            mimeType: "audio/m4a",
+          });
+        }
+        const durableUri = (localId && getRecordingUri(localId)) || result.uri;
+        snapshot.clearLiveSession();
         setDNotes(notes);
-        await uploadPickedFile({ uri: result.uri, mimeType: "audio/m4a", name: `tour-${Date.now()}.m4a`, durationSec: result.durationSec });
+        await uploadPickedFile({
+          uri: durableUri,
+          mimeType: "audio/m4a",
+          name: `tour-${Date.now()}.m4a`,
+          durationSec: result.durationSec,
+        }, localId);
       },
     });
   }
+
+  useEffect(() => {
+    if (!autoStartRecording || autoStartedRef.current) return;
+    if (!(status === "scheduled" || status === "in_progress")) return;
+    if (phase !== "idle") return;
+    autoStartedRef.current = true;
+    const timer = setTimeout(() => startSessionRecording(), 350);
+    return () => clearTimeout(timer);
+    // Intentionally run once when arriving from check-in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStartRecording, phase, status]);
 
   async function cancelSessionRecording() {
     setCancelling(true);
@@ -4958,7 +4859,7 @@ function UploadProcessCard({
           fileSize={pickedFile?.size}
           stats={uploadStats}
           error={errMsg ?? "Upload failed"}
-          onRetry={pickedFile ? () => void uploadPickedFile(pickedFile) : undefined}
+          onRetry={pickedFile ? () => void uploadPickedFile(pickedFile, pendingLocalId) : undefined}
           onChooseDifferent={() => void pickAndUpload()}
         />
       ) : (
@@ -5050,30 +4951,24 @@ function OverviewTab({ analysis, transcript, sessionId, hasRecording }: { analys
   );
 }
 
-function getRecordingPlaybackUrl(sessionId: string): string {
-  return `${getApiBaseUrl()}/api/sessions/${sessionId}/recording`;
-}
-
 function AudioPlayer({ sessionId, transcript }: { sessionId: string; transcript: any[] }) {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [playing, setPlaying] = useState(false);
   const [pos, setPos] = useState(0);
   const [dur, setDur] = useState(0);
   const [loadError, setLoadError] = useState(false);
-
-  const playbackUrl = getRecordingPlaybackUrl(sessionId);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     let mounted = true;
     let s: Audio.Sound | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const resolvedUrl = playbackUrl;
 
     (async () => {
       try {
         await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-
-        const loadPromise = Audio.Sound.createAsync({ uri: resolvedUrl }, { shouldPlay: false });
+        const resolved = await resolveSessionPlaybackUri(sessionId);
+        const loadPromise = Audio.Sound.createAsync({ uri: resolved.uri }, { shouldPlay: false });
         timer = setTimeout(() => { if (mounted) setLoadError(true); }, 15_000);
 
         const { sound: loaded } = await loadPromise;
@@ -5081,6 +4976,7 @@ function AudioPlayer({ sessionId, transcript }: { sessionId: string; transcript:
         if (!mounted) { loaded.unloadAsync(); return; }
         s = loaded;
         setSound(loaded);
+        setLoadError(false);
         const status = await loaded.getStatusAsync();
         if (status.isLoaded && status.durationMillis) setDur(status.durationMillis / 1000);
         loaded.setOnPlaybackStatusUpdate((st) => {
@@ -5097,7 +4993,7 @@ function AudioPlayer({ sessionId, transcript }: { sessionId: string; transcript:
       }
     })();
     return () => { mounted = false; clearTimeout(timer); s?.unloadAsync(); };
-  }, [playbackUrl]);
+  }, [sessionId, retryToken]);
 
   async function togglePlay() {
     if (!sound) return;
@@ -5125,6 +5021,9 @@ function AudioPlayer({ sessionId, transcript }: { sessionId: string; transcript:
       <View style={[st.card, { padding: 16, flexDirection: "row", alignItems: "center", gap: 10 }]}>
         <Ionicons name="alert-circle-outline" size={20} color={C.textMuted} />
         <Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec, flex: 1 }}>Audio unavailable</Text>
+        <Pressable onPress={() => { setLoadError(false); setSound(null); setRetryToken((n) => n + 1); }} style={({ pressed }) => pressed && st.pressed}>
+          <Text style={{ fontSize: 13, fontWeight: "800", color: C.brand }}>Retry</Text>
+        </Pressable>
       </View>
     );
   }
@@ -5738,7 +5637,13 @@ function RubricsScreen({
 // Settings
 // ═══════════════════════════════════════
 
-function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { session: MobileAuthSession; onSessionChange: (session: MobileAuthSession) => void; onRubrics: () => void; onSignOut: () => void }) {
+function SettingsScreen({ session, onSessionChange, onProfile, onRubrics, onSignOut }: {
+  session: MobileAuthSession;
+  onSessionChange: (session: MobileAuthSession) => void;
+  onProfile: () => void;
+  onRubrics: () => void;
+  onSignOut: () => void;
+}) {
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [communityPickerOpen, setCommunityPickerOpen] = useState(false);
   const [communityQuery, setCommunityQuery] = useState("");
@@ -5754,6 +5659,7 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
     || session.workspace.user.email.split("@")[0]
     || session.workspace.user.id;
   const publicCheckInUrl = `${getSiteBaseUrl().replace(/\/$/, "")}/p/${encodeURIComponent(publicPropertyKey)}/${encodeURIComponent(publicMemberKey)}`;
+  const accent = resolveCardAccent(session.workspace.user.cardAccent);
 
   useEffect(() => {
     setUserAlias(session.workspace.teamMember?.alias ?? "");
@@ -5797,13 +5703,20 @@ function SettingsScreen({ session, onSessionChange, onRubrics, onSignOut }: { se
   return (
     <View style={st.page}>
       <Text style={st.pageTitle}>Settings</Text>
-      <View style={st.settingsIdentity}>
-        <View style={st.avatar48}><Text style={st.avatar48Text}>{(session.workspace.user.fullName ?? session.workspace.user.email)[0]?.toUpperCase()}</Text></View>
+      <Pressable onPress={onProfile} style={({ pressed }) => [st.settingsIdentity, pressed && st.pressed]}>
+        <View style={[st.avatar48, { backgroundColor: accent }]}>
+          <Text style={[st.avatar48Text, { color: "#fff" }]}>
+            {(session.workspace.user.fullName ?? session.workspace.user.email)[0]?.toUpperCase()}
+          </Text>
+        </View>
         <View style={st.flex1}>
           <Text style={st.cardRowTitle}>{session.workspace.user.fullName ?? "Team member"}</Text>
-          <Text style={st.cardRowSub}>{session.workspace.user.email} · {teamRole}</Text>
+          <Text style={st.cardRowSub}>
+            {session.workspace.user.title ?? teamRole} · Tap to edit card
+          </Text>
         </View>
-      </View>
+        <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+      </Pressable>
 
       <Text style={st.settingsSectionLabel}>ACTIVE PROPERTY</Text>
       <View style={st.settingsIdentity}>
@@ -5955,27 +5868,6 @@ const logoutSheetSt = StyleSheet.create({
 // Profile & Tour (preserved)
 // ═══════════════════════════════════════
 
-function ProfileScreen({ session, onBack, onStartTour }: { session: MobileAuthSession; onBack: () => void; onStartTour: () => void }) {
-  const name = session.workspace.user.fullName ?? "Team member";
-  const initials = name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-  const teamRole = session.workspace.teamMember?.role || "Property Team";
-  return (
-    <View style={st.page}>
-      <BackBtn label="Home" onPress={onBack} />
-      <View style={[st.card, { alignItems: "center", padding: 22, gap: 14 }]}>
-        <View style={st.avatarLg}><Text style={st.avatarLgText}>{initials}</Text></View>
-        <Text style={{ fontSize: 28, fontWeight: "900", color: C.text }}>{name}</Text>
-        <Text style={{ fontSize: 15, fontWeight: "700", color: C.textSec, textAlign: "center" }}>{teamRole} at {session.workspace.community.name}</Text>
-        <View style={{ alignSelf: "stretch", backgroundColor: "#f8fafc", borderRadius: 20, padding: 16, gap: 12 }}>
-          <View style={{ gap: 4 }}><Text style={st.labelSmall}>Email</Text><Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{session.workspace.user.email}</Text></View>
-          <View style={{ gap: 4 }}><Text style={st.labelSmall}>Company</Text><Text style={{ fontSize: 14, fontWeight: "700", color: C.text }}>{session.workspace.organization.name}</Text></View>
-        </View>
-        <PrimaryBtn label="Exchange contact and start tour" onPress={onStartTour} icon="swap-horizontal-outline" />
-      </View>
-    </View>
-  );
-}
-
 function TourStepper({ session, idx, prospect, step, onBack, onChange, onStep }: {
   session: MobileAuthSession; idx: number; prospect: ProspectData; step: TourStep; onBack: () => void; onChange: (k: keyof ProspectData, v: string) => void; onStep: (s: TourStep) => void;
 }) {
@@ -6080,6 +5972,7 @@ const homeSt = StyleSheet.create({
   profileNameLarge: { color: "#111", fontSize: 22, fontWeight: "900", marginTop: 12, textAlign: "center" },
   profileRoleLarge: { color: "#5f6673", fontSize: 15, fontWeight: "600" },
   profileProperty: { color: "#7b8496", fontSize: 14, fontWeight: "700" },
+  editProfileHint: { marginTop: 10, color: "#98A2B3", fontSize: 12, fontWeight: "700" },
   contactList: { alignSelf: "stretch", gap: 14, marginTop: 22 },
   profileContactRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 14 },
   profileContactIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#f1f1f1" },
@@ -6329,6 +6222,19 @@ const reviewSt = StyleSheet.create({
   annotationRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
   annotationChip: { minHeight: 26, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: "#dbeafe", backgroundColor: "#fff" },
   annotationText: { color: C.brand, fontSize: 10, fontWeight: "900" },
+  commentHint: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+  },
+  commentHintText: { flex: 1, color: "#1D4ED8", fontSize: 12, fontWeight: "700", lineHeight: 17 },
   commentKindBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 999, backgroundColor: "#f4f7fb" },
   commentKindText: { color: C.brand, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
   coachingMoment: { gap: 9, marginVertical: 6, padding: 12, borderWidth: 1, borderColor: "#e9d5ff", borderRadius: 14, backgroundColor: "#fbf7ff" },

@@ -88,6 +88,11 @@ export function SessionAudioInsightsScreen({
             onSpeed={() => void playback.changeSpeed()}
             onSeek={(ratio) => void playback.seekToSeconds(ratio * playback.duration)}
           />
+          {playback.error ? (
+            <Pressable onPress={playback.retry} style={styles.retryAudio}>
+              <Text style={styles.retryAudioText}>{playback.error} · Tap to retry</Text>
+            </Pressable>
+          ) : null}
         </>
       ) : (
         <View style={styles.empty}>
@@ -158,6 +163,18 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: "600",
     color: "#667085",
+    textAlign: "center",
+  },
+  retryAudio: {
+    marginHorizontal: 20,
+    marginBottom: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  retryAudioText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#006ce5",
     textAlign: "center",
   },
   actionBtn: {

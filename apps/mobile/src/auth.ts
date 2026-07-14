@@ -13,6 +13,9 @@ export type MobileWorkspace = {
     id: string;
     email: string;
     fullName: string | null;
+    title?: string | null;
+    phone?: string | null;
+    cardAccent?: string | null;
   };
   teamMember: {
     id: string | null;
@@ -491,6 +494,11 @@ function hasCanonicalWorkspace(session: MobileAuthSession) {
     authorized.length === workspace.communities.length &&
     authorized.some((community) => community.id === workspace.community.id)
   );
+}
+
+/** Update in-memory + SecureStore session (e.g. after profile edits). */
+export async function replaceStoredSession(session: MobileAuthSession) {
+  return persistSession(session);
 }
 
 function withAuth(init: RequestInit, session: MobileAuthSession): RequestInit {

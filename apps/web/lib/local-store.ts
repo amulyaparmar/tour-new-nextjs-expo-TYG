@@ -111,6 +111,8 @@ export async function createLocalSession(input: {
     overallScore: null,
     createdAt: new Date().toISOString(),
     audioInsightsStatus: "pending",
+    cardSummary: null,
+    needsImprovement: null,
     notes: input.notes ?? null,
     videoUrl: null,
     audioUrl: null,
@@ -306,6 +308,8 @@ export async function saveLocalAnalysisRun(
   if (session) {
     session.status = "analysis_ready";
     session.overallScore = analysis.overallScore;
+    session.cardSummary = analysis.cardSummary || null;
+    session.needsImprovement = analysis.needsImprovement || null;
   }
 
   await saveStore(store);

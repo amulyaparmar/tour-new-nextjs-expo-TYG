@@ -11,6 +11,7 @@ import {
 } from "@/lib/admin-auth";
 import { listTeamAgents } from "@/lib/agents";
 import { createSession, listSessionsPaginated } from "@/lib/sessions";
+import { buildSessionTourTitle } from "@tour/shared";
 
 const VALID_STATUSES: SessionStatus[] = [
   "scheduled", "in_progress", "uploaded", "transcribing", "segmenting",
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
       unitLabel?: string | null;
     };
 
-    if (!body.title?.trim()) {
+    if (!body.title?.trim() && !body.prospectName?.trim() && !body.agentName?.trim() && !workspace.user.fullName) {
       return NextResponse.json({ error: "title is required." }, { status: 400 });
     }
 
@@ -123,12 +124,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "That property is not available to this team member." }, { status: 403 });
     }
 
+    const agentName = body.agentName ?? workspace.user.fullName ?? null;
+    const prospectName = body.prospectName ?? null;
     const session = await createSession({
-      title: body.title,
+      title: buildSessionTourTitle({
+        title: body.title,
+        agentName,
+        prospectName,
+      }),
       scheduledAt: body.scheduledAt ?? null,
       location: body.location ?? null,
-      prospectName: body.prospectName ?? null,
-      agentName: body.agentName ?? workspace.user.fullName ?? null,
+      prospectName,
+      agentName,
       notes: body.notes ?? null,
       rubricId: body.rubricId ?? null,
       agentId: body.agentId ?? `user:${workspace.user.id}`,

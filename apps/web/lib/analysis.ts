@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { AnalysisResult, AnalysisModelId, RubricDefinition } from "@tour/shared";
-import { buildRubricAnalysisPrompt, rubricSessionTypeLabel, rubricTotalPoints } from "@tour/shared";
+import { buildRubricAnalysisPrompt, cardFieldsFromAnalysis, rubricSessionTypeLabel, rubricTotalPoints } from "@tour/shared";
 import { DEFAULT_RBG_RUBRIC_DEFINITION } from "./default-rubric";
 import type { TranscriptSegment } from "./transcribe";
 import { type ClaudeTool } from "./bedrock";
@@ -66,6 +66,14 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
       totalPointsEarned: { type: "number" },
       totalPointsPossible: { type: "number", description: String(totalPoints) },
       summary: { type: "string", description: "Executive summary of the leasing professional's performance" },
+      cardSummary: {
+        type: "string",
+        description: "Exactly 9 words summarizing tour performance for session list cards",
+      },
+      needsImprovement: {
+        type: "string",
+        description: "One short sentence: the single most important coaching improvement for list cards",
+      },
       strengths: { type: "array", items: { type: "string" } },
       opportunities: { type: "array", items: { type: "string" } },
       suggestedRewrite: { type: "string", description: "The weakest line, rewritten as a model script line" },
@@ -117,6 +125,8 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
       "totalPointsEarned",
       "totalPointsPossible",
       "summary",
+      "cardSummary",
+      "needsImprovement",
       "strengths",
       "opportunities",
       "suggestedRewrite",
@@ -280,11 +290,28 @@ function safeParseAnalysis(parsed: Record<string, unknown>): AnalysisResult | nu
         : [],
     }));
 
+    const cardFields = cardFieldsFromAnalysis({
+      overallScore: parsed.overallScore,
+      totalPointsEarned: totalEarned,
+      totalPointsPossible: totalPossible,
+      summary: String(parsed.summary ?? ""),
+      cardSummary: String(parsed.cardSummary ?? ""),
+      needsImprovement: String(parsed.needsImprovement ?? ""),
+      strengths: parsed.strengths as string[],
+      opportunities: parsed.opportunities as string[],
+      suggestedRewrite: String(parsed.suggestedRewrite ?? ""),
+      sectionScores,
+      fairHousingFlags: Array.isArray(parsed.fairHousingFlags) ? parsed.fairHousingFlags as string[] : [],
+      exactMoments: parsed.exactMoments as AnalysisResult["exactMoments"],
+    });
+
     return {
       overallScore: parsed.overallScore,
       totalPointsEarned: totalEarned,
       totalPointsPossible: totalPossible,
       summary: String(parsed.summary ?? ""),
+      cardSummary: cardFields.cardSummary ?? "",
+      needsImprovement: cardFields.needsImprovement ?? "",
       strengths: parsed.strengths as string[],
       opportunities: parsed.opportunities as string[],
       suggestedRewrite: String(parsed.suggestedRewrite ?? ""),

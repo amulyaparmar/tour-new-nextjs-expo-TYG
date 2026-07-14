@@ -6,6 +6,9 @@ import { getSupabaseServiceClient } from "@/lib/supabase";
 const DEFAULTS = {
   lowScore: true,
   newSession: true,
+  analysisReady: true,
+  sessionReminders: true,
+  comments: true,
   weeklyReport: true,
   prospectConvert: false,
   coachingMentions: true,

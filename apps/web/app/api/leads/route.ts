@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import type { SessionLead } from "@tour/shared";
-import { addSessionLead, createSession, findOpenQrSession } from "@/lib/sessions";
+import { buildSessionTourTitle } from "@tour/shared";
+import { addSessionLead, createSession, findOpenQrSession, getSessionById, updateSession } from "@/lib/sessions";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
 type CheckInPropertyRow = {
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
       repSlug?: string | null;
       repName?: string | null;
       propertyId?: string | null;
+      sessionId?: string | null;
     };
 
     const firstName = body.firstName?.trim() || null;
@@ -47,6 +49,19 @@ export async function POST(request: Request) {
       repSlug: body.repSlug?.trim() || null,
       createdAt: new Date().toISOString()
     };
+
+    const targetSessionId = body.sessionId?.trim() || null;
+    if (targetSessionId) {
+      const existing = await getSessionById(targetSessionId);
+      if (!existing) {
+        return NextResponse.json({ error: "Session not found." }, { status: 404 });
+      }
+      await addSessionLead(targetSessionId, lead);
+      if (!existing.prospectName?.trim()) {
+        await updateSession(targetSessionId, { prospectName: lead.name });
+      }
+      return NextResponse.json({ sessionId: targetSessionId, grouped: true, startRecording: true }, { status: 200 });
+    }
 
     // A second person scanning during the same tour joins the open session
     // group instead of creating a duplicate session.
@@ -87,12 +102,16 @@ export async function POST(request: Request) {
     const openSession = await findOpenQrSession(propertyId, agentId);
     if (openSession) {
       await addSessionLead(openSession.id, lead);
-      return NextResponse.json({ sessionId: openSession.id, grouped: true }, { status: 200 });
+      return NextResponse.json({ sessionId: openSession.id, grouped: true, startRecording: true }, { status: 200 });
     }
 
     const property = body.propertyName?.trim() || "Property";
     const session = await createSession({
-      title: `${property} tour check-in`,
+      title: buildSessionTourTitle({
+        prospectName: lead.name,
+        title: `${property} tour — ${lead.name}`,
+        preferPeopleTitle: true,
+      }),
       status: "in_progress",
       scheduledAt: new Date().toISOString(),
       prospectName: lead.name,
@@ -104,7 +123,7 @@ export async function POST(request: Request) {
       propertyId,
     });
 
-    return NextResponse.json({ sessionId: session.id, grouped: false }, { status: 201 });
+    return NextResponse.json({ sessionId: session.id, grouped: false, startRecording: true }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to submit lead." },

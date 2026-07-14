@@ -50,6 +50,10 @@ export type SessionSummary = {
   duration: number | null;
   createdAt: string;
   audioInsightsStatus: AudioInsightsStatus;
+  /** Pipeline-authored ~9-word card blurb. */
+  cardSummary?: string | null;
+  /** Pipeline-authored improvement line for cards. */
+  needsImprovement?: string | null;
 };
 
 export type SessionDetail = SessionSummary & {
@@ -88,6 +92,10 @@ export type AnalysisResult = {
   totalPointsEarned: number;
   totalPointsPossible: number;
   summary: string;
+  /** Exactly ~9 words for session list cards. */
+  cardSummary: string;
+  /** One short coaching improvement line for session list cards. */
+  needsImprovement: string;
   strengths: string[];
   opportunities: string[];
   suggestedRewrite: string;

@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import type { AdminWorkspace } from "./admin-auth";
+import { buildSessionTourTitle } from "@tour/shared";
 import { getSupabaseServiceClient } from "./supabase";
 
 const TOUR_API_BASE_URL = (process.env.TOUR_API_BASE_URL ?? "https://tour.new").replace(/\/$/, "");
@@ -21,6 +22,7 @@ type CalendarIntegrationRow = {
   last_synced_at: string | null;
   last_error: string | null;
   stats: Record<string, unknown> | null;
+  auto_sync_enabled?: boolean | null;
 };
 
 export type StoredCalendarEvent = {
@@ -80,7 +82,7 @@ export async function getCommunityCalendarIntegration(workspace: AdminWorkspace)
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
     .from("calendar_integrations")
-    .select("provider,status,source,external_property_id,last_synced_at,last_error,stats")
+    .select("provider,status,source,external_property_id,last_synced_at,last_error,stats,auto_sync_enabled")
     .eq("property_id", workspace.community.id)
     .eq("provider", "entrata")
     .maybeSingle();
@@ -95,10 +97,75 @@ export async function getCommunityCalendarIntegration(workspace: AdminWorkspace)
     source: row?.source ?? "tour_new",
     scopes: ["availability", "scheduled_tours", "lead_events"],
     stats: row?.stats ?? {},
+    autoSyncEnabled: Boolean(row?.auto_sync_enabled),
     lastTestedAt: null,
     lastSyncedAt: row?.last_synced_at ?? null,
     lastError: row?.last_error ?? null,
   };
+}
+
+export async function setCommunityEntrataAutoSync(
+  workspace: AdminWorkspace,
+  autoSyncEnabled: boolean,
+) {
+  const supabase = getSupabaseServiceClient();
+  const now = new Date().toISOString();
+  const { data: existing } = await supabase
+    .from("calendar_integrations")
+    .select("property_id")
+    .eq("property_id", workspace.community.id)
+    .eq("provider", "entrata")
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from("calendar_integrations")
+      .update({
+        auto_sync_enabled: autoSyncEnabled,
+        updated_at: now,
+      } as never)
+      .eq("property_id", workspace.community.id)
+      .eq("provider", "entrata");
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from("calendar_integrations").insert({
+      property_id: workspace.community.id,
+      company_id: workspace.membership.companyId,
+      provider: "entrata",
+      source: "tour_new",
+      status: "connected",
+      auto_sync_enabled: autoSyncEnabled,
+      updated_at: now,
+    } as never);
+    if (error) throw new Error(error.message);
+  }
+
+  return getCommunityCalendarIntegration(workspace);
+}
+
+/** Communities with Entrata connected and auto-sync enabled (for cron). */
+export async function listAutoSyncEntrataIntegrations(): Promise<Array<{
+  propertyId: string;
+  companyId: string;
+  externalPropertyId: string | null;
+}>> {
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("calendar_integrations")
+    .select("property_id,company_id,external_property_id,status,auto_sync_enabled")
+    .eq("provider", "entrata")
+    .eq("auto_sync_enabled", true)
+    .in("status", ["connected", "error", "syncing"]);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as Array<{
+    property_id: string;
+    company_id: string;
+    external_property_id: string | null;
+  }>).map((row) => ({
+    propertyId: row.property_id,
+    companyId: row.company_id,
+    externalPropertyId: row.external_property_id,
+  }));
 }
 
 export async function syncCommunityCalendar(
@@ -340,14 +407,16 @@ function toSessionPayload(event: NormalizedCalendarEvent, workspace: AdminWorksp
 }
 
 function toSessionRefreshPayload(event: NormalizedCalendarEvent) {
-  const tourType = event.event_type === "virtual" ? "Virtual tour" : "In-person tour";
   return {
-    title: event.prospect_name ? `${tourType} - ${event.prospect_name}` : `Entrata ${tourType.toLowerCase()}`,
+    title: buildSessionTourTitle({
+      prospectName: event.prospect_name,
+      preferPeopleTitle: true,
+    }),
     prospect_name: event.prospect_name,
     scheduled_at: event.starts_at,
     location: null,
     notes: [
-      `Synced from Entrata ${tourType.toLowerCase()}.`,
+      `Synced from Entrata ${(event.event_type === "virtual" ? "virtual" : "in-person")} tour.`,
       event.external_application_id ? `Entrata application: ${event.external_application_id}` : null,
       event.notes,
     ].filter(Boolean).join("\n\n"),

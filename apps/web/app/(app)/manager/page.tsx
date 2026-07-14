@@ -9,7 +9,7 @@ import {
   UsersRound
 } from "lucide-react";
 import Link from "next/link";
-import { SESSION_STATUS_LABELS, shopRubrics, type SessionStatus, type SessionSummary } from "@tour/shared";
+import { SESSION_STATUS_LABELS, shopRubrics, formatSessionCardDateTime, formatSessionCardDescription, type SessionStatus, type SessionSummary } from "@tour/shared";
 import { listMaterials } from "@/lib/materials";
 import { listSessions } from "@/lib/sessions";
 import { requireTourWorkspace } from "@/lib/tour-auth";
@@ -17,6 +17,8 @@ import { requireTourWorkspace } from "@/lib/tour-auth";
 type ReviewSession = {
   id: string;
   title: string;
+  dateTime: string;
+  description: string | null;
   property: string;
   agent: string;
   prospect: string;
@@ -57,6 +59,8 @@ const reviewSessions: ReviewSession[] = [
   {
     id: "REV-1048",
     title: "Student housing discovery tour",
+    dateTime: "Jun 11 Wed 10:30 AM Tour",
+    description: "Strong discovery opener; tighten pricing objection handling and next-step ask.",
     property: "The George",
     agent: "Maya Chen",
     prospect: "Avery Brooks",
@@ -74,6 +78,8 @@ const reviewSessions: ReviewSession[] = [
   {
     id: "REV-1042",
     title: "Parent co-signer walkthrough",
+    dateTime: "Jun 10 Tue 4:15 PM Tour",
+    description: "Parent concerns handled well; clarify co-signer path and fair-housing phrasing.",
     property: "Vic Village",
     agent: "Jordan Ellis",
     prospect: "Patricia Warren",
@@ -91,6 +97,8 @@ const reviewSessions: ReviewSession[] = [
   {
     id: "REV-1039",
     title: "International student virtual tour",
+    dateTime: "Jun 10 Tue 1 PM Tour",
+    description: "Clear virtual demo flow; reinforce application urgency before hang-up.",
     property: "Landmark Ann Arbor",
     agent: "Sam Rivera",
     prospect: "Noor Haddad",
@@ -108,6 +116,8 @@ const reviewSessions: ReviewSession[] = [
   {
     id: "REV-1035",
     title: "Transfer student lease renewal",
+    dateTime: "Jun 9 Mon 2:45 PM Tour",
+    description: "Renewal empathy present; nail timeline and concession framing sooner.",
     property: "Six11",
     agent: "Tessa Morgan",
     prospect: "Marcus Hill",
@@ -284,8 +294,10 @@ function buildReviewSessions(
     return {
       id: session.id,
       title: session.title,
+      dateTime: formatSessionCardDateTime(session) ?? formatSessionDate(session.scheduledAt ?? session.createdAt),
+      description: formatSessionCardDescription(session),
       property: session.location ?? "Property not set",
-      agent: agent.name,
+      agent: session.agentName ?? agent.name,
       prospect: session.prospectName ?? "Prospect not set",
       tourDate: formatSessionDate(session.scheduledAt ?? session.createdAt),
       duration: session.status === "scheduled" ? "Scheduled" : "Recorded",
@@ -441,6 +453,9 @@ export default async function ManagerPage() {
                     <span>{session.tourDate}</span>
                     <span>{session.duration}</span>
                   </div>
+                  {session.description ? (
+                    <p className="mt-2 text-sm font-medium text-slate-500">{session.description}</p>
+                  ) : null}
 
                   <div className="mt-3 flex flex-wrap gap-2">
                     {session.flags.map((flag) => (

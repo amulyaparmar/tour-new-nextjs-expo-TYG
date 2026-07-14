@@ -1,47 +1,99 @@
 import { Audio } from "expo-av";
 import { useCallback, useEffect, useState } from "react";
 
-import { getApiBaseUrl } from "@/config";
+import { getRecordingSignedPlaybackUrl } from "@/api";
+import {
+  cacheRecordingFromUrl,
+  resolveSessionPlaybackUri,
+} from "@/session-audio-cache";
 
-export function getRecordingPlaybackUrl(sessionId: string) {
-  return `${getApiBaseUrl()}/api/sessions/${sessionId}/recording`;
-}
+export type SessionPlaybackState = {
+  ready: boolean;
+  loading: boolean;
+  error: string | null;
+  playing: boolean;
+  position: number;
+  duration: number;
+  speed: number;
+  progressPercent: number;
+  fromCache: boolean;
+  seekToSeconds: (seconds: number, shouldPlay?: boolean) => Promise<void>;
+  togglePlayback: () => Promise<void>;
+  changeSpeed: () => Promise<void>;
+  retry: () => void;
+};
 
-export function useSessionPlayback(sessionId: string) {
+export function useSessionPlayback(sessionId: string): SessionPlaybackState {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1);
-
-  const playbackUrl = getRecordingPlaybackUrl(sessionId);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     let mounted = true;
     let loadedSound: Audio.Sound | undefined;
 
     void (async () => {
+      setLoading(true);
+      setError(null);
+      setSound(null);
+      setPlaying(false);
+      setPosition(0);
+      setDuration(0);
+      setFromCache(false);
+
       try {
         await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-        const result = await Audio.Sound.createAsync(
-          { uri: playbackUrl },
-          { shouldPlay: false, progressUpdateIntervalMillis: 250 }
-        );
-        if (!mounted) {
-          await result.sound.unloadAsync();
-          return;
+        let resolved = await resolveSessionPlaybackUri(sessionId);
+
+        try {
+          const result = await Audio.Sound.createAsync(
+            { uri: resolved.uri },
+            { shouldPlay: false, progressUpdateIntervalMillis: 250 },
+          );
+          if (!mounted) {
+            await result.sound.unloadAsync();
+            return;
+          }
+          loadedSound = result.sound;
+          setSound(result.sound);
+          setFromCache(resolved.fromCache);
+        } catch {
+          if (resolved.fromCache) throw new Error("Cached audio could not be loaded.");
+          const refreshed = await getRecordingSignedPlaybackUrl(sessionId);
+          resolved = { uri: refreshed.signedUrl, fromCache: false };
+          void cacheRecordingFromUrl(sessionId, refreshed.signedUrl).catch(() => {});
+          const result = await Audio.Sound.createAsync(
+            { uri: resolved.uri },
+            { shouldPlay: false, progressUpdateIntervalMillis: 250 },
+          );
+          if (!mounted) {
+            await result.sound.unloadAsync();
+            return;
+          }
+          loadedSound = result.sound;
+          setSound(result.sound);
+          setFromCache(false);
         }
-        loadedSound = result.sound;
-        setSound(result.sound);
-        result.sound.setOnPlaybackStatusUpdate((status) => {
+
+        loadedSound.setOnPlaybackStatusUpdate((status) => {
           if (!mounted || !status.isLoaded) return;
           setPosition(status.positionMillis / 1000);
           if (status.durationMillis) setDuration(status.durationMillis / 1000);
           setPlaying(status.isPlaying);
           if (status.didJustFinish) setPlaying(false);
         });
-      } catch {
-        // Audio unavailable for this session.
+      } catch (caught) {
+        if (mounted) {
+          setError(caught instanceof Error ? caught.message : "Audio is unavailable for this session.");
+        }
+      } finally {
+        if (mounted) setLoading(false);
       }
     })();
 
@@ -49,7 +101,7 @@ export function useSessionPlayback(sessionId: string) {
       mounted = false;
       void loadedSound?.unloadAsync();
     };
-  }, [playbackUrl]);
+  }, [sessionId, retryToken]);
 
   const seekToSeconds = useCallback(
     async (seconds: number, shouldPlay = false) => {
@@ -59,7 +111,7 @@ export function useSessionPlayback(sessionId: string) {
       setPosition(next);
       if (shouldPlay) await sound.playAsync();
     },
-    [duration, sound]
+    [duration, sound],
   );
 
   const togglePlayback = useCallback(async () => {
@@ -75,17 +127,25 @@ export function useSessionPlayback(sessionId: string) {
     setSpeed(next);
   }, [sound, speed]);
 
+  const retry = useCallback(() => {
+    setRetryToken((token) => token + 1);
+  }, []);
+
   const progressPercent = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
 
   return {
     ready: !!sound,
+    loading,
+    error,
     playing,
     position,
     duration,
     speed,
     progressPercent,
+    fromCache,
     seekToSeconds,
     togglePlayback,
     changeSpeed,
+    retry,
   };
 }

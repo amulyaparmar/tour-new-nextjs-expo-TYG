@@ -14,6 +14,7 @@ import "@schedule-x/theme-default/dist/index.css";
 import type { SessionSummary } from "@tour/shared";
 import type { StoredCalendarEvent } from "@/lib/tour-calendar";
 import { SESSION_STATUS_LABELS } from "@tour/shared";
+import { SessionCardCopy } from "@/app/components/SessionCardCopy";
 import { Building2, CalendarDays, Filter, List, Mail, MonitorPlay, Phone } from "lucide-react";
 
 function toSxDateTime(d: Date) {
@@ -273,11 +274,7 @@ export function CalendarView({
                       : ""}
                   </span>
                   <div className="session-row-info">
-                    <div className="session-row-title">{session.title}</div>
-                    <div className="session-row-meta">
-                      {session.prospectName ?? "No prospect"}
-                      {session.location ? ` \u00B7 ${session.location}` : ""}
-                    </div>
+                    <SessionCardCopy session={session} />
                   </div>
                   <span className={`badge badge-${session.status}`}>
                     {SESSION_STATUS_LABELS[session.status]}
@@ -334,11 +331,7 @@ export function CalendarView({
             sessions.filter((session) => session.scheduledAt).map((session) => (
               <Link key={session.id} href={`/sessions/${session.id}`} className="session-row">
                 <div className="session-row-info">
-                  <div className="session-row-title">{session.title}</div>
-                  <div className="session-row-meta">
-                    {session.prospectName ?? "No prospect"}
-                    {session.scheduledAt ? ` \u00B7 ${new Date(session.scheduledAt).toLocaleString()}` : " \u00B7 Unscheduled"}
-                  </div>
+                  <SessionCardCopy session={session} />
                 </div>
                 <span className={`badge badge-${session.status}`}>
                   {SESSION_STATUS_LABELS[session.status]}
@@ -359,8 +352,7 @@ export function CalendarView({
               {unscheduled.map((session) => (
                 <Link key={session.id} href={`/sessions/${session.id}`} className="session-row">
                   <div className="session-row-info">
-                    <div className="session-row-title">{session.title}</div>
-                    <div className="session-row-meta">{session.prospectName ?? "No prospect"}</div>
+                    <SessionCardCopy session={session} />
                   </div>
                   <span className={`badge badge-${session.status}`}>
                     {SESSION_STATUS_LABELS[session.status]}

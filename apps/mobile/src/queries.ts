@@ -16,6 +16,7 @@ import {
   fetchCalendarEvents,
   fetchComments,
   fetchMaterials,
+  fetchProfile,
   fetchRubrics,
   fetchSampleSession,
   fetchSampleSessions,
@@ -24,16 +25,21 @@ import {
   fetchTranscript,
   postComment,
   updateActionStatus,
+  updateProfile,
   type FetchSessionsParams,
   type PaginatedSessions,
+  type ProfileResponse,
+  type ProfileUpdatePayload,
   type SessionComment,
 } from "./api";
-import { getCurrentSession } from "./auth";
+import { getCurrentSession, replaceStoredSession } from "./auth";
 
 const communityKey = () => getCurrentSession()?.workspace.community.id ?? "anonymous";
+const userKey = () => getCurrentSession()?.workspace.user.id ?? "anonymous";
 
 export const queryKeys = {
   all: () => ["mobile", communityKey()] as const,
+  profile: () => ["mobile", "profile", userKey()] as const,
   sessions: (params?: FetchSessionsParams) => [...queryKeys.all(), "sessions", params ?? {}] as const,
   sessionPages: (params?: FetchSessionsParams) => [...queryKeys.all(), "sessionPages", params ?? {}] as const,
   session: (sessionId: string) => [...queryKeys.all(), "session", sessionId] as const,
@@ -155,6 +161,84 @@ export function useCalendarEventsQuery() {
     queryKey: queryKeys.calendar(),
     queryFn: () => fetchCalendarEvents(),
     staleTime: 60_000,
+  });
+}
+
+async function syncProfileIntoAuthSession(profile: ProfileResponse) {
+  const session = getCurrentSession();
+  if (!session) return null;
+  return replaceStoredSession({
+    ...session,
+    workspace: {
+      ...session.workspace,
+      user: {
+        ...session.workspace.user,
+        fullName: profile.name,
+        title: profile.title,
+        phone: profile.phone,
+        cardAccent: profile.cardAccent,
+      },
+    },
+  });
+}
+
+export function useProfileQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.profile(),
+    queryFn: async () => {
+      const profile = await fetchProfile();
+      await syncProfileIntoAuthSession(profile);
+      return profile;
+    },
+    enabled: enabled && Boolean(getCurrentSession()),
+    staleTime: 5 * 60_000,
+    placeholderData: () => {
+      const session = getCurrentSession();
+      if (!session) return undefined;
+      return {
+        name: session.workspace.user.fullName ?? session.workspace.user.email.split("@")[0] ?? "Agent",
+        email: session.workspace.user.email,
+        role: session.workspace.membership.role,
+        company: session.workspace.membership.companyName,
+        community: session.workspace.community.name,
+        title: session.workspace.user.title ?? null,
+        phone: session.workspace.user.phone ?? null,
+        cardAccent: session.workspace.user.cardAccent ?? null,
+      } satisfies ProfileResponse;
+    },
+  });
+}
+
+export function useUpdateProfileMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ProfileUpdatePayload) => updateProfile(payload),
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.profile() });
+      const previous = queryClient.getQueryData<ProfileResponse>(queryKeys.profile());
+      if (previous) {
+        queryClient.setQueryData<ProfileResponse>(queryKeys.profile(), {
+          ...previous,
+          name: payload.name,
+          title: payload.title !== undefined ? payload.title : previous.title,
+          phone: payload.phone !== undefined ? payload.phone : previous.phone,
+          cardAccent: payload.cardAccent !== undefined ? payload.cardAccent : previous.cardAccent,
+        });
+      }
+      return { previous };
+    },
+    onError: (_error, _payload, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKeys.profile(), context.previous);
+      }
+    },
+    onSuccess: async (profile) => {
+      queryClient.setQueryData(queryKeys.profile(), profile);
+      await syncProfileIntoAuthSession(profile);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.profile() });
+    },
   });
 }
 

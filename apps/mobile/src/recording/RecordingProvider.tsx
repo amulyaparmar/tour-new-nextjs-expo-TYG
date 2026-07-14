@@ -8,13 +8,25 @@ import {
   type RecordingOptions,
   type RecordingStatus,
 } from "expo-audio";
+import { AppState, type AppStateStatus } from "react-native";
 import type { Material } from "../api";
+import {
+  copyRecordingToDurableStore,
+  createLocalSession,
+  deleteLocalSession,
+  updateLocalSession,
+  writeCheckpoint,
+} from "../offline/session-local-store";
+import { trackAnalyticsEvent } from "../analytics";
 import {
   startRecordingLiveActivity,
   stopRecordingLiveActivity,
   updateRecordingLiveActivity,
 } from "./recordingLiveActivity";
 import { supportsBackgroundRecording } from "../runtime";
+
+const CHECKPOINT_INTERVAL_MS = 30_000;
+const DRAFT_CHECKPOINT_DEBOUNCE_MS = 1_000;
 
 export type LiveRecordingMeta = {
   sessionId: string | null;
@@ -36,6 +48,7 @@ export type LiveRecordingDraft = {
 };
 
 export type LiveSessionSnapshot = {
+  localId: string | null;
   draft: LiveRecordingDraft;
   meta: LiveRecordingMeta;
   stop: () => Promise<{ uri: string; durationSec: number } | null>;
@@ -63,6 +76,7 @@ export type RecordingCtx = {
   experienceVisible: boolean;
   liveMeta: LiveRecordingMeta | null;
   draft: LiveRecordingDraft | null;
+  localId: string | null;
   transcriptPreview: string;
   start: () => Promise<boolean>;
   togglePause: () => Promise<void>;
@@ -101,6 +115,7 @@ const EMPTY_CTX: RecordingCtx = {
   experienceVisible: false,
   liveMeta: null,
   draft: null,
+  localId: null,
   transcriptPreview: "",
   start: async () => false,
   togglePause: async () => {},
@@ -180,11 +195,14 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   const [experienceVisible, setExperienceVisible] = useState(false);
   const [liveMeta, setLiveMeta] = useState<LiveRecordingMeta | null>(null);
   const [draft, setDraft] = useState<LiveRecordingDraft | null>(null);
+  const [localId, setLocalId] = useState<string | null>(null);
   const [transcriptPreview, setTranscriptPreviewState] = useState("");
 
   const startingRef = useRef(false);
   const stoppingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const checkpointTimerRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const draftCheckpointTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const liveActivityTickRef = useRef(0);
   const elapsedRef = useRef(0);
   const isPausedRef = useRef(false);
@@ -197,11 +215,15 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   const finishHandlerRef = useRef<((snapshot: LiveSessionSnapshot) => void | Promise<void>) | null>(null);
   const liveMetaRef = useRef<LiveRecordingMeta | null>(null);
   const draftRef = useRef<LiveRecordingDraft | null>(null);
+  const localIdRef = useRef<string | null>(null);
+  const discardLocalOnClearRef = useRef(false);
 
   const resetLiveUi = useCallback(() => {
     setExperienceVisible(false);
     setLiveMeta(null);
     setDraft(null);
+    setLocalId(null);
+    localIdRef.current = null;
     setTranscriptPreviewState("");
     beforeStartHandlerRef.current = null;
     uploadFileHandlerRef.current = null;
@@ -212,12 +234,66 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
     draftRef.current = null;
   }, []);
 
+  const persistCheckpoint = useCallback((forceAudioCopy = false) => {
+    const id = localIdRef.current;
+    if (!id) return;
+    const sourceUri = recorderRef.current?.uri ?? null;
+    writeCheckpoint(id, elapsedRef.current, sourceUri);
+    const draftSnapshot = draftRef.current;
+    const metaSnapshot = liveMetaRef.current;
+    if (draftSnapshot || metaSnapshot) {
+      updateLocalSession(id, {
+        draft: draftSnapshot ?? undefined,
+        title: metaSnapshot?.title,
+        prospectName: metaSnapshot?.prospectName,
+        propertyName: metaSnapshot?.propertyName,
+        agentName: metaSnapshot?.agentName,
+        remoteSessionId: metaSnapshot?.sessionId ?? undefined,
+        elapsedSec: elapsedRef.current,
+        recordingSourceUri: sourceUri,
+      });
+    }
+    if (forceAudioCopy || isPausedRef.current) {
+      copyRecordingToDurableStore(id, sourceUri);
+    } else {
+      // Best-effort mid-recording copy; ignore lock failures.
+      copyRecordingToDurableStore(id, sourceUri);
+    }
+  }, []);
+
+  const clearCheckpointTimer = useCallback(() => {
+    if (checkpointTimerRef.current) {
+      clearInterval(checkpointTimerRef.current);
+      checkpointTimerRef.current = undefined;
+    }
+    if (draftCheckpointTimerRef.current) {
+      clearTimeout(draftCheckpointTimerRef.current);
+      draftCheckpointTimerRef.current = undefined;
+    }
+  }, []);
+
+  const startCheckpointTimer = useCallback(() => {
+    clearCheckpointTimer();
+    checkpointTimerRef.current = setInterval(() => {
+      persistCheckpoint(false);
+    }, CHECKPOINT_INTERVAL_MS);
+  }, [clearCheckpointTimer, persistCheckpoint]);
+
+  const scheduleDraftCheckpoint = useCallback(() => {
+    if (draftCheckpointTimerRef.current) clearTimeout(draftCheckpointTimerRef.current);
+    draftCheckpointTimerRef.current = setTimeout(() => {
+      persistCheckpoint(false);
+    }, DRAFT_CHECKPOINT_DEBOUNCE_MS);
+  }, [persistCheckpoint]);
+
   const handleExternalStop = useCallback(
     (status: RecordingStatus) => {
       if (!status.isFinished || stoppingRef.current) return;
 
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = undefined;
+      clearCheckpointTimer();
+      persistCheckpoint(true);
 
       stopRecordingLiveActivity(elapsedRef.current);
       setIsRecording(false);
@@ -230,7 +306,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       resetLiveUi();
       void configureRecordingAudioMode(false).catch(() => {});
     },
-    [resetLiveUi],
+    [clearCheckpointTimer, persistCheckpoint, resetLiveUi],
   );
 
   const recorder = useAudioRecorder(RECORDING_OPTIONS, handleExternalStop);
@@ -260,6 +336,20 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
     draftRef.current = draft;
   }, [draft]);
 
+  useEffect(() => {
+    localIdRef.current = localId;
+  }, [localId]);
+
+  useEffect(() => {
+    const onAppState = (next: AppStateStatus) => {
+      if (next === "background" || next === "inactive") {
+        if (isRecording) persistCheckpoint(true);
+      }
+    };
+    const sub = AppState.addEventListener("change", onAppState);
+    return () => sub.remove();
+  }, [isRecording, persistCheckpoint]);
+
   const start = useCallback(async () => {
     const activeRecorder = recorderRef.current;
     if (!activeRecorder || startingRef.current || isRecording) return false;
@@ -284,6 +374,12 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setWaveformLevels(EMPTY_WAVEFORM);
       liveActivityTickRef.current = 0;
       startRecordingLiveActivity(liveMetaRef.current?.title);
+      startCheckpointTimer();
+      void trackAnalyticsEvent("session_start_recording", {
+        source: liveMetaRef.current?.source ?? "unknown",
+      });
+      // Persist initial recording pointer as soon as the file URI is available.
+      setTimeout(() => persistCheckpoint(false), 500);
 
       timerRef.current = setInterval(() => {
         setElapsed((current) => {
@@ -305,7 +401,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
     } finally {
       startingRef.current = false;
     }
-  }, [isRecording, onNotify]);
+  }, [isRecording, onNotify, persistCheckpoint, startCheckpointTimer]);
 
   const togglePause = useCallback(async () => {
     const activeRecorder = recorderRef.current;
@@ -327,6 +423,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setIsPaused(false);
       isPausedRef.current = false;
       updateRecordingLiveActivity(elapsedRef.current, false);
+      persistCheckpoint(false);
     } else {
       activeRecorder.pause();
       if (timerRef.current) clearInterval(timerRef.current);
@@ -334,8 +431,9 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setIsPaused(true);
       isPausedRef.current = true;
       updateRecordingLiveActivity(elapsedRef.current, true);
+      persistCheckpoint(true);
     }
-  }, [isPaused, isRecording]);
+  }, [isPaused, isRecording, persistCheckpoint]);
 
   const stop = useCallback(async (): Promise<{ uri: string; durationSec: number } | null> => {
     const activeRecorder = recorderRef.current;
@@ -344,6 +442,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
     stoppingRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = undefined;
+    clearCheckpointTimer();
 
     const durationSec = Math.max(1, elapsedRef.current);
     stopRecordingLiveActivity(durationSec);
@@ -352,6 +451,11 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       await activeRecorder.stop();
       await configureRecordingAudioMode(false);
       const uri = activeRecorder.uri;
+      const id = localIdRef.current;
+      if (id && uri) {
+        copyRecordingToDurableStore(id, uri);
+        writeCheckpoint(id, durationSec, uri);
+      }
       setIsRecording(false);
       setIsPaused(false);
       setElapsed(0);
@@ -373,7 +477,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
     } finally {
       stoppingRef.current = false;
     }
-  }, [isRecording]);
+  }, [clearCheckpointTimer, isRecording]);
 
   useEffect(() => {
     if (!isRecording) {
@@ -395,14 +499,21 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   }, [isPaused, isRecording]);
 
   const clearLiveSession = useCallback(() => {
+    clearCheckpointTimer();
+    const id = localIdRef.current;
+    if (id && discardLocalOnClearRef.current) {
+      deleteLocalSession(id);
+    }
+    discardLocalOnClearRef.current = false;
     resetLiveUi();
-  }, [resetLiveUi]);
+  }, [clearCheckpointTimer, resetLiveUi]);
 
   const buildSnapshot = useCallback((): LiveSessionSnapshot | null => {
     const meta = liveMetaRef.current;
     const currentDraft = draftRef.current;
     if (!meta || !currentDraft) return null;
     return {
+      localId: localIdRef.current,
       meta,
       draft: currentDraft,
       stop,
@@ -411,6 +522,14 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
   }, [clearLiveSession, stop]);
 
   const openExperience = useCallback((input: OpenLiveExperienceInput) => {
+    discardLocalOnClearRef.current = false;
+    const local = createLocalSession({
+      meta: input.meta,
+      draft: input.draft,
+      remoteSessionId: input.meta.sessionId,
+    });
+    localIdRef.current = local.localId;
+    setLocalId(local.localId);
     liveMetaRef.current = input.meta;
     draftRef.current = input.draft;
     setLiveMeta(input.meta);
@@ -418,7 +537,10 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
     beforeStartHandlerRef.current = input.onBeforeRecordingStart ?? null;
     uploadFileHandlerRef.current = input.onUploadFile ?? null;
     minimizeHandlerRef.current = input.onMinimize ?? null;
-    cancelHandlerRef.current = input.onCancel;
+    cancelHandlerRef.current = async (snapshot) => {
+      discardLocalOnClearRef.current = true;
+      await input.onCancel(snapshot);
+    };
     finishHandlerRef.current = input.onFinish;
     setExperienceVisible(true);
   }, []);
@@ -439,6 +561,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       liveMetaRef.current = next;
       return next;
     });
+    const id = localIdRef.current;
+    if (id) updateLocalSession(id, { remoteSessionId: sessionId });
   }, []);
 
   const setTranscriptPreview = useCallback((text: string) => {
@@ -451,7 +575,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       draftRef.current = next;
       return next;
     });
-  }, []);
+    scheduleDraftCheckpoint();
+  }, [scheduleDraftCheckpoint]);
 
   const addDraftAsset = useCallback((asset: Material, snippet: string) => {
     setDraft((current) => {
@@ -465,7 +590,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       draftRef.current = next;
       return next;
     });
-  }, []);
+    scheduleDraftCheckpoint();
+  }, [scheduleDraftCheckpoint]);
 
   const runBeforeRecordingStart = useCallback(async () => {
     await beforeStartHandlerRef.current?.();
@@ -497,6 +623,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       experienceVisible,
       liveMeta,
       draft,
+      localId,
       transcriptPreview,
       start,
       togglePause,
@@ -523,6 +650,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       experienceVisible,
       liveMeta,
       draft,
+      localId,
       transcriptPreview,
       start,
       togglePause,

@@ -83,6 +83,7 @@ export async function createSession(payload: {
   title: string;
   scheduledAt?: string | null;
   prospectName?: string | null;
+  agentName?: string | null;
   location?: string | null;
   notes?: string | null;
   rubricId?: string | null;
@@ -111,6 +112,7 @@ export type CheckInLeadPayload = {
   repSlug?: string | null;
   repName?: string | null;
   propertyId?: string | null;
+  sessionId?: string | null;
 };
 
 export async function submitCheckInLead(payload: CheckInLeadPayload) {
@@ -119,11 +121,52 @@ export async function submitCheckInLead(payload: CheckInLeadPayload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const body = await res.json().catch(() => null) as { sessionId?: string; grouped?: boolean; error?: string } | null;
+  const body = await res.json().catch(() => null) as {
+    sessionId?: string;
+    grouped?: boolean;
+    startRecording?: boolean;
+    error?: string;
+  } | null;
   if (!res.ok) {
     throw new Error(body?.error ?? "Check-in failed.");
   }
-  return body ?? { sessionId: undefined, grouped: false };
+  return body ?? { sessionId: undefined, grouped: false, startRecording: false };
+}
+
+export type ProfileUpdatePayload = {
+  name: string;
+  title?: string | null;
+  phone?: string | null;
+  cardAccent?: string | null;
+};
+
+export type ProfileResponse = {
+  name: string;
+  email: string;
+  role: string;
+  company: string;
+  community: string;
+  title: string | null;
+  phone: string | null;
+  cardAccent: string | null;
+};
+
+export async function fetchProfile() {
+  const res = await authenticatedFetch("/api/admin/settings/profile");
+  const body = await res.json().catch(() => null) as { profile?: ProfileResponse; error?: string } | null;
+  if (!res.ok || !body?.profile) throw new Error(body?.error ?? "Failed to load profile.");
+  return body.profile;
+}
+
+export async function updateProfile(payload: ProfileUpdatePayload) {
+  const res = await authenticatedFetch("/api/admin/settings/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => null) as { profile?: ProfileResponse; error?: string } | null;
+  if (!res.ok || !body?.profile) throw new Error(body?.error ?? "Failed to update profile.");
+  return body.profile;
 }
 
 export async function fetchSession(sessionId: string) {
@@ -136,6 +179,15 @@ export async function fetchSession(sessionId: string) {
     analysis?: AnalysisResult | null;
     phases?: ConversationPhaseSegmentation | null;
   };
+}
+
+export async function getRecordingSignedPlaybackUrl(sessionId: string) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/recording/url`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? "Failed to resolve recording playback URL.");
+  }
+  return (await res.json()) as { signedUrl: string; expiresAt: string };
 }
 
 export async function deleteSession(sessionId: string) {

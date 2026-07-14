@@ -251,6 +251,8 @@ export function Settings({ onNavigate, onSelectSession }: {
   const [entrataStats, setEntrataStats] = useState<EntrataStats>({});
   const [entrataLastSync, setEntrataLastSync] = useState<string | null>(null);
   const [entrataError, setEntrataError] = useState<string | null>(null);
+  const [entrataAutoSync, setEntrataAutoSync] = useState(false);
+  const [savingAutoSync, setSavingAutoSync] = useState(false);
   const [syncingEntrata, setSyncingEntrata] = useState(false);
   const [showEntraModal, setShowEntraModal] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -265,6 +267,9 @@ export function Settings({ onNavigate, onSelectSession }: {
   const [notifs, setNotifs] = useState({
     lowScore: true,
     newSession: true,
+    analysisReady: true,
+    sessionReminders: true,
+    comments: true,
     weeklyReport: true,
     prospectConvert: false,
     coachingMentions: true,
@@ -282,6 +287,7 @@ export function Settings({ onNavigate, onSelectSession }: {
     setEntrataStats(entrata.stats ?? {});
     setEntrataLastSync(entrata.lastSyncedAt ?? null);
     setEntrataError(entrata.lastError ?? null);
+    setEntrataAutoSync(Boolean(entrata.autoSyncEnabled));
   };
 
   useEffect(() => {
@@ -484,6 +490,7 @@ export function Settings({ onNavigate, onSelectSession }: {
                               });
                               setEntrataStats({});
                               setEntrataLastSync(null);
+                              setEntrataAutoSync(false);
                             }}>
                             Disconnect
                           </button>
@@ -510,10 +517,36 @@ export function Settings({ onNavigate, onSelectSession }: {
                             <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
                           </div>
                         ))}
-                        <div className="col-span-full flex gap-3 mt-2">
+                        <div className="col-span-full flex flex-wrap items-center gap-4 mt-2">
                           <button onClick={() => void syncEntrata()} disabled={syncingEntrata} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
                             <RefreshCw className={`w-3.5 h-3.5 ${syncingEntrata ? "animate-spin" : ""}`} /> {syncingEntrata ? "Syncing…" : "Sync now"}
                           </button>
+                          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={entrataAutoSync}
+                              disabled={savingAutoSync}
+                              onChange={(event) => {
+                                const next = event.target.checked;
+                                setEntrataAutoSync(next);
+                                setSavingAutoSync(true);
+                                void fetch(apiUrl("/api/admin/integrations"), {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ provider: "entrata", autoSyncEnabled: next }),
+                                })
+                                  .then(async (response) => {
+                                    if (!response.ok) throw new Error("Failed to update auto-sync");
+                                    const data = await response.json();
+                                    setEntrataAutoSync(Boolean(data.integrations?.entrata?.autoSyncEnabled));
+                                  })
+                                  .catch(() => setEntrataAutoSync(!next))
+                                  .finally(() => setSavingAutoSync(false));
+                              }}
+                              className="rounded border-border"
+                            />
+                            Auto-sync every 12 hours
+                          </label>
                           <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
                             <ExternalLink className="w-3.5 h-3.5" /> Open in Entrata
                           </button>
@@ -576,11 +609,14 @@ export function Settings({ onNavigate, onSelectSession }: {
               {activeTab === "notifications" && (
                 <motion.div key="notifications" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
                   <div className="rounded-2xl border border-border bg-card p-6">
-                    <h3 className="font-semibold text-foreground mb-5">Email notifications</h3>
+                    <h3 className="font-semibold text-foreground mb-5">Push & email notifications</h3>
                     <div className="space-y-4">
                       {[
-                        { key: "lowScore" as const, label: "Low score alert", desc: "Email me when a session scores below 70." },
-                        { key: "newSession" as const, label: "New session analyzed", desc: "Notify me when a new tour session is scored." },
+                        { key: "analysisReady" as const, label: "Analysis ready", desc: "Push the assigned agent when scoring finishes." },
+                        { key: "sessionReminders" as const, label: "Upcoming tour reminders", desc: "Remind the agent about ~1 hour before a scheduled tour." },
+                        { key: "comments" as const, label: "Session comments", desc: "Notify the agent when someone comments or adds a key moment." },
+                        { key: "lowScore" as const, label: "Low score alert", desc: "Notify when a session scores below 70." },
+                        { key: "newSession" as const, label: "New session created", desc: "Notify community members when a new tour session is created." },
                         { key: "weeklyReport" as const, label: "Weekly performance report", desc: "Receive a team summary every Monday morning." },
                         { key: "prospectConvert" as const, label: "Prospect conversion", desc: "Alert when a prospect status changes to Converted." },
                         { key: "coachingMentions" as const, label: "Coaching note mentions", desc: "Notify me when I'm mentioned in a coaching note." },

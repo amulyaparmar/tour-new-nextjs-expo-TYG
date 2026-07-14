@@ -16,7 +16,7 @@ import type {
   SessionStatus,
   SessionSummary
 } from "@tour/shared";
-import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeConversationPhaseSegmentation, normalizeParticipantName, normalizeSessionStatus } from "@tour/shared";
+import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeConversationPhaseSegmentation, normalizeParticipantName, normalizeSessionStatus, buildSessionTourTitle } from "@tour/shared";
 
 import {
   addLocalSessionLead,
@@ -80,10 +80,12 @@ type SessionRow = {
   duration: number | null;
   created_at: string;
   audio_insights_status: AudioInsightsStatus | null;
+  card_summary?: string | null;
+  needs_improvement?: string | null;
 };
 
 const SESSION_COLUMNS =
-  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,leads,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status";
+  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,leads,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,card_summary,needs_improvement";
 
 type AnalysisRow = {
   id: string;
@@ -304,7 +306,15 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
 }
 
 export async function createSession(input: CreateSessionInput): Promise<SessionSummary> {
-  const normalizedTitle = input.title.trim();
+  const prospectName = normalizeParticipantName(
+    input.prospectName ?? input.leads?.[0]?.name ?? null,
+  );
+  const agentName = normalizeParticipantName(input.agentName);
+  const normalizedTitle = buildSessionTourTitle({
+    title: input.title,
+    agentName,
+    prospectName,
+  });
 
   if (!normalizedTitle) {
     throw new Error("Session title is required.");
@@ -318,8 +328,8 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     status: input.status ?? "scheduled",
     scheduled_at: input.scheduledAt ?? null,
     location: input.location?.trim() ? input.location.trim() : null,
-    prospect_name: normalizeParticipantName(input.prospectName),
-    agent_name: normalizeParticipantName(input.agentName),
+    prospect_name: prospectName,
+    agent_name: agentName,
     notes: input.notes?.trim() ? input.notes.trim() : null,
     source: input.source ?? "manual",
     leads: input.leads ?? [],
@@ -341,7 +351,19 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       throw new Error(`Failed to create session: ${error?.message ?? "Unknown error"}`);
     }
 
-    return mapSessionRow(data);
+    const created = mapSessionRow(data);
+    if (created.propertyId) {
+      void import("./push")
+        .then(({ notifyNewSession }) =>
+          notifyNewSession({
+            propertyId: created.propertyId!,
+            sessionId: created.id,
+            title: created.title,
+          }),
+        )
+        .catch(() => {});
+    }
+    return created;
   } catch (error) {
     rethrowInProduction(error);
     return createLocalSession({
@@ -349,8 +371,8 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       status: input.status ?? "scheduled",
       scheduledAt: input.scheduledAt ?? null,
       location: input.location ?? null,
-      prospectName: normalizeParticipantName(input.prospectName),
-      agentName: normalizeParticipantName(input.agentName),
+      prospectName,
+      agentName,
       notes: input.notes ?? null,
       source: input.source ?? "manual",
       leads: input.leads ?? [],
@@ -742,6 +764,24 @@ export async function setSessionStatus(
     if (error) {
       throw new Error(`Failed to set session status: ${error.message}`);
     }
+
+    if (status === "analysis_ready") {
+      void (async () => {
+        try {
+          const session = await getSessionById(sessionId);
+          if (!session) return;
+          const { notifyAnalysisReady } = await import("./push");
+          await notifyAnalysisReady({
+            agentId: session.agentId,
+            sessionId,
+            title: session.title,
+            overallScore: typeof overallScore === "number" ? overallScore : session.overallScore,
+          });
+        } catch {
+          // Ignore push failures.
+        }
+      })();
+    }
   } catch (error) {
     rethrowInProduction(error);
     await setLocalSessionStatus(sessionId, status, overallScore);
@@ -947,6 +987,8 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     duration: row.duration,
     createdAt: row.created_at,
     audioInsightsStatus: normalizeAudioInsightsStatus(row.audio_insights_status),
+    cardSummary: row.card_summary?.trim() || null,
+    needsImprovement: row.needs_improvement?.trim() || null,
   };
 }
 

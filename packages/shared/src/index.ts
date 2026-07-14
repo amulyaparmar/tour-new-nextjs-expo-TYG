@@ -6,6 +6,7 @@ export * from "./rubric";
 export * from "./rubric-prompts";
 export * from "./tour";
 export * from "./session";
+export * from "./session-card";
 export * from "./conversation-phases";
 export * from "./audio-insights";
 export * from "./audio-insights-status";

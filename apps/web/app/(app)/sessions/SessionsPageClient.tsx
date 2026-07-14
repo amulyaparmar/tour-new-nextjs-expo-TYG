@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { SESSION_STATUS_LABELS, type SessionSummary } from "@tour/shared";
+import { SessionCardCopy } from "@/app/components/SessionCardCopy";
 
 type SortOption = "newest" | "oldest" | "score_desc" | "score_asc";
 type TeamAgent = {
@@ -253,17 +254,12 @@ export function SessionsPageClient({
                 onPointerEnter={() => prefetchSession(s.id)}
               >
                 <div className="session-row-info">
-                  <div className="session-row-title">{s.title}</div>
-                  <div className="session-row-meta">
-                    {s.leads?.length
-                      ? s.leads.map((l) => l.name).join(", ")
-                      : s.prospectName ?? "No prospect"}
-                    {showPropertyInRows && s.propertyId && propertyNames[s.propertyId]
-                      ? ` \u00b7 ${propertyNames[s.propertyId]}`
-                      : ""}
-                    {s.scheduledAt ? ` \u00b7 ${new Date(s.scheduledAt).toLocaleDateString()}` : ""}
-                    {s.location ? ` \u00b7 ${s.location}` : ""}
-                  </div>
+                  <SessionCardCopy
+                    session={s}
+                    propertyName={
+                      showPropertyInRows && s.propertyId ? propertyNames[s.propertyId] : null
+                    }
+                  />
                 </div>
                 {s.source === "qr" && <span className="badge badge-source-qr">QR</span>}
                 <span className={`badge badge-${s.status}`}>

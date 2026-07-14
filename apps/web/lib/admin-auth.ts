@@ -42,6 +42,9 @@ export type AdminWorkspace = {
     id: string;
     email: string;
     fullName: string | null;
+    title: string | null;
+    phone: string | null;
+    cardAccent: string | null;
   };
   teamMember: PropertyTeamMember;
   organization: {
@@ -180,11 +183,25 @@ export async function resolveAdminContextForUser(
 
   const profileName = selected.teamMember.name || displayNameFromUser(user);
 
+  const { data: profile } = await supabase
+    .from("user_profiles")
+    .select("full_name, title, phone, card_accent")
+    .eq("user_id", user.id)
+    .maybeSingle<{
+      full_name: string | null;
+      title: string | null;
+      phone: string | null;
+      card_accent: string | null;
+    }>();
+
   return {
     user: {
       id: user.id,
       email,
-      fullName: profileName || null,
+      fullName: profile?.full_name || profileName || null,
+      title: profile?.title ?? null,
+      phone: profile?.phone ?? null,
+      cardAccent: profile?.card_accent ?? null,
     },
     teamMember: selected.teamMember,
     organization: {
@@ -404,6 +421,9 @@ export async function resolveFallbackAdminContext(
       id: "tour-demo-user",
       email: "lease@tour.video",
       fullName: "LeaseMagnets",
+      title: "Leasing Consultant",
+      phone: null,
+      cardAccent: "#006CE5",
     },
     teamMember: {
       id: null,
@@ -445,6 +465,55 @@ export async function resolveFallbackAdminContext(
       entrataPropertyId: row.entrata_property_id,
       teamMembers: [],
     })),
+  };
+}
+
+/** Build a workspace for system jobs (cron) without an authenticated user. */
+export async function buildSystemWorkspaceForProperty(propertyId: string): Promise<AdminWorkspace> {
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("communities")
+    .select("id,name,tour_community_id,gmb_id,alias,entrata_property_id,company_id,companies(id,name,slug)")
+    .eq("id", propertyId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const community = data as CommunityRow | null;
+  if (!community) throw new Error(`Community not found: ${propertyId}`);
+
+  const company = companyForCommunity(community);
+  return {
+    user: {
+      id: "system-cron",
+      email: "cron@tour.you",
+      fullName: "System Cron",
+      title: null,
+      phone: null,
+      cardAccent: null,
+    },
+    membership: {
+      id: "system-cron-membership",
+      role: "admin",
+      companyId: community.company_id,
+      companyName: company?.name ?? "Company",
+    },
+    community: {
+      id: community.id,
+      name: formatCommunityDisplayName(communityDisplayInput(community, company)),
+      tourCommunityId: community.tour_community_id,
+      gmbId: community.gmb_id,
+      alias: community.alias,
+      entrataPropertyId: community.entrata_property_id,
+    },
+    communities: [
+      {
+        id: community.id,
+        name: formatCommunityDisplayName(communityDisplayInput(community, company)),
+        companyName: company?.name ?? null,
+        companySlug: company?.slug ?? null,
+        gmbId: community.gmb_id,
+        alias: community.alias,
+      },
+    ],
   };
 }
 

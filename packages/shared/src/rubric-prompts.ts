@@ -116,6 +116,8 @@ export function buildRubricAnalysisPrompt(definition: RubricDefinition): string 
   lines.push("- Identify coaching-worthy moments in exactMoments with question references.");
   lines.push("- suggestedRewrite should transform the weakest line into a model script.");
   lines.push("- The executive summary should cover attitude, closing technique, lease likelihood, strengths, and opportunities.");
+  lines.push("- cardSummary must be exactly 9 words (no more) for list cards — punchy performance takeaway.");
+  lines.push("- needsImprovement must be one short sentence: the single most important coaching fix.");
 
   return lines.join("\n");
 }

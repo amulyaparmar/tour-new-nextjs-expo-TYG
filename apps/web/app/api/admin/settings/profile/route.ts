@@ -8,6 +8,8 @@ type PropertySettingsRow = {
   metadata: unknown;
 };
 
+const ACCENT_PATTERN = /^#([0-9a-fA-F]{6})$/;
+
 function normalizeAlias(value: unknown) {
   if (value === null) return null;
   if (typeof value !== "string") return undefined;
@@ -23,20 +25,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function profilePayload(workspace: Awaited<ReturnType<typeof requireAdminContext>>, overrides?: {
+  name?: string;
+  title?: string | null;
+  phone?: string | null;
+  cardAccent?: string | null;
+}) {
+  return {
+    name: overrides?.name ?? workspace.user.fullName ?? workspace.user.email.split("@")[0],
+    email: workspace.user.email,
+    role: workspace.teamMember.role,
+    company: workspace.organization.name,
+    community: workspace.community.name,
+    title: overrides?.title !== undefined ? overrides.title : workspace.user.title,
+    phone: overrides?.phone !== undefined ? overrides.phone : workspace.user.phone,
+    cardAccent: overrides?.cardAccent !== undefined ? overrides.cardAccent : workspace.user.cardAccent,
+    userAlias: workspace.teamMember.alias,
+    propertyAlias: workspace.community.alias,
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const workspace = await requireAdminContext(request);
-    return NextResponse.json({
-      profile: {
-        name: workspace.user.fullName ?? workspace.user.email.split("@")[0],
-        email: workspace.user.email,
-        role: workspace.teamMember.role,
-        company: workspace.organization.name,
-        community: workspace.community.name,
-        userAlias: workspace.teamMember.alias,
-        propertyAlias: workspace.community.alias,
-      },
-    });
+    return NextResponse.json({ profile: profilePayload(workspace) });
   } catch (caught) {
     return NextResponse.json(
       { error: caught instanceof Error ? caught.message : "Failed to load profile." },
@@ -52,15 +64,28 @@ export async function PATCH(request: Request) {
       name?: string;
       userAlias?: string | null;
       propertyAlias?: string | null;
+      title?: string | null;
+      phone?: string | null;
+      cardAccent?: string | null;
     };
+
     const name = body.name?.trim();
     const userAlias = normalizeAlias(body.userAlias);
     const propertyAlias = normalizeAlias(body.propertyAlias);
-    if (!name && userAlias === undefined && propertyAlias === undefined) {
+    const title = body.title === undefined ? undefined : (body.title?.trim() || null);
+    const phone = body.phone === undefined ? undefined : (body.phone?.trim() || null);
+    const cardAccentRaw = body.cardAccent === undefined ? undefined : (body.cardAccent?.trim() || null);
+
+    if (!name && userAlias === undefined && propertyAlias === undefined && title === undefined && phone === undefined && cardAccentRaw === undefined) {
       return NextResponse.json({ error: "At least one profile setting is required." }, { status: 400 });
     }
 
+    if (cardAccentRaw && !ACCENT_PATTERN.test(cardAccentRaw)) {
+      return NextResponse.json({ error: "cardAccent must be a hex color like #006CE5." }, { status: 400 });
+    }
+
     const supabase = getSupabaseServiceClient();
+
     if (userAlias !== undefined || propertyAlias !== undefined) {
       const { data: property, error: propertyError } = await supabase
         .from("propertiesTYG")
@@ -92,12 +117,12 @@ export async function PATCH(request: Request) {
         metadata.property_team = team;
       }
 
-      const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      if (userAlias !== undefined) update.metadata = metadata;
-      if (propertyAlias !== undefined) update.alias = propertyAlias;
+      const propertyUpdate: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (userAlias !== undefined) propertyUpdate.metadata = metadata;
+      if (propertyAlias !== undefined) propertyUpdate.alias = propertyAlias;
       const { error: updateError } = await supabase
         .from("propertiesTYG")
-        .update(update as never)
+        .update(propertyUpdate as never)
         .eq("id", workspace.community.propertyTygId);
       if (updateError?.code === "23505") {
         return NextResponse.json({ error: "That property alias is already in use." }, { status: 409 });
@@ -105,10 +130,19 @@ export async function PATCH(request: Request) {
       if (updateError) throw new Error(updateError.message);
     }
 
-    if (name) {
+    const hasProfileUpdates = name || title !== undefined || phone !== undefined || cardAccentRaw !== undefined;
+    if (hasProfileUpdates) {
+      const profileUpdate: Record<string, string | null> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (name) profileUpdate.full_name = name;
+      if (title !== undefined) profileUpdate.title = title;
+      if (phone !== undefined) profileUpdate.phone = phone;
+      if (cardAccentRaw !== undefined) profileUpdate.card_accent = cardAccentRaw;
+
       const { error } = await supabase
         .from("user_profiles")
-        .update({ full_name: name, updated_at: new Date().toISOString() } as never)
+        .update(profileUpdate as never)
         .eq("user_id", workspace.user.id);
       if (error) throw new Error(error.message);
     }
@@ -117,15 +151,12 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({
       workspace: refreshedWorkspace,
-      profile: {
-        name: name ?? refreshedWorkspace.user.fullName ?? refreshedWorkspace.user.email.split("@")[0],
-        email: workspace.user.email,
-        role: refreshedWorkspace.teamMember.role,
-        company: refreshedWorkspace.organization.name,
-        community: refreshedWorkspace.community.name,
-        userAlias: refreshedWorkspace.teamMember.alias,
-        propertyAlias: refreshedWorkspace.community.alias,
-      },
+      profile: profilePayload(refreshedWorkspace, {
+        name: name || undefined,
+        title: title !== undefined ? title : refreshedWorkspace.user.title,
+        phone: phone !== undefined ? phone : refreshedWorkspace.user.phone,
+        cardAccent: cardAccentRaw !== undefined ? cardAccentRaw : refreshedWorkspace.user.cardAccent,
+      }),
     });
   } catch (caught) {
     return NextResponse.json(

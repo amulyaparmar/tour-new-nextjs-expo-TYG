@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 
 import { AdminAuthError, requireAdminContext } from "@/lib/admin-auth";
 import { getSupabaseServiceClient } from "@/lib/supabase";
-import { getCommunityCalendarIntegration } from "@/lib/tour-calendar";
+import {
+  getCommunityCalendarIntegration,
+  setCommunityEntrataAutoSync,
+} from "@/lib/tour-calendar";
 
 export async function GET(request: Request) {
   try {
@@ -23,9 +26,19 @@ export async function PATCH(request: Request) {
     const body = (await request.json()) as {
       provider?: "entrata";
       status?: "disconnected";
+      autoSyncEnabled?: boolean;
     };
 
-    if (body.provider !== "entrata" || body.status !== "disconnected") {
+    if (body.provider !== "entrata") {
+      return NextResponse.json({ error: "Unsupported integration update." }, { status: 400 });
+    }
+
+    if (typeof body.autoSyncEnabled === "boolean") {
+      const entrata = await setCommunityEntrataAutoSync(workspace, body.autoSyncEnabled);
+      return NextResponse.json({ integrations: { entrata } });
+    }
+
+    if (body.status !== "disconnected") {
       return NextResponse.json({ error: "Unsupported integration update." }, { status: 400 });
     }
 
@@ -34,6 +47,7 @@ export async function PATCH(request: Request) {
       .from("calendar_integrations")
       .update({
         status: "disconnected",
+        auto_sync_enabled: false,
         last_error: null,
         updated_at: new Date().toISOString(),
       } as never)

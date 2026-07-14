@@ -24,6 +24,8 @@
     "mobile:build:ios": "npm --workspace @tour/mobile run build:ios",
     "mobile:submit:ios": "npm --workspace @tour/mobile run submit:ios",
     "mobile:testflight": "npm --workspace @tour/mobile run testflight",
+    "mobile:update:preview": "npm --workspace @tour/mobile run update:preview",
+    "mobile:update:production": "npm --workspace @tour/mobile run update:production",
     "postinstall": "node scripts/apply-patches.cjs"
   },
   "devDependencies": {

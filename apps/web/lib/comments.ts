@@ -92,7 +92,21 @@ export async function createComment(input: {
     .single<CommentRow>();
 
   if (error || !data) throw new Error(`Failed to create comment: ${error?.message ?? "Unknown"}`);
-  return mapRow(data);
+  const comment = mapRow(data);
+  void (async () => {
+    try {
+      const { notifySessionComment } = await import("./push");
+      await notifySessionComment({
+        sessionId: comment.sessionId,
+        authorName: comment.authorName,
+        body: comment.body,
+        kind: comment.kind,
+      });
+    } catch {
+      // Ignore push failures.
+    }
+  })();
+  return comment;
 }
 
 export async function deleteComment(commentId: string): Promise<void> {

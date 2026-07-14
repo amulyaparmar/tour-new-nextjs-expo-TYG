@@ -29,6 +29,7 @@ import Reanimated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { LiveSessionChatMessage, Material } from "../api";
 import { createSession, fetchLiveSessionSuggestions, streamLiveSessionChat } from "../api";
+import { isOnline } from "../offline/sync-outbox";
 import { ChatTypingIndicator, LiveChatMarkdown } from "./LiveChatMarkdown";
 import { supportsBackgroundRecording } from "../runtime";
 import { formatElapsed } from "./formatElapsed";
@@ -690,14 +691,17 @@ export function RecordingExperience({
 
     ensuringSessionRef.current = (async () => {
       try {
+        if (!(await isOnline())) return null;
         const created = await createSession({
           title: title?.trim() || "Tour conversation",
           prospectName: prospectName ?? null,
+          agentName: agentName ?? null,
           location: propertyName ?? null,
           notes: notes.trim() || null,
         });
         const nextId = created.session.id;
         setResolvedSessionId(nextId);
+        rec.setLiveSessionId(nextId);
         onSessionCreated?.(nextId);
         return nextId;
       } catch {

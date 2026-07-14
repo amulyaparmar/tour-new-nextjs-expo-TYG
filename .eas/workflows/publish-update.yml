@@ -1,0 +1,21 @@
+name: Publish production update
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      message:
+        type: string
+        required: false
+        default: "OTA update from workflow"
+
+jobs:
+  publish_update:
+    name: Publish OTA to production
+    type: update
+    params:
+      platform: all
+      channel: production
+      message: ${{ inputs.message || github.event.head_commit.message || 'Production OTA update' }}

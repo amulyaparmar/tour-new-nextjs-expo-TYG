@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SESSION_STATUS_LABELS } from "@tour/shared";
+import { SessionCardCopy } from "@/app/components/SessionCardCopy";
 import { listSessions } from "@/lib/sessions";
 import { ContactCardPanel } from "./ContactCardPanel";
 import { SmartSessionModalButton } from "./SmartSessionForm";
@@ -73,13 +74,7 @@ export default async function DashboardPage() {
           {liveSessions.map((s) => (
             <Link key={s.id} href={`/sessions/${s.id}`} className="live-now-row">
               <div className="session-row-info">
-                <div className="session-row-title">{s.title}</div>
-                <div className="session-row-meta">
-                  {s.leads?.length
-                    ? s.leads.map((l) => l.name).join(", ")
-                    : s.prospectName ?? "No prospect"}
-                  {s.source === "qr" ? " · via QR check-in" : ""}
-                </div>
+                <SessionCardCopy session={s} />
               </div>
               <span className="btn btn-primary btn-sm">Continue tour</span>
             </Link>
@@ -108,12 +103,7 @@ export default async function DashboardPage() {
                     : "—"}
                 </span>
                 <div className="session-row-info">
-                  <div className="session-row-title">{s.title}</div>
-                  <div className="session-row-meta">
-                    {s.leads?.length
-                      ? s.leads.map((l) => l.name).join(", ")
-                      : s.prospectName ?? "No prospect"}
-                  </div>
+                  <SessionCardCopy session={s} />
                 </div>
                 {s.source === "qr" && <span className="badge badge-source-qr">QR</span>}
                 <span className={`badge badge-${s.status}`}>
@@ -138,13 +128,7 @@ export default async function DashboardPage() {
             recentSessions.map((s) => (
               <Link key={s.id} href={`/sessions/${s.id}`} className="session-row">
                 <div className="session-row-info">
-                  <div className="session-row-title">{s.title}</div>
-                  <div className="session-row-meta">
-                    {s.prospectName ?? "—"}
-                    {s.scheduledAt
-                      ? ` · ${new Date(s.scheduledAt).toLocaleDateString()}`
-                      : ""}
-                  </div>
+                  <SessionCardCopy session={s} />
                 </div>
                 {s.overallScore === null && (
                   <span className={`badge badge-${s.status}`}>

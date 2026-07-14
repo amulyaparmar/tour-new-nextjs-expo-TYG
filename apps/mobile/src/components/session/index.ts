@@ -1,3 +1,4 @@
+export { SessionCardCopy } from "./session-card-copy";
 export { ScoreHero, ScoreCompact } from "./score-hero";
 export { SectionScoreOverview } from "./section-score-overview";
 export { RubricTab } from "./rubric-tab";

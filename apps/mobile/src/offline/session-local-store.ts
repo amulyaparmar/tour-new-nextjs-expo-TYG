@@ -204,6 +204,8 @@ export function writeCheckpoint(
         notes: "",
         assets: [],
         selectedAssetIds: [],
+        participants: [],
+        attachments: [],
         prospect: "",
         location: "",
         rubricId: null,

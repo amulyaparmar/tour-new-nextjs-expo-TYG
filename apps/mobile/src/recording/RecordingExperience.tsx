@@ -8,6 +8,7 @@ import {
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -27,8 +28,18 @@ import Reanimated, {
   SlideOutRight,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { SessionAttachment, SessionLead } from "@tour/shared";
 import type { LiveSessionChatMessage, Material } from "../api";
-import { createSession, fetchLiveSessionSuggestions, streamLiveSessionChat } from "../api";
+import {
+  addSessionAttachment,
+  addSessionParticipant,
+  createSession,
+  fetchLiveSessionSuggestions,
+  materialUrl,
+  streamLiveSessionChat,
+  updateSessionNotes,
+  updateSessionParticipantNotes,
+} from "../api";
 import { isOnline } from "../offline/sync-outbox";
 import { ChatTypingIndicator, LiveChatMarkdown } from "./LiveChatMarkdown";
 import { supportsBackgroundRecording } from "../runtime";
@@ -51,7 +62,7 @@ const C = {
   green: "#30D158",
 } as const;
 
-const TABS = ["Transcript", "AI Chat"] as const;
+const TABS = ["Summary", "Transcript", "AI Chat"] as const;
 const DEFAULT_PROMPTS = [
   "Ask about move-in date",
   "Confirm must-haves",
@@ -170,7 +181,11 @@ type RecordingExperienceProps = {
   onNotesChange: (notes: string) => void;
   assets: Material[];
   selectedAssetIds: string[];
-  onAddAsset: (asset: Material) => void;
+  attachments: SessionAttachment[];
+  participants: SessionLead[];
+  onAddAsset: (asset: Material, attachment?: SessionAttachment) => void;
+  onAddParticipant: (lead: SessionLead) => void;
+  onUpdateParticipantNotes: (createdAt: string, notes: string | null) => void;
   onCancel: () => void | Promise<void>;
   onFinish: () => void | Promise<void>;
   cancelIcon?: "chevron-down" | "close";
@@ -191,6 +206,18 @@ function speakerInitial(speaker: LiveTranscriptLine["speaker"]) {
 
 function transcriptText(lines: LiveTranscriptLine[]) {
   return lines.map((line) => `[${formatElapsed(line.time)}] ${line.speaker}: ${line.text}`).join("\n");
+}
+
+function personInitials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
+}
+
+function attachmentTypeForMaterial(material: Material): SessionAttachment["type"] {
+  const url = materialUrl(material)?.toLowerCase() ?? "";
+  if (material.media?.videoUrl || /\.(mp4|mov|m4v|webm)(\?|$)/.test(url)) return "video";
+  if (material.media?.imageUrl || /\.(png|jpe?g|gif|webp)(\?|$)/.test(url)) return "image";
+  if (/^https?:/.test(url)) return material.fileUrl ? "document" : "link";
+  return "other";
 }
 
 /** Own listeners — package hook drops native `{ message }` errors. */
@@ -341,7 +368,11 @@ export function RecordingExperience({
   onNotesChange,
   assets,
   selectedAssetIds,
+  attachments,
+  participants,
   onAddAsset,
+  onAddParticipant,
+  onUpdateParticipantNotes,
   onCancel,
   onFinish,
   cancelIcon = "chevron-down",
@@ -357,11 +388,23 @@ export function RecordingExperience({
 }: RecordingExperienceProps) {
   const rec = useRecording();
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState<Tab>("Transcript");
+  const [activeTab, setActiveTab] = useState<Tab>("Summary");
   const [hasStarted, setHasStarted] = useState(rec.isRecording);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [assetSheetOpen, setAssetSheetOpen] = useState(false);
+  const [personSheetOpen, setPersonSheetOpen] = useState(false);
+  const [selectedPerson, setSelectedPerson] = useState<SessionLead | null>(null);
+  const [personFirstName, setPersonFirstName] = useState("");
+  const [personLastName, setPersonLastName] = useState("");
+  const [personEmail, setPersonEmail] = useState("");
+  const [personPhone, setPersonPhone] = useState("");
+  const [personHowHeard, setPersonHowHeard] = useState("");
+  const [personReason, setPersonReason] = useState("");
+  const [personNotes, setPersonNotes] = useState("");
+  const [summarySaving, setSummarySaving] = useState(false);
+  const [personSaving, setPersonSaving] = useState(false);
+  const [summaryMessage, setSummaryMessage] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<LiveSessionChatMessage[]>([]);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -614,6 +657,21 @@ export function RecordingExperience({
     () => assets.filter((asset) => selectedAssetIds.includes(asset.id)),
     [assets, selectedAssetIds]
   );
+  const visibleAttachments = useMemo(() => {
+    const storedMaterialIds = new Set(attachments.map((item) => item.materialId).filter(Boolean));
+    const localOnly: SessionAttachment[] = selectedAssets
+      .filter((asset) => !storedMaterialIds.has(asset.id))
+      .map((asset) => ({
+        id: `material:${asset.id}`,
+        name: asset.name,
+        type: attachmentTypeForMaterial(asset),
+        url: materialUrl(asset),
+        materialId: asset.id,
+        description: asset.description,
+        createdAt: asset.createdAt,
+      }));
+    return [...attachments, ...localOnly];
+  }, [attachments, selectedAssets]);
 
   const propertyContext = useMemo(() => {
     const assetContext = selectedAssets
@@ -712,6 +770,108 @@ export function RecordingExperience({
     })();
 
     return ensuringSessionRef.current;
+  }
+
+  function openAddPerson() {
+    const first = participants[0];
+    setPersonFirstName("");
+    setPersonLastName("");
+    setPersonEmail("");
+    setPersonPhone("");
+    setPersonHowHeard(first?.questionAnswers?.hear_about ?? "");
+    setPersonReason(first?.reason ?? "");
+    setSummaryMessage(null);
+    setPersonSheetOpen(true);
+  }
+
+  async function saveSessionNotes() {
+    setSummarySaving(true);
+    setSummaryMessage(null);
+    try {
+      const liveSessionId = await ensureLiveSessionId();
+      if (!liveSessionId) throw new Error("Could not create this session yet.");
+      await updateSessionNotes(liveSessionId, notes);
+      setSummaryMessage("Notes saved");
+    } catch (caught) {
+      setSummaryMessage(caught instanceof Error ? caught.message : "Could not save notes.");
+    } finally {
+      setSummarySaving(false);
+    }
+  }
+
+  async function saveNewPerson() {
+    if (!personFirstName.trim()) {
+      setSummaryMessage("First name is required.");
+      return;
+    }
+    setPersonSaving(true);
+    setSummaryMessage(null);
+    try {
+      const liveSessionId = await ensureLiveSessionId();
+      if (!liveSessionId) throw new Error("Could not create this session yet.");
+      const lead = await addSessionParticipant(liveSessionId, {
+        firstName: personFirstName.trim(),
+        lastName: personLastName.trim() || null,
+        email: personEmail.trim() || "",
+        phone: personPhone.trim() || null,
+        wantsSummary: false,
+        reason: personReason.trim() || null,
+        questionAnswers: personHowHeard.trim() ? { hear_about: personHowHeard.trim() } : undefined,
+      });
+      onAddParticipant(lead);
+      setPersonSheetOpen(false);
+      setSummaryMessage(`${lead.name} joined this session`);
+    } catch (caught) {
+      setSummaryMessage(caught instanceof Error ? caught.message : "Could not add this person.");
+    } finally {
+      setPersonSaving(false);
+    }
+  }
+
+  function openPerson(person: SessionLead) {
+    setSelectedPerson(person);
+    setPersonNotes(person.notes ?? "");
+    setSummaryMessage(null);
+  }
+
+  async function savePersonNotes() {
+    if (!selectedPerson) return;
+    setPersonSaving(true);
+    setSummaryMessage(null);
+    try {
+      const liveSessionId = await ensureLiveSessionId();
+      if (!liveSessionId) throw new Error("Could not create this session yet.");
+      await updateSessionParticipantNotes(liveSessionId, selectedPerson.createdAt, personNotes);
+      onUpdateParticipantNotes(selectedPerson.createdAt, personNotes.trim() || null);
+      setSelectedPerson((current) => current ? { ...current, notes: personNotes.trim() || null } : current);
+      setSummaryMessage("Person notes saved");
+    } catch (caught) {
+      setSummaryMessage(caught instanceof Error ? caught.message : "Could not save person notes.");
+    } finally {
+      setPersonSaving(false);
+    }
+  }
+
+  async function attachAsset(asset: Material) {
+    if (selectedAssetIds.includes(asset.id)) return;
+    setSummaryMessage(null);
+    try {
+      const liveSessionId = await ensureLiveSessionId();
+      if (!liveSessionId) throw new Error("Could not create this session yet.");
+      const attachment = await addSessionAttachment(liveSessionId, {
+        id: `material:${asset.id}`,
+        name: asset.name,
+        type: attachmentTypeForMaterial(asset),
+        url: materialUrl(asset),
+        materialId: asset.id,
+        description: asset.description || null,
+        mimeType: null,
+      });
+      onAddAsset(asset, attachment);
+      setSummaryMessage(`${asset.name} attached`);
+    } catch (caught) {
+      setSummaryMessage(caught instanceof Error ? caught.message : "Could not attach this asset.");
+    }
   }
 
   async function submitChat(text: string) {
@@ -914,6 +1074,117 @@ export function RecordingExperience({
         </View>
 
         <View style={s.content}>
+          {activeTab === "Summary" && (
+            <ScrollView
+              contentContainerStyle={s.summaryContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={s.summarySection}>
+                <View style={s.summarySectionHead}>
+                  <View>
+                    <Text style={s.sectionTitle}>People</Text>
+                    <Text style={s.sectionCaption}>
+                      {participants.length ? `${participants.length} checked in` : "Add everyone joining this tour"}
+                    </Text>
+                  </View>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.peopleStrip}>
+                  {participants.map((person) => (
+                    <Pressable
+                      key={`${person.createdAt}-${person.email ?? person.phone ?? person.name}`}
+                      onPress={() => openPerson(person)}
+                      style={({ pressed }) => [s.personBubbleWrap, pressed && s.pressed]}
+                    >
+                      <View style={s.personBubble}>
+                        <Text style={s.personBubbleText}>{personInitials(person.name)}</Text>
+                      </View>
+                      <Text style={s.personBubbleName} numberOfLines={1}>{person.firstName || person.name.split(" ")[0]}</Text>
+                    </Pressable>
+                  ))}
+                  {!participants.length && prospectName ? (
+                    <View style={s.personBubbleWrap}>
+                      <View style={s.personBubble}><Text style={s.personBubbleText}>{personInitials(prospectName)}</Text></View>
+                      <Text style={s.personBubbleName} numberOfLines={1}>{prospectName.split(" ")[0]}</Text>
+                    </View>
+                  ) : null}
+                  <Pressable onPress={openAddPerson} style={({ pressed }) => [s.personBubbleWrap, pressed && s.pressed]}>
+                    <View style={s.addPersonBubble}><Ionicons name="add" size={28} color={C.brand} /></View>
+                    <Text style={s.addPersonLabel}>Check in</Text>
+                  </Pressable>
+                </ScrollView>
+              </View>
+
+              <View style={s.summaryCard}>
+                <View style={s.summaryCardHead}>
+                  <View style={s.summaryIcon}><Ionicons name="document-text-outline" size={18} color={C.brand} /></View>
+                  <View style={s.flex1}>
+                    <Text style={s.summaryCardTitle}>Session notes</Text>
+                    <Text style={s.summaryCardCaption}>Shared with this session, separate from the transcript.</Text>
+                  </View>
+                </View>
+                <TextInput
+                  value={notes}
+                  onChangeText={onNotesChange}
+                  placeholder="Add goals, context, or follow-up notes…"
+                  placeholderTextColor={C.textMuted}
+                  multiline
+                  textAlignVertical="top"
+                  style={s.summaryNotesInput}
+                />
+                <Pressable
+                  disabled={summarySaving}
+                  onPress={() => void saveSessionNotes()}
+                  style={({ pressed }) => [s.summarySaveButton, pressed && s.pressed, summarySaving && s.disabled]}
+                >
+                  {summarySaving ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="checkmark" size={17} color="#fff" />}
+                  <Text style={s.summarySaveButtonText}>{summarySaving ? "Saving…" : "Save notes"}</Text>
+                </Pressable>
+              </View>
+
+              <View style={s.summarySection}>
+                <View style={s.summarySectionHead}>
+                  <View>
+                    <Text style={s.sectionTitle}>Assets</Text>
+                    <Text style={s.sectionCaption}>Videos and resources attached to this session.</Text>
+                  </View>
+                  <Pressable onPress={() => setAssetSheetOpen(true)} style={s.smallAddButton}>
+                    <Ionicons name="add" size={17} color={C.brand} />
+                    <Text style={s.smallAddButtonText}>Add</Text>
+                  </Pressable>
+                </View>
+                {visibleAttachments.length ? (
+                  <View style={s.attachmentGrid}>
+                    {visibleAttachments.map((attachment) => (
+                      <Pressable
+                        key={attachment.id}
+                        disabled={!attachment.url}
+                        onPress={() => attachment.url && void Linking.openURL(attachment.url)}
+                        style={({ pressed }) => [s.attachmentCard, pressed && s.pressed]}
+                      >
+                        <View style={s.attachmentIcon}>
+                          <Ionicons name={attachment.type === "video" ? "play" : attachment.type === "image" ? "image-outline" : "document-attach-outline"} size={19} color={C.brand} />
+                        </View>
+                        <View style={s.flex1}>
+                          <Text style={s.attachmentTitle} numberOfLines={1}>{attachment.name}</Text>
+                          <Text style={s.attachmentMeta} numberOfLines={1}>{attachment.description || attachment.type}</Text>
+                        </View>
+                        {attachment.url ? <Ionicons name="open-outline" size={16} color={C.textMuted} /> : null}
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : (
+                  <Pressable onPress={() => setAssetSheetOpen(true)} style={s.emptyAttachmentCard}>
+                    <Ionicons name="videocam-outline" size={22} color={C.brand} />
+                    <Text style={s.emptyAttachmentTitle}>Attach your first asset</Text>
+                    <Text style={s.emptyAttachmentCaption}>Property videos, files, and links stay with this session.</Text>
+                  </Pressable>
+                )}
+              </View>
+              {summaryMessage ? <Text style={s.summaryMessage}>{summaryMessage}</Text> : null}
+            </ScrollView>
+          )}
+
           {activeTab === "Transcript" && (
             <FlatList
               ref={listRef}
@@ -1179,7 +1450,7 @@ export function RecordingExperience({
                 assets.map((asset) => {
                   const selected = selectedAssetIds.includes(asset.id);
                   return (
-                    <Pressable key={asset.id} onPress={() => onAddAsset(asset)} style={[s.assetPickRow, selected && s.assetPickRowSelected]}>
+                    <Pressable key={asset.id} onPress={() => void attachAsset(asset)} style={[s.assetPickRow, selected && s.assetPickRowSelected]}>
                       <View style={[s.materialIcon, selected && s.materialIconSelected]}>
                         <Ionicons name={selected ? "checkmark" : "document-attach-outline"} size={18} color={selected ? C.green : C.brandSoft} />
                       </View>
@@ -1206,7 +1477,122 @@ export function RecordingExperience({
           </KeyboardAvoidingView>
         </View>
       </Modal>
+
+      <Modal visible={personSheetOpen} transparent animationType="slide" onRequestClose={() => setPersonSheetOpen(false)}>
+        <View style={s.sheetBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setPersonSheetOpen(false)} />
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={s.personSheet}>
+            <View style={s.sheetHandle} />
+            <View style={s.sheetHeader}>
+              <View style={s.flex1}>
+                <Text style={s.assetSheetTitle}>Add another person</Text>
+                <Text style={s.assetSheetSubtitle}>They will join this same tour session.</Text>
+              </View>
+              <Pressable accessibilityLabel="Close add person" onPress={() => setPersonSheetOpen(false)} style={s.assetClose}>
+                <Ionicons name="close" size={20} color={C.text} />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={s.personForm} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <View style={s.personNameRow}>
+                <SummaryField label="First name" value={personFirstName} onChangeText={setPersonFirstName} autoCapitalize="words" />
+                <SummaryField label="Last name" value={personLastName} onChangeText={setPersonLastName} autoCapitalize="words" />
+              </View>
+              <SummaryField label="Email (optional)" value={personEmail} onChangeText={setPersonEmail} keyboardType="email-address" autoCapitalize="none" />
+              <SummaryField label="Phone (optional)" value={personPhone} onChangeText={setPersonPhone} keyboardType="phone-pad" />
+              <SummaryField label="How did you hear about us?" value={personHowHeard} onChangeText={setPersonHowHeard} />
+              <SummaryField label="Reason for visit" value={personReason} onChangeText={setPersonReason} />
+              {summaryMessage ? <Text style={s.personError}>{summaryMessage}</Text> : null}
+              <Pressable disabled={personSaving} onPress={() => void saveNewPerson()} style={[s.personPrimaryButton, personSaving && s.disabled]}>
+                {personSaving ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="person-add-outline" size={18} color="#fff" />}
+                <Text style={s.personPrimaryButtonText}>{personSaving ? "Adding…" : "Add to session"}</Text>
+              </Pressable>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      <Modal visible={Boolean(selectedPerson)} transparent animationType="slide" onRequestClose={() => setSelectedPerson(null)}>
+        <View style={s.sheetBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedPerson(null)} />
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={s.personSheet}>
+            <View style={s.sheetHandle} />
+            {selectedPerson ? (
+              <ScrollView contentContainerStyle={s.personDetailContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                <View style={s.personDetailHeader}>
+                  <View style={s.personDetailAvatar}><Text style={s.personDetailAvatarText}>{personInitials(selectedPerson.name)}</Text></View>
+                  <View style={s.flex1}>
+                    <Text style={s.personDetailName}>{selectedPerson.name}</Text>
+                    <Text style={s.assetSheetSubtitle}>Checked in {new Date(selectedPerson.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</Text>
+                  </View>
+                  <Pressable accessibilityLabel="Close person details" onPress={() => setSelectedPerson(null)} style={s.assetClose}>
+                    <Ionicons name="close" size={20} color={C.text} />
+                  </Pressable>
+                </View>
+                <View style={s.personDetailCard}>
+                  <DetailLine icon="mail-outline" label="Email" value={selectedPerson.email || "Not provided"} />
+                  <DetailLine icon="call-outline" label="Phone" value={selectedPerson.phone || "Not provided"} />
+                  <DetailLine icon="compass-outline" label="Reason" value={selectedPerson.reason || "Not provided"} />
+                  <DetailLine icon="megaphone-outline" label="How they heard" value={selectedPerson.questionAnswers?.hear_about || "Not provided"} />
+                  {Object.entries(selectedPerson.questionAnswers ?? {}).filter(([key]) => key !== "hear_about").map(([key, value]) => (
+                    <DetailLine key={key} icon="chatbox-outline" label={key.replace(/_/g, " ")} value={value} />
+                  ))}
+                </View>
+                <View style={s.summaryCard}>
+                  <Text style={s.summaryCardTitle}>Notes about {selectedPerson.firstName || selectedPerson.name.split(" ")[0]}</Text>
+                  <TextInput
+                    value={personNotes}
+                    onChangeText={setPersonNotes}
+                    placeholder="Add context specific to this person…"
+                    placeholderTextColor={C.textMuted}
+                    multiline
+                    textAlignVertical="top"
+                    style={s.summaryNotesInput}
+                  />
+                  <Pressable disabled={personSaving} onPress={() => void savePersonNotes()} style={[s.summarySaveButton, personSaving && s.disabled]}>
+                    {personSaving ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="checkmark" size={17} color="#fff" />}
+                    <Text style={s.summarySaveButtonText}>Save person notes</Text>
+                  </Pressable>
+                </View>
+                <View style={s.summarySection}>
+                  <Text style={s.sectionTitle}>Session assets</Text>
+                  <Text style={s.sectionCaption}>These resources are available to everyone in this tour.</Text>
+                  {visibleAttachments.length ? visibleAttachments.map((attachment) => (
+                    <Pressable key={attachment.id} disabled={!attachment.url} onPress={() => attachment.url && void Linking.openURL(attachment.url)} style={s.attachmentCard}>
+                      <View style={s.attachmentIcon}><Ionicons name={attachment.type === "video" ? "play" : "document-attach-outline"} size={18} color={C.brand} /></View>
+                      <Text style={[s.attachmentTitle, s.flex1]} numberOfLines={1}>{attachment.name}</Text>
+                      {attachment.url ? <Ionicons name="open-outline" size={16} color={C.textMuted} /> : null}
+                    </Pressable>
+                  )) : <Text style={s.sectionCaption}>No assets have been attached yet.</Text>}
+                </View>
+                {summaryMessage ? <Text style={s.summaryMessage}>{summaryMessage}</Text> : null}
+              </ScrollView>
+            ) : null}
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
+  );
+}
+
+function SummaryField(props: React.ComponentProps<typeof TextInput> & { label: string }) {
+  const { label, style, ...inputProps } = props;
+  return (
+    <View style={s.summaryField}>
+      <Text style={s.summaryFieldLabel}>{label}</Text>
+      <TextInput {...inputProps} placeholderTextColor={C.textMuted} style={[s.summaryFieldInput, style]} />
+    </View>
+  );
+}
+
+function DetailLine({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string }) {
+  return (
+    <View style={s.detailLine}>
+      <View style={s.detailLineIcon}><Ionicons name={icon} size={16} color={C.brand} /></View>
+      <View style={s.flex1}>
+        <Text style={s.detailLineLabel}>{label}</Text>
+        <Text style={s.detailLineValue}>{value}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -1255,7 +1641,36 @@ const s = StyleSheet.create({
   tabTextActive: { color: C.brand },
   tabLine: { position: "absolute", left: 8, right: 8, bottom: 0, height: 3, borderTopLeftRadius: 3, borderTopRightRadius: 3, backgroundColor: C.brand },
   content: { flex: 1, minHeight: 0 },
-  summaryContent: { padding: 18, gap: 12, paddingBottom: 20 },
+  summaryContent: { padding: 18, gap: 18, paddingBottom: 28 },
+  summarySection: { gap: 10 },
+  summarySectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  sectionCaption: { color: C.textSec, fontSize: 12, lineHeight: 17, fontWeight: "600", marginTop: 2 },
+  peopleStrip: { gap: 14, paddingVertical: 4, paddingRight: 10 },
+  personBubbleWrap: { width: 62, alignItems: "center", gap: 6 },
+  personBubble: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: C.brand, borderWidth: 3, borderColor: "#DCEEFF" },
+  personBubbleText: { color: "#fff", fontSize: 15, fontWeight: "900" },
+  personBubbleName: { width: 62, color: C.text, fontSize: 11, fontWeight: "800", textAlign: "center" },
+  addPersonBubble: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderStyle: "dashed", borderColor: C.brand, backgroundColor: C.brandSoft },
+  addPersonLabel: { color: C.brand, fontSize: 11, fontWeight: "900" },
+  summaryCard: { gap: 11, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: C.line, backgroundColor: C.panel },
+  summaryCardHead: { flexDirection: "row", alignItems: "center", gap: 10 },
+  summaryIcon: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: C.brandSoft },
+  summaryCardTitle: { color: C.text, fontSize: 15, fontWeight: "900" },
+  summaryCardCaption: { color: C.textSec, fontSize: 11, lineHeight: 16, fontWeight: "600", marginTop: 1 },
+  summaryNotesInput: { minHeight: 92, maxHeight: 160, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: C.line, color: C.text, fontSize: 14, lineHeight: 20, fontWeight: "600", backgroundColor: C.bg },
+  summarySaveButton: { minHeight: 42, alignSelf: "flex-end", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 15, borderRadius: 21, backgroundColor: C.brand },
+  summarySaveButtonText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+  smallAddButton: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 11, borderRadius: 18, backgroundColor: C.brandSoft },
+  smallAddButtonText: { color: C.brand, fontSize: 12, fontWeight: "900" },
+  attachmentGrid: { gap: 8 },
+  attachmentCard: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 13, borderWidth: 1, borderColor: C.line, backgroundColor: C.panel },
+  attachmentIcon: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: C.brandSoft },
+  attachmentTitle: { color: C.text, fontSize: 13, fontWeight: "900" },
+  attachmentMeta: { color: C.textSec, fontSize: 11, fontWeight: "600", marginTop: 2 },
+  emptyAttachmentCard: { minHeight: 112, alignItems: "center", justifyContent: "center", gap: 5, padding: 18, borderRadius: 16, borderWidth: 1.5, borderStyle: "dashed", borderColor: "rgba(0,108,229,0.32)", backgroundColor: C.brandSoft },
+  emptyAttachmentTitle: { color: C.text, fontSize: 14, fontWeight: "900" },
+  emptyAttachmentCaption: { color: C.textSec, fontSize: 11, lineHeight: 16, fontWeight: "600", textAlign: "center" },
+  summaryMessage: { color: C.brand, fontSize: 12, lineHeight: 17, fontWeight: "800", textAlign: "center" },
   infoBlock: { gap: 6, paddingBottom: 2 },
   sectionTitle: { color: C.text, fontSize: 18, fontWeight: "900" },
   infoBody: { color: C.text, fontSize: 15, lineHeight: 22, fontWeight: "600" },
@@ -1440,6 +1855,7 @@ const s = StyleSheet.create({
   uploadRecordingText: { color: C.brand, fontSize: 10, fontWeight: "900" },
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.58)" },
   assetSheet: { maxHeight: "78%", minHeight: "52%", borderTopLeftRadius: 18, borderTopRightRadius: 18, backgroundColor: C.bg, paddingHorizontal: 18, paddingBottom: Platform.OS === "ios" ? 32 : 18 },
+  personSheet: { maxHeight: "88%", minHeight: "58%", borderTopLeftRadius: 22, borderTopRightRadius: 22, backgroundColor: C.bg, paddingHorizontal: 18, paddingBottom: Platform.OS === "ios" ? 32 : 18 },
   sheetHandle: { width: 40, height: 4, alignSelf: "center", borderRadius: 2, backgroundColor: "#51606F", marginTop: 9, marginBottom: 14 },
   sheetHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
   assetSheetTitle: { color: C.text, fontSize: 20, fontWeight: "900" },
@@ -1454,6 +1870,24 @@ const s = StyleSheet.create({
   assetPickMeta: { color: C.textSec, fontSize: 11, marginTop: 2, fontWeight: "600" },
   assetPickAction: { color: C.brandSoft, fontSize: 11, fontWeight: "900" },
   assetNotesInput: { minHeight: 74, maxHeight: 120, borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 11, color: C.text, fontSize: 13, textAlignVertical: "top", backgroundColor: C.panel },
+  personForm: { gap: 12, paddingBottom: 10 },
+  personNameRow: { flexDirection: "row", gap: 10 },
+  summaryField: { flex: 1, gap: 6 },
+  summaryFieldLabel: { color: C.textSec, fontSize: 11, fontWeight: "800" },
+  summaryFieldInput: { minHeight: 48, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: C.line, backgroundColor: C.panel, color: C.text, fontSize: 14, fontWeight: "600" },
+  personError: { color: C.red, fontSize: 12, lineHeight: 17, fontWeight: "800" },
+  personPrimaryButton: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 26, backgroundColor: C.brand, marginTop: 2 },
+  personPrimaryButtonText: { color: "#fff", fontSize: 15, fontWeight: "900" },
+  personDetailContent: { gap: 14, paddingBottom: 10 },
+  personDetailHeader: { flexDirection: "row", alignItems: "center", gap: 11 },
+  personDetailAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: C.brand },
+  personDetailAvatarText: { color: "#fff", fontSize: 14, fontWeight: "900" },
+  personDetailName: { color: C.text, fontSize: 20, fontWeight: "900" },
+  personDetailCard: { paddingHorizontal: 13, borderRadius: 16, borderWidth: 1, borderColor: C.line, backgroundColor: C.panel },
+  detailLine: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
+  detailLineIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: C.brandSoft },
+  detailLineLabel: { color: C.textMuted, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  detailLineValue: { color: C.text, fontSize: 13, lineHeight: 18, fontWeight: "700", marginTop: 2, textTransform: "none" },
   emptyState: { padding: 24, alignItems: "center", gap: 6 },
   emptyTitle: { color: C.text, fontSize: 14, fontWeight: "800" },
   emptySubtitle: { color: C.textSec, fontSize: 12, textAlign: "center" },

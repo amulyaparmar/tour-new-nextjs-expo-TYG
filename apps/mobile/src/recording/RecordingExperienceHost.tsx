@@ -1,6 +1,5 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
-import { assetNoteSnippet } from "../api";
 import { RecordingExperience } from "./RecordingExperience";
 import { useRecording } from "./RecordingProvider";
 
@@ -16,6 +15,8 @@ export function RecordingExperienceHost() {
     isRecording,
     setDraftNotes,
     addDraftAsset,
+    addDraftParticipant,
+    updateDraftParticipantNotes,
     runBeforeRecordingStart,
     requestUploadFile,
     requestCancel,
@@ -46,7 +47,11 @@ export function RecordingExperienceHost() {
         onNotesChange={setDraftNotes}
         assets={draft.assets}
         selectedAssetIds={draft.selectedAssetIds}
-        onAddAsset={(asset) => addDraftAsset(asset, assetNoteSnippet(asset))}
+        attachments={draft.attachments}
+        participants={draft.participants}
+        onAddAsset={addDraftAsset}
+        onAddParticipant={addDraftParticipant}
+        onUpdateParticipantNotes={updateDraftParticipantNotes}
         onBeforeRecordingStart={runBeforeRecordingStart}
         onUploadFile={liveMeta.source === "create-session" ? requestUploadFile : undefined}
         onSessionCreated={setLiveSessionId}

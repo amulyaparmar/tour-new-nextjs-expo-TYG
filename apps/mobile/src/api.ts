@@ -1,4 +1,4 @@
-import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionDetail, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionAttachment, SessionDetail, SessionLead, SessionSummary } from "@tour/shared";
 import { fetch as expoFetch } from "expo/fetch";
 
 import { authenticatedFetch, getCurrentSession } from "./auth";
@@ -167,6 +167,48 @@ export async function updateProfile(payload: ProfileUpdatePayload) {
   const body = await res.json().catch(() => null) as { profile?: ProfileResponse; error?: string } | null;
   if (!res.ok || !body?.profile) throw new Error(body?.error ?? "Failed to update profile.");
   return body.profile;
+}
+
+export async function addSessionParticipant(sessionId: string, payload: Omit<CheckInLeadPayload, "propertyName" | "propertyId" | "repName" | "repSlug">) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/participants`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => null) as { lead?: SessionLead; error?: string } | null;
+  if (!res.ok || !body?.lead) throw new Error(body?.error ?? "Could not add this person.");
+  return body.lead;
+}
+
+export async function updateSessionParticipantNotes(sessionId: string, createdAt: string, notes: string) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/participants`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ createdAt, notes }),
+  });
+  const body = await res.json().catch(() => null) as { error?: string } | null;
+  if (!res.ok) throw new Error(body?.error ?? "Could not save person notes.");
+}
+
+export async function addSessionAttachment(sessionId: string, attachment: Omit<SessionAttachment, "createdAt" | "addedBy">) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/attachments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(attachment),
+  });
+  const body = await res.json().catch(() => null) as { attachment?: SessionAttachment; error?: string } | null;
+  if (!res.ok || !body?.attachment) throw new Error(body?.error ?? "Could not attach this asset.");
+  return body.attachment;
+}
+
+export async function updateSessionNotes(sessionId: string, notes: string) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notes }),
+  });
+  const body = await res.json().catch(() => null) as { error?: string } | null;
+  if (!res.ok) throw new Error(body?.error ?? "Could not save session notes.");
 }
 
 export async function fetchSession(sessionId: string) {

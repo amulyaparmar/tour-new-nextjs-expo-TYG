@@ -198,8 +198,8 @@ export function useProfileQuery(enabled = true) {
       return {
         name: session.workspace.user.fullName ?? session.workspace.user.email.split("@")[0] ?? "Agent",
         email: session.workspace.user.email,
-        role: session.workspace.membership.role,
-        company: session.workspace.membership.companyName,
+        role: session.workspace.teamMember.accessRole,
+        company: session.workspace.organization.name,
         community: session.workspace.community.name,
         title: session.workspace.user.title ?? null,
         phone: session.workspace.user.phone ?? null,

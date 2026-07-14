@@ -11,6 +11,7 @@ import type {
   CreateSessionInput,
   FollowUpAction,
   SessionDetail,
+  SessionAttachment,
   SessionLead,
   SessionSource,
   SessionStatus,
@@ -20,6 +21,7 @@ import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeConversa
 
 import {
   addLocalSessionLead,
+  addLocalSessionAttachment,
   createLocalSession,
   deleteLocalSession,
   findOpenLocalQrSession,
@@ -42,6 +44,7 @@ import {
   setLocalSessionStatus,
   updateLocalActionStatus,
   updateLocalSession,
+  updateLocalSessionLeadNotes,
 } from "./local-store";
 import { getSupabaseServiceClient } from "./supabase";
 import { getPrimaryRubricForProperty } from "./rubrics";
@@ -66,6 +69,7 @@ type SessionRow = {
   status: SessionStatus;
   source: SessionSource | null;
   leads: SessionLead[] | null;
+  attachments: SessionAttachment[] | null;
   rubric_id: string | null;
   agent_id?: string | null;
   property_id?: string | null;
@@ -85,7 +89,7 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS =
-  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,leads,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,card_summary,needs_improvement";
+  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,leads,attachments,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,card_summary,needs_improvement";
 
 type AnalysisRow = {
   id: string;
@@ -333,6 +337,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     notes: input.notes?.trim() ? input.notes.trim() : null,
     source: input.source ?? "manual",
     leads: input.leads ?? [],
+    attachments: input.attachments ?? [],
     rubric_id: rubricId,
     agent_id: input.agentId ?? null,
     property_id: input.propertyId ?? null,
@@ -376,6 +381,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       notes: input.notes ?? null,
       source: input.source ?? "manual",
       leads: input.leads ?? [],
+      attachments: input.attachments ?? [],
       rubricId,
       agentId: input.agentId ?? null,
       propertyId: input.propertyId ?? null,
@@ -428,6 +434,35 @@ export async function addSessionLead(sessionId: string, lead: SessionLead): Prom
   } catch (error) {
     rethrowInProduction(error);
     await addLocalSessionLead(sessionId, lead);
+  }
+}
+
+export async function addSessionAttachment(sessionId: string, attachment: SessionAttachment): Promise<void> {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { error } = await supabase.rpc("append_session_attachment" as never, {
+      p_session_id: sessionId,
+      p_attachment: attachment,
+    } as never);
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    rethrowInProduction(error);
+    await addLocalSessionAttachment(sessionId, attachment);
+  }
+}
+
+export async function updateSessionLeadNotes(sessionId: string, createdAt: string, notes: string | null): Promise<void> {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { error } = await supabase.rpc("update_session_lead_notes" as never, {
+      p_session_id: sessionId,
+      p_created_at: createdAt,
+      p_notes: notes,
+    } as never);
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    rethrowInProduction(error);
+    await updateLocalSessionLeadNotes(sessionId, createdAt, notes);
   }
 }
 
@@ -979,6 +1014,7 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     status: normalizeSessionStatus(row.status),
     source: row.source ?? "manual",
     leads: row.leads ?? [],
+    attachments: row.attachments ?? [],
     rubricId: row.rubric_id ?? null,
     agentId: row.agent_id ?? null,
     propertyId: row.property_id ?? null,

@@ -209,6 +209,21 @@ export function CheckInSheet({
     onCheckedIn(resultSessionId);
   }
 
+  function addAnotherPerson() {
+    const sharedHowHeard = answers.hear_about;
+    setFirstName("");
+    setLastName("");
+    setEmail("");
+    setPhone("");
+    setJobTitle("");
+    setShowJobTitle(false);
+    setWantsSummary(false);
+    setAnswers(sharedHowHeard ? { hear_about: sharedHowHeard } : {});
+    setError(null);
+    setResultSessionId(null);
+    setStep("contact");
+  }
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.sheetScrim} onPress={onClose} />
@@ -271,16 +286,21 @@ export function CheckInSheet({
                   <Text style={styles.sheetPrimaryText}>Start recording</Text>
                 </Pressable>
               ) : null}
-              <Pressable
-                onPress={onClose}
-                style={({ pressed }) => [
-                  resultSessionId ? styles.backBtn : styles.sheetPrimary,
-                  pressed && styles.pressed,
-                  resultSessionId ? { alignSelf: "stretch" } : null,
-                ]}
-              >
-                <Text style={resultSessionId ? styles.backBtnText : styles.sheetPrimaryText}>Done</Text>
-              </Pressable>
+              <View style={styles.buttonRow}>
+                <Pressable
+                  onPress={addAnotherPerson}
+                  style={({ pressed }) => [styles.backBtn, styles.addAnotherBtn, pressed && styles.pressed]}
+                >
+                  <Ionicons name="person-add-outline" size={16} color={C.text} />
+                  <Text style={styles.backBtnText}>Add another person</Text>
+                </Pressable>
+                <Pressable
+                  onPress={onClose}
+                  style={({ pressed }) => [styles.backBtn, styles.doneBtn, pressed && styles.pressed]}
+                >
+                  <Text style={styles.backBtnText}>Done</Text>
+                </Pressable>
+              </View>
             </View>
           ) : step === "questions" ? (
             <ScrollView
@@ -668,6 +688,8 @@ const styles = StyleSheet.create({
   toggleText: { flex: 1, color: C.text, fontSize: 12, fontWeight: "700" },
   fieldError: { color: C.red, fontSize: 12, fontWeight: "700" },
   buttonRow: { flexDirection: "row", gap: 8 },
+  addAnotherBtn: { flex: 1.7, flexDirection: "row", gap: 6 },
+  doneBtn: { flex: 0.8 },
   backBtn: {
     minWidth: 80,
     minHeight: 48,

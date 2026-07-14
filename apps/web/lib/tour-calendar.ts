@@ -130,7 +130,7 @@ export async function setCommunityEntrataAutoSync(
   } else {
     const { error } = await supabase.from("calendar_integrations").insert({
       property_id: workspace.community.id,
-      company_id: workspace.membership.companyId,
+      company_id: workspace.organization.id,
       provider: "entrata",
       source: "tour_new",
       status: "connected",

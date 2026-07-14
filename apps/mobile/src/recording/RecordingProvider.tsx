@@ -10,6 +10,7 @@ import {
 } from "expo-audio";
 import { AppState, type AppStateStatus } from "react-native";
 import type { Material } from "../api";
+import type { SessionAttachment, SessionLead } from "@tour/shared";
 import {
   copyRecordingToDurableStore,
   createLocalSession,
@@ -41,6 +42,8 @@ export type LiveRecordingDraft = {
   notes: string;
   assets: Material[];
   selectedAssetIds: string[];
+  participants: SessionLead[];
+  attachments: SessionAttachment[];
   /** Create-session only — used when uploading after stop. */
   prospect: string;
   location: string;
@@ -88,7 +91,9 @@ export type RecordingCtx = {
   setLiveSessionId: (sessionId: string) => void;
   setTranscriptPreview: (text: string) => void;
   setDraftNotes: (notes: string) => void;
-  addDraftAsset: (asset: Material, snippet: string) => void;
+  addDraftAsset: (asset: Material, attachment?: SessionAttachment) => void;
+  addDraftParticipant: (lead: SessionLead) => void;
+  updateDraftParticipantNotes: (createdAt: string, notes: string | null) => void;
   runBeforeRecordingStart: () => void | Promise<void>;
   requestUploadFile: () => void;
   requestCancel: () => void;
@@ -99,6 +104,8 @@ const EMPTY_DRAFT: LiveRecordingDraft = {
   notes: "",
   assets: [],
   selectedAssetIds: [],
+  participants: [],
+  attachments: [],
   prospect: "",
   location: "",
   rubricId: null,
@@ -128,6 +135,8 @@ const EMPTY_CTX: RecordingCtx = {
   setTranscriptPreview: () => {},
   setDraftNotes: () => {},
   addDraftAsset: () => {},
+  addDraftParticipant: () => {},
+  updateDraftParticipantNotes: () => {},
   runBeforeRecordingStart: async () => {},
   requestUploadFile: () => {},
   requestCancel: () => {},
@@ -578,14 +587,34 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
     scheduleDraftCheckpoint();
   }, [scheduleDraftCheckpoint]);
 
-  const addDraftAsset = useCallback((asset: Material, snippet: string) => {
+  const addDraftAsset = useCallback((asset: Material, attachment?: SessionAttachment) => {
     setDraft((current) => {
       if (!current || current.selectedAssetIds.includes(asset.id)) return current;
-      const notes = current.notes.trim() ? `${current.notes.trim()}\n\n${snippet}` : snippet;
       const next = {
         ...current,
-        notes,
         selectedAssetIds: [...current.selectedAssetIds, asset.id],
+        attachments: attachment ? [...current.attachments, attachment] : current.attachments,
+      };
+      draftRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const addDraftParticipant = useCallback((lead: SessionLead) => {
+    setDraft((current) => {
+      if (!current || current.participants.some((item) => item.createdAt === lead.createdAt)) return current;
+      const next = { ...current, participants: [...current.participants, lead] };
+      draftRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const updateDraftParticipantNotes = useCallback((createdAt: string, notes: string | null) => {
+    setDraft((current) => {
+      if (!current) return current;
+      const next = {
+        ...current,
+        participants: current.participants.map((lead) => lead.createdAt === createdAt ? { ...lead, notes } : lead),
       };
       draftRef.current = next;
       return next;
@@ -636,6 +665,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setTranscriptPreview,
       setDraftNotes,
       addDraftAsset,
+      addDraftParticipant,
+      updateDraftParticipantNotes,
       runBeforeRecordingStart,
       requestUploadFile,
       requestCancel,
@@ -663,6 +694,8 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       setTranscriptPreview,
       setDraftNotes,
       addDraftAsset,
+      addDraftParticipant,
+      updateDraftParticipantNotes,
       runBeforeRecordingStart,
       requestUploadFile,
       requestCancel,

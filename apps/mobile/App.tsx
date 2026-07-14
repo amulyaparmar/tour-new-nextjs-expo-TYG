@@ -55,6 +55,8 @@ import {
   type ConversationPhaseSegmentation,
   type FollowUpAction,
   type Rubric,
+  type SessionAttachment,
+  type SessionLead,
   type SessionSummary,
   type AudioInsights,
   type AudioInsightsStatus,
@@ -84,7 +86,6 @@ import {
   fetchAudioInsights,
   fetchComments,
   fetchCalendarEvents,
-  assetNoteSnippet,
   fetchMaterials,
   fetchRubrics,
   fetchSession,
@@ -158,6 +159,7 @@ import {
   TourStatusBadge,
 } from "./src/components/tour";
 import { CommunityPickerModal } from "@/components/community-picker-modal";
+import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import { CheckInSheet } from "./src/components/check-in/check-in-sheet";
 import { ProfileEditorScreen, resolveCardAccent } from "./src/components/profile/profile-editor-screen";
 import {
@@ -261,6 +263,7 @@ function localSessionToSummary(local: LocalSessionMeta): SessionSummary {
     status: pendingStatus,
     source: "manual",
     leads: [],
+    attachments: local.draft.attachments ?? [],
     rubricId: local.draft.rubricId,
     overallScore: null,
     duration: local.durationSec,
@@ -2906,6 +2909,8 @@ function CreateSessionScreen({
           notes: nextNotes,
           assets,
           selectedAssetIds,
+          participants: [],
+          attachments: [],
           prospect: nextProspect,
           location: nextLocation,
           rubricId: nextRubricId,
@@ -2959,6 +2964,8 @@ function CreateSessionScreen({
             notes: nextNotes,
             assets,
             selectedAssetIds,
+            participants: [],
+            attachments: [],
             prospect: nextProspect,
             location: nextLocation,
             rubricId: nextRubricId,
@@ -3029,6 +3036,8 @@ function CreateSessionScreen({
         notes,
         assets,
         selectedAssetIds,
+        participants: [],
+        attachments: [],
         prospect,
         location,
         rubricId,
@@ -3452,6 +3461,9 @@ function SessionDetailScreen({
             agentName={session.agentName}
             propertyName={session.location || session.title}
             autoStartRecording={autoStartRecording}
+            initialNotes={session.notes}
+            initialLeads={session.leads}
+            initialAttachments={session.attachments ?? []}
             onDone={load}
           />
         )}
@@ -4352,6 +4364,9 @@ function UploadProcessCard({
   agentName,
   propertyName,
   autoStartRecording = false,
+  initialNotes,
+  initialLeads,
+  initialAttachments,
   onDone,
 }: {
   sessionId: string;
@@ -4362,6 +4377,9 @@ function UploadProcessCard({
   agentName?: string | null;
   propertyName?: string | null;
   autoStartRecording?: boolean;
+  initialNotes?: string | null;
+  initialLeads: SessionLead[];
+  initialAttachments: SessionAttachment[];
   onDone: () => void;
 }) {
   const rec = useRecording();
@@ -4379,9 +4397,11 @@ function UploadProcessCard({
   const [dTitle, setDTitle] = useState("");
   const [dProspect, setDProspect] = useState("");
   const [dLocation, setDLocation] = useState("");
-  const [dNotes, setDNotes] = useState("");
+  const [dNotes, setDNotes] = useState(initialNotes ?? "");
   const [assets, setAssets] = useState<Material[]>([]);
-  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>(
+    initialAttachments.map((attachment) => attachment.materialId).filter((id): id is string => Boolean(id)),
+  );
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
   const [rubricsLoaded, setRubricsLoaded] = useState(false);
   const [rubricId, setRubricId] = useState<string | null>(initialRubricId);
@@ -4448,8 +4468,6 @@ function UploadProcessCard({
 
   function addRecordingAsset(asset: Material) {
     if (selectedAssetIds.includes(asset.id)) return;
-    const snippet = assetNoteSnippet(asset);
-    setDNotes((current) => (current.trim() ? `${current.trim()}\n\n${snippet}` : snippet));
     setSelectedAssetIds((current) => [...current, asset.id]);
     void Haptics.selectionAsync();
   }
@@ -4541,6 +4559,8 @@ function UploadProcessCard({
         notes: dNotes,
         assets,
         selectedAssetIds,
+        participants: initialLeads,
+        attachments: initialAttachments,
         prospect: dProspect.trim() || prospectName?.trim() || "",
         location: dLocation.trim() || propertyName?.trim() || "",
         rubricId,

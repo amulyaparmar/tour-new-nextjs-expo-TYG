@@ -30,6 +30,20 @@ export type SessionLead = {
   questionAnswers?: Record<string, string>;
   /** Slug of the rep whose card captured this lead. */
   repSlug?: string | null;
+  /** Leasing-team notes about this specific checked-in person. */
+  notes?: string | null;
+};
+
+export type SessionAttachment = {
+  id: string;
+  name: string;
+  type: "video" | "image" | "document" | "link" | "other";
+  url: string | null;
+  materialId?: string | null;
+  description?: string | null;
+  mimeType?: string | null;
+  createdAt: string;
+  addedBy?: string | null;
 };
 
 export type SessionSummary = {
@@ -42,6 +56,7 @@ export type SessionSummary = {
   status: SessionStatus;
   source: SessionSource;
   leads: SessionLead[];
+  attachments: SessionAttachment[];
   rubricId: string | null;
   agentId?: string | null;
   propertyId?: string | null;
@@ -72,6 +87,7 @@ export type CreateSessionInput = {
   notes?: string | null;
   source?: SessionSource;
   leads?: SessionLead[];
+  attachments?: SessionAttachment[];
   rubricId?: string | null;
   agentId?: string | null;
   propertyId?: string | null;

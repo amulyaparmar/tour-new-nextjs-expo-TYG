@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, SessionDetail, SessionLead, SessionSource, SessionStatus, SessionSummary, AnalysisRun, AnalysisRunSummary, AnalysisRunTrigger } from "@tour/shared";
+import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, SessionAttachment, SessionDetail, SessionLead, SessionSource, SessionStatus, SessionSummary, AnalysisRun, AnalysisRunSummary, AnalysisRunTrigger } from "@tour/shared";
 import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeParticipantName } from "@tour/shared";
 
 type TranscriptSegment = {
@@ -44,6 +44,7 @@ async function loadStore(): Promise<StoreShape> {
         agentName: normalizeParticipantName(session.agentName),
         source: session.source ?? "manual",
         leads: session.leads ?? [],
+        attachments: session.attachments ?? [],
         audioInsightsStatus: normalizeAudioInsightsStatus(session.audioInsightsStatus),
       })),
       analyses: parsed.analyses ?? {},
@@ -90,6 +91,7 @@ export async function createLocalSession(input: {
   notes?: string | null;
   source?: SessionSource;
   leads?: SessionLead[];
+  attachments?: SessionAttachment[];
   rubricId?: string | null;
   agentId?: string | null;
   propertyId?: string | null;
@@ -105,6 +107,7 @@ export async function createLocalSession(input: {
     status: input.status ?? "scheduled",
     source: input.source ?? "manual",
     leads: input.leads ?? [],
+    attachments: input.attachments ?? [],
     rubricId: input.rubricId ?? null,
     agentId: input.agentId ?? null,
     propertyId: input.propertyId ?? null,
@@ -207,6 +210,23 @@ export async function addLocalSessionLead(sessionId: string, lead: SessionLead) 
   const session = store.sessions.find((item) => item.id === sessionId);
   if (!session) return;
   session.leads = [...(session.leads ?? []), lead];
+  await saveStore(store);
+}
+
+export async function addLocalSessionAttachment(sessionId: string, attachment: SessionAttachment) {
+  const store = await loadStore();
+  const session = store.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  if (session.attachments.some((item) => item.id === attachment.id || (item.materialId && item.materialId === attachment.materialId))) return;
+  session.attachments = [...session.attachments, attachment];
+  await saveStore(store);
+}
+
+export async function updateLocalSessionLeadNotes(sessionId: string, createdAt: string, notes: string | null) {
+  const store = await loadStore();
+  const session = store.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  session.leads = session.leads.map((lead) => lead.createdAt === createdAt ? { ...lead, notes } : lead);
   await saveStore(store);
 }
 

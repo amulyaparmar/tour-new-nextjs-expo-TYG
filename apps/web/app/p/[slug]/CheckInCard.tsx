@@ -123,6 +123,7 @@ function EmailSuggestionList({ id, suggestions }: { id: string; suggestions: str
 export function CheckInCard({ card, vCardUrl, offlineQrUrl }: CheckInCardProps) {
   const { rep, property, questions } = card;
   const [sheet, setSheet] = useState<Sheet>("none");
+  const [sharedCheckInAnswers, setSharedCheckInAnswers] = useState<Record<string, string>>({});
   const [notification, setNotification] = useState<Notification | null>(null);
   const [isSaveDockFloating, setIsSaveDockFloating] = useState(false);
   const saveSlotRef = useRef<HTMLDivElement | null>(null);
@@ -284,13 +285,28 @@ export function CheckInCard({ card, vCardUrl, offlineQrUrl }: CheckInCardProps) 
         {sheet === "contact" ? (
           <ContactSheet
             card={card}
+            initialAnswers={sharedCheckInAnswers}
             onClose={() => setSheet("none")}
-            onDone={() => setSheet("done")}
+            onDone={(answers) => {
+              const sharedQuestionIds = new Set(
+                questions
+                  .filter((question) => /hear.*about|how.*find|referral/i.test(question.label))
+                  .map((question) => question.id),
+              );
+              setSharedCheckInAnswers(Object.fromEntries(
+                Object.entries(answers).filter(([id, value]) => sharedQuestionIds.has(id) && value),
+              ));
+              setSheet("done");
+            }}
           />
         ) : null}
 
         {sheet === "done" ? (
-          <DoneSheet card={card} onClose={() => setSheet("none")} />
+          <DoneSheet
+            card={card}
+            onClose={() => setSheet("none")}
+            onAddAnother={() => setSheet("contact")}
+          />
         ) : null}
 
         {notification ? (
@@ -338,12 +354,14 @@ function QrSheet({ name, qrSvg, onClose }: { name: string; qrSvg: string; onClos
 
 function ContactSheet({
   card,
+  initialAnswers,
   onClose,
   onDone
 }: {
   card: RepCard;
+  initialAnswers: Record<string, string>;
   onClose: () => void;
-  onDone: () => void;
+  onDone: (answers: Record<string, string>) => void;
 }) {
   const { rep, property, questions } = card;
   const [firstName, setFirstName] = useState("");
@@ -354,7 +372,7 @@ function ContactSheet({
   const [jobTitle, setJobTitle] = useState("");
   const [showJobTitle, setShowJobTitle] = useState(false);
   const [wantsSummary, setWantsSummary] = useState(false);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers);
   const [step, setStep] = useState<"contact" | "questions">("contact");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -402,7 +420,7 @@ function ContactSheet({
         }).catch(() => {});
       }
 
-      onDone();
+      onDone(answers);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
@@ -637,7 +655,7 @@ function ContactSheet({
   );
 }
 
-function DoneSheet({ card, onClose }: { card: RepCard; onClose: () => void }) {
+function DoneSheet({ card, onClose, onAddAnother }: { card: RepCard; onClose: () => void; onAddAnother: () => void }) {
   const { rep, property } = card;
 
   return (
@@ -652,6 +670,14 @@ function DoneSheet({ card, onClose }: { card: RepCard; onClose: () => void }) {
           Thanks for visiting {property.name}. {rep.name.split(" ")[0]} has your
           contact details and will be with you shortly.
         </p>
+        <div className={styles.buttonRow}>
+          <button type="button" className={styles.backBtn} onClick={onAddAnother}>
+            <UserRound size={16} /> Add another person
+          </button>
+          <button type="button" className={styles.primaryBtn} onClick={onClose}>
+            Done
+          </button>
+        </div>
       </div>
     </div>
   );

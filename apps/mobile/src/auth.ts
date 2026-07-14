@@ -4,9 +4,12 @@ import { Platform } from "react-native";
 import { getApiBaseUrl } from "./config";
 
 const SESSION_KEY = "tour.mobile.session.v1";
-const BASE_URL = getApiBaseUrl();
 const REPORT_ACCESS_URL = "https://tour.report/api/verify-access";
 const REPORT_ACCESS_KEY = "LeaseMagnets2025TYG";
+
+function apiBaseUrl() {
+  return getApiBaseUrl();
+}
 
 export type MobileWorkspace = {
   user: {
@@ -24,8 +27,12 @@ export type MobileWorkspace = {
     email: string;
     role: string;
     accessRole: "admin" | "manager" | "member";
+    title?: string | null;
     phone: string | null;
+    cardAccent?: string | null;
     verified: boolean | null;
+    userId?: string | null;
+    notificationPreferences?: Record<string, boolean> | null;
   };
   organization: {
     id: string;
@@ -49,8 +56,12 @@ export type MobileWorkspace = {
       email: string;
       role: string;
       accessRole: "admin" | "manager" | "member";
+      title?: string | null;
       phone: string | null;
+      cardAccent?: string | null;
       verified: boolean | null;
+      userId?: string | null;
+      notificationPreferences?: Record<string, boolean> | null;
     }>;
   };
   communities: Array<{
@@ -123,22 +134,17 @@ export function getCurrentSession() {
 export function authorizedCommunitiesForSession(
   session: MobileAuthSession
 ): MobileWorkspace["communities"] {
-  const email = session.workspace?.user?.email?.trim().toLowerCase();
   const communities = Array.isArray(session.workspace?.communities)
     ? session.workspace.communities
     : [];
-  if (!email) return [];
 
+  // Server already filtered to properties this email belongs to; don't require
+  // embedded teamMembers (kept empty for SecureStore size).
   const seen = new Set<string>();
   return communities.filter((community) => {
-    if (!community?.id || seen.has(community.id) || !Array.isArray(community.teamMembers)) {
-      return false;
-    }
-    const authorized = community.teamMembers.some(
-      (member) => member?.email?.trim().toLowerCase() === email
-    );
-    if (authorized) seen.add(community.id);
-    return authorized;
+    if (!community?.id || seen.has(community.id)) return false;
+    seen.add(community.id);
+    return true;
   });
 }
 
@@ -155,12 +161,22 @@ export async function restoreSession() {
   }
 
   currentSession = storedSession;
+  const tokenStillValid = storedSession.expiresAt > Math.floor(Date.now() / 1000) + 30;
   try {
     // Always re-resolve propertiesTYG.metadata.property_team on a cold launch.
-    // OTA updates can otherwise revive a workspace cached by an older access model.
-    return await refreshSession();
+    // Cap wait so a slow API cannot leave the app on the splash forever.
+    const refreshed = await Promise.race([
+      refreshSession(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
+    ]);
+    if (refreshed) return refreshed;
+    if (tokenStillValid && hasCanonicalWorkspace(storedSession)) {
+      currentSession = storedSession;
+      return storedSession;
+    }
+    await clearSession();
+    return null;
   } catch {
-    const tokenStillValid = storedSession.expiresAt > Math.floor(Date.now() / 1000) + 30;
     if (tokenStillValid && hasCanonicalWorkspace(storedSession)) {
       currentSession = storedSession;
       return storedSession;
@@ -172,7 +188,7 @@ export async function restoreSession() {
 
 export async function listBusinesses(query = "") {
   const response = await fetch(
-    `${BASE_URL}/api/admin/auth/businesses${query ? `?q=${encodeURIComponent(query)}` : ""}`
+    `${apiBaseUrl()}/api/admin/auth/businesses${query ? `?q=${encodeURIComponent(query)}` : ""}`
   );
   const body = await response.json().catch(() => null) as {
     businesses?: BusinessOption[];
@@ -183,7 +199,7 @@ export async function listBusinesses(query = "") {
 }
 
 export async function signIn(email: string, password: string, communityId: string) {
-  const response = await fetch(`${BASE_URL}/api/admin/auth/login`, {
+  const response = await fetch(`${apiBaseUrl()}/api/admin/auth/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -208,7 +224,7 @@ export async function requestSignInCode(email: string) {
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}/api/admin/auth/otp/start`, {
+    response = await fetch(`${apiBaseUrl()}/api/admin/auth/otp/start`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -250,7 +266,7 @@ export async function verifySignInCode(email: string, token: string, expectedCod
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}/api/admin/auth/otp/verify`, {
+    response = await fetch(`${apiBaseUrl()}/api/admin/auth/otp/verify`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -429,7 +445,7 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}) {
   const session = currentSession;
   if (!session) throw new Error("Sign in is required.");
 
-  const response = await fetch(`${BASE_URL}${path}`, withAuth(init, session));
+  const response = await fetch(`${apiBaseUrl()}${path}`, withAuth(init, session));
   if (response.status !== 401) return response;
 
   // FormData bodies are consumed on the first request and cannot be retried.
@@ -439,7 +455,7 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}) {
 
   const refreshed = await refreshSession();
   if (!refreshed) return response;
-  return fetch(`${BASE_URL}${path}`, withAuth(init, refreshed));
+  return fetch(`${apiBaseUrl()}${path}`, withAuth(init, refreshed));
 }
 
 async function refreshSession() {
@@ -447,7 +463,7 @@ async function refreshSession() {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
-    const response = await fetch(`${BASE_URL}/api/admin/auth/refresh`, {
+    const response = await fetch(`${apiBaseUrl()}/api/admin/auth/refresh`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -480,9 +496,38 @@ async function persistSession(session: MobileAuthSession) {
   if (!hasCanonicalWorkspace(session)) {
     throw new Error("Your property access could not be verified. Please sign in again.");
   }
-  currentSession = session;
-  await writeStoredSession(JSON.stringify(session));
-  return session;
+  // Keep SecureStore under the 2048-byte soft limit: drop bulky team arrays.
+  const compact: MobileAuthSession = {
+    ...session,
+    workspace: {
+      ...session.workspace,
+      community: {
+        ...session.workspace.community,
+        teamMembers: (session.workspace.community.teamMembers ?? []).slice(0, 40).map((member) => ({
+          ...member,
+          notificationPreferences: null,
+        })),
+      },
+      communities: (session.workspace.communities ?? []).map((community) => ({
+        ...community,
+        teamMembers: [],
+      })),
+    },
+  };
+  currentSession = {
+    ...compact,
+    workspace: {
+      ...compact.workspace,
+      // Keep live team list in memory for the active property.
+      community: session.workspace.community,
+    },
+  };
+  try {
+    await writeStoredSession(JSON.stringify(compact));
+  } catch {
+    // SecureStore may reject large values; in-memory session still works this launch.
+  }
+  return currentSession;
 }
 
 function hasCanonicalWorkspace(session: MobileAuthSession) {

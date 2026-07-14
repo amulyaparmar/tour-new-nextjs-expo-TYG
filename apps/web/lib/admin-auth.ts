@@ -19,8 +19,12 @@ export type PropertyTeamMember = {
   email: string;
   role: string;
   accessRole: AdminRole;
+  title: string | null;
   phone: string | null;
+  cardAccent: string | null;
   verified: boolean | null;
+  userId: string | null;
+  notificationPreferences: Record<string, boolean> | null;
 };
 
 export type AdminCommunity = {
@@ -161,17 +165,34 @@ export async function resolveAdminContextForUser(
   user: User,
   requestedCommunityId?: string | null
 ): Promise<AdminWorkspace> {
-  const supabase = getSupabaseServiceClient();
   const email = normalizeEmail(user.email);
   if (!email) throw new AdminAuthError("A work email is required.", 403);
 
   const teamProperties = await listPropertyTeamRows();
-  const legacyTourCommunities = await listLegacyTourCommunities(
-    teamProperties.filter((row) => !parseTourCommunityId(row.tour_video_id)).map((row) => row.place_id)
-  );
-  const accessible = teamProperties
-    .map((row) => resolvePropertyAccess(row, email, user, legacyTourCommunities))
-    .filter((entry): entry is ResolvedPropertyAccess => Boolean(entry))
+  const preliminary = teamProperties
+    .map((row) => resolvePropertyAccess(row, email, user, new Map()))
+    .filter((entry): entry is ResolvedPropertyAccess => Boolean(entry));
+
+  const placeIdsNeedingLegacy = preliminary
+    .filter((entry) => !entry.community.tourCommunityId && entry.community.gmbId)
+    .map((entry) => entry.community.gmbId);
+
+  const legacyTourCommunities = await listLegacyTourCommunities(placeIdsNeedingLegacy);
+
+  const accessible = preliminary
+    .map((entry) => {
+      if (entry.community.tourCommunityId || !entry.community.gmbId) return entry;
+      const legacy = legacyTourCommunities.get(entry.community.gmbId!);
+      if (!legacy) return entry;
+      return {
+        ...entry,
+        community: {
+          ...entry.community,
+          tourCommunityId: parseTourCommunityId(legacy.id) ?? entry.community.tourCommunityId,
+          alias: entry.community.alias || cleanString(legacy.alias) || null,
+        },
+      };
+    })
     .sort((left, right) => left.community.name.localeCompare(right.community.name, undefined, { sensitivity: "base" }));
 
   if (accessible.length === 0) {
@@ -181,60 +202,87 @@ export async function resolveAdminContextForUser(
   const selected = accessible.find((entry) => communityMatches(entry.community, requestedCommunityId)) ?? accessible[0];
   if (!selected) throw new AdminAuthError("No available property was found.", 403);
 
-  const profileName = selected.teamMember.name || displayNameFromUser(user);
+  // Stamp auth user id onto the active property-team member when missing (do not block auth).
+  if (!selected.teamMember.userId || selected.teamMember.userId !== user.id) {
+    selected.teamMember = { ...selected.teamMember, userId: user.id };
+    void import("./property-team")
+      .then(({ patchPropertyTeamMember }) =>
+        patchPropertyTeamMember({
+          propertyId: selected.community.propertyTygId,
+          email,
+          patch: { user_id: user.id },
+        }),
+      )
+      .catch(() => {});
+  }
 
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("full_name, title, phone, card_accent")
-    .eq("user_id", user.id)
-    .maybeSingle<{
-      full_name: string | null;
-      title: string | null;
-      phone: string | null;
-      card_accent: string | null;
-    }>();
+  const profileName = selected.teamMember.name || displayNameFromUser(user);
 
   return {
     user: {
       id: user.id,
       email,
-      fullName: profile?.full_name || profileName || null,
-      title: profile?.title ?? null,
-      phone: profile?.phone ?? null,
-      cardAccent: profile?.card_accent ?? null,
+      fullName: profileName || null,
+      title: selected.teamMember.title,
+      phone: selected.teamMember.phone,
+      cardAccent: selected.teamMember.cardAccent,
     },
-    teamMember: selected.teamMember,
+    teamMember: slimTeamMember(selected.teamMember, true),
     organization: {
       id: selected.organizationId,
       name: selected.community.companyName ?? "Property team",
     },
-    community: selected.community,
-    communities: accessible.map((entry) => entry.community),
+    community: slimCommunity(selected.community, email),
+    // Other properties: metadata only — full team lists blow mobile SecureStore (>2KB).
+    communities: accessible.map((entry) => ({
+      ...entry.community,
+      teamMembers: [],
+    })),
   };
 }
 
 async function listLegacyTourCommunities(placeIds: Array<string | null>) {
-  const wanted = new Set(placeIds.map(cleanString).filter(Boolean));
+  const wanted = Array.from(new Set(placeIds.map(cleanString).filter(Boolean)));
   const byGmbId = new Map<string, LegacyTourCommunityRow>();
-  if (wanted.size === 0) return byGmbId;
+  if (wanted.length === 0) return byGmbId;
 
   const supabase = getSupabaseServiceClient();
-  const pageSize = 1000;
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabase
-      .from("Community")
-      .select("id,alias,gmbId")
-      .not("gmbId", "is", null)
-      .range(from, from + pageSize - 1);
-    if (error) throw new Error(error.message);
-    const batch = (data ?? []) as LegacyTourCommunityRow[];
-    for (const row of batch) {
-      const gmbId = normalizeLegacyGmbId(row.gmbId);
-      if (gmbId && wanted.has(gmbId) && !byGmbId.has(gmbId)) byGmbId.set(gmbId, row);
-    }
-    if (batch.length < pageSize) break;
-  }
+  await Promise.all(
+    wanted.map(async (placeId) => {
+      try {
+        // Community.gmbId is json — PostgREST equality requires a JSON-encoded string.
+        const { data, error } = await supabase
+          .from("Community")
+          .select("id,alias,gmbId")
+          .eq("gmbId", JSON.stringify(placeId))
+          .limit(1)
+          .maybeSingle<LegacyTourCommunityRow>();
+        if (!error && data) {
+          byGmbId.set(placeId, data);
+          return;
+        }
+      } catch {
+        // Legacy bridge is optional; auth must not fail if Tour Community lookup breaks.
+      }
+    }),
+  );
   return byGmbId;
+}
+
+function slimTeamMember(member: PropertyTeamMember, includePrefs = false): PropertyTeamMember {
+  return {
+    ...member,
+    notificationPreferences: includePrefs ? member.notificationPreferences : null,
+  };
+}
+
+function slimCommunity(community: AdminCommunity, prefsEmail: string | null): AdminCommunity {
+  return {
+    ...community,
+    teamMembers: community.teamMembers.map((member) =>
+      slimTeamMember(member, Boolean(prefsEmail && member.email === prefsEmail)),
+    ),
+  };
 }
 
 type ResolvedPropertyAccess = {
@@ -329,6 +377,13 @@ function normalizePropertyTeam(metadata: unknown): PropertyTeamMember[] {
       if (!email || seen.has(email)) return null;
       seen.add(email);
       const role = cleanString(value.role) || "Property Team";
+      const title = cleanString(value.title) || null;
+      const prefsRaw = value.notification_preferences ?? value.notificationPreferences;
+      const notificationPreferences = isRecord(prefsRaw)
+        ? Object.fromEntries(
+            Object.entries(prefsRaw).filter(([, pref]) => typeof pref === "boolean")
+          ) as Record<string, boolean>
+        : null;
       return {
         id: cleanString(value.id ?? value.user_id ?? value.userId) || null,
         alias: cleanString(value.alias ?? value.user_alias ?? value.userAlias) || null,
@@ -336,8 +391,12 @@ function normalizePropertyTeam(metadata: unknown): PropertyTeamMember[] {
         email,
         role,
         accessRole: accessRoleForPropertyTeamRole(role),
+        title,
         phone: cleanString(value.phone) || null,
+        cardAccent: cleanString(value.card_accent ?? value.cardAccent) || null,
         verified: typeof value.verified === "boolean" ? value.verified : null,
+        userId: cleanString(value.user_id ?? value.userId) || null,
+        notificationPreferences,
       } satisfies PropertyTeamMember;
     })
     .filter((member): member is PropertyTeamMember => Boolean(member));
@@ -432,8 +491,12 @@ export async function resolveFallbackAdminContext(
       email: "lease@tour.video",
       role: "LeaseMagnets Admin",
       accessRole: "admin",
+      title: "Leasing Consultant",
       phone: null,
+      cardAccent: "#006CE5",
       verified: true,
+      userId: null,
+      notificationPreferences: null,
     },
     organization: {
       id: community.company_id,
@@ -472,15 +535,34 @@ export async function resolveFallbackAdminContext(
 export async function buildSystemWorkspaceForProperty(propertyId: string): Promise<AdminWorkspace> {
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
-    .from("communities")
-    .select("id,name,tour_community_id,gmb_id,alias,entrata_property_id,company_id,companies(id,name,slug)")
+    .from("propertiesTYG")
+    .select("id,name,alias,place_id,tour_video_id,property_manager,metadata")
     .eq("id", propertyId)
-    .maybeSingle();
+    .maybeSingle<PropertyTeamRow>();
   if (error) throw new Error(error.message);
-  const community = data as CommunityRow | null;
-  if (!community) throw new Error(`Community not found: ${propertyId}`);
+  if (!data) throw new Error(`Property not found: ${propertyId}`);
 
-  const company = companyForCommunity(community);
+  const placeId = cleanString(data.place_id);
+  const legacyTourCommunities = await listLegacyTourCommunities([placeId || null]);
+  const legacyTourCommunity = placeId ? legacyTourCommunities.get(placeId) ?? null : null;
+  const tourCommunityId = parseTourCommunityId(data.tour_video_id) ?? parseTourCommunityId(legacyTourCommunity?.id);
+  const team = normalizePropertyTeam(data.metadata);
+  const companyName = cleanString(data.property_manager) || companyNameFromTeam(team) || "Property team";
+  const companySlug = slugify(companyName);
+  const community: AdminCommunity = {
+    id: data.id,
+    propertyTygId: data.id,
+    portalCommunityId: null,
+    name: cleanString(data.name) || `Property ${data.id}`,
+    companyName: companyName || null,
+    companySlug: companySlug || null,
+    tourCommunityId,
+    gmbId: placeId || null,
+    alias: cleanString(data.alias) || cleanString(legacyTourCommunity?.alias) || null,
+    entrataPropertyId: null,
+    teamMembers: team,
+  };
+
   return {
     user: {
       id: "system-cron",
@@ -497,41 +579,19 @@ export async function buildSystemWorkspaceForProperty(propertyId: string): Promi
       email: "cron@tour.you",
       role: "admin",
       accessRole: "admin",
+      title: null,
       phone: null,
+      cardAccent: null,
       verified: true,
+      userId: null,
+      notificationPreferences: null,
     },
     organization: {
-      id: community.company_id,
-      name: company?.name ?? "Company",
+      id: `property-team:${companySlug || data.id}`,
+      name: companyName,
     },
-    community: {
-      id: community.id,
-      propertyTygId: community.id,
-      portalCommunityId: community.id,
-      name: formatCommunityDisplayName(communityDisplayInput(community, company)),
-      companyName: company?.name ?? null,
-      companySlug: company?.slug ?? null,
-      tourCommunityId: community.tour_community_id,
-      gmbId: community.gmb_id,
-      alias: community.alias,
-      entrataPropertyId: community.entrata_property_id,
-      teamMembers: [],
-    },
-    communities: [
-      {
-        id: community.id,
-        propertyTygId: community.id,
-        portalCommunityId: community.id,
-        name: formatCommunityDisplayName(communityDisplayInput(community, company)),
-        companyName: company?.name ?? null,
-        companySlug: company?.slug ?? null,
-        tourCommunityId: community.tour_community_id,
-        gmbId: community.gmb_id,
-        alias: community.alias,
-        entrataPropertyId: community.entrata_property_id,
-        teamMembers: [],
-      },
-    ],
+    community,
+    communities: [community],
   };
 }
 

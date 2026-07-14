@@ -7,6 +7,7 @@ import {
   processSession,
   uploadRecording,
 } from "../api";
+import { getApiBaseUrl } from "../config";
 import { promoteLocalRecordingToCache } from "../session-audio-cache";
 import {
   getRecordingUri,
@@ -45,7 +46,24 @@ function emit(event: Parameters<SyncListener>[0]) {
 
 export async function isOnline(): Promise<boolean> {
   const state = await NetInfo.fetch();
-  return Boolean(state.isConnected && state.isInternetReachable !== false);
+  // Local API hosts are reachable without "internet"; treat null/unknown as online.
+  if (!state.isConnected) return false;
+  if (state.isInternetReachable === false) {
+    try {
+      const host = new URL(getApiBaseUrl()).hostname;
+      const isPrivateLan =
+        host === "localhost"
+        || host === "127.0.0.1"
+        || host.startsWith("192.168.")
+        || host.startsWith("10.")
+        || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+      if (isPrivateLan) return true;
+    } catch {
+      // fall through
+    }
+    return false;
+  }
+  return true;
 }
 
 async function syncOne(session: LocalSessionMeta): Promise<LocalSessionMeta | null> {

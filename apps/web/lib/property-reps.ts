@@ -50,7 +50,7 @@ export async function getPropertyRepCard(
       .order("id", { ascending: true })
       .limit(500);
     if (teamError) throw new Error(teamError.message);
-    property = (teamProperties ?? []).find((row) =>
+    property = ((teamProperties ?? []) as PropertyRepRow[]).find((row) =>
       toPublicAlias(row.alias) === propertyKey || toPublicAlias(row.name) === propertyKey
     ) ?? null;
   }
@@ -60,7 +60,7 @@ export async function getPropertyRepCard(
     if (!isRecord(candidate)) return false;
     const email = cleanString(candidate.email).toLowerCase();
     const emailKey = email.split("@")[0] ?? "";
-    const nameKey = toPublicAlias(candidate.name);
+    const nameKey = toPublicAlias(cleanString(candidate.name) || null);
     return [candidate.alias, candidate.id, candidate.user_id, candidate.userId]
       .map((value) => cleanString(value).replace(/^@/, "").toLowerCase())
       .concat(emailKey, nameKey)
@@ -70,21 +70,12 @@ export async function getPropertyRepCard(
   if (!isRecord(member)) return null;
 
   const email = cleanString(member.email);
-  const { data: profile } = email
-    ? await supabase
-        .from("user_profiles")
-        .select("full_name, title, phone")
-        .ilike("email", email)
-        .maybeSingle<{ full_name: string | null; title: string | null; phone: string | null }>()
-    : { data: null };
-
-  const name = cleanString(profile?.full_name)
-    || cleanString(member.name)
+  const name = cleanString(member.name)
     || email.split("@")[0]
     || "Property team member";
-  const phoneValue = normalizePhone(cleanString(profile?.phone) || cleanString(member.phone));
-  const title = cleanString(profile?.title) || cleanString(member.role) || "Property Team";
-  const slug = toPublicAlias(member.alias)
+  const phoneValue = normalizePhone(cleanString(member.phone));
+  const title = cleanString(member.title) || cleanString(member.role) || "Property Team";
+  const slug = toPublicAlias(cleanString(member.alias) || null)
     || toPublicAlias(name)
     || toPublicAlias(email.split("@")[0])
     || cleanString(member.id ?? member.user_id ?? member.userId)

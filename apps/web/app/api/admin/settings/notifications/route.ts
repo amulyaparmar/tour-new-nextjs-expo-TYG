@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { AdminAuthError, requireAdminContext } from "@/lib/admin-auth";
-import { getSupabaseServiceClient } from "@/lib/supabase";
+import { patchPropertyTeamMember } from "@/lib/property-team";
 
 const DEFAULTS = {
   lowScore: true,
@@ -17,15 +17,11 @@ const DEFAULTS = {
 export async function GET(request: Request) {
   try {
     const workspace = await requireAdminContext(request);
-    const supabase = getSupabaseServiceClient();
-    const { data, error } = await supabase
-      .from("user_profiles")
-      .select("notification_preferences")
-      .eq("user_id", workspace.user.id)
-      .maybeSingle<{ notification_preferences: Record<string, boolean> | null }>();
-    if (error) throw new Error(error.message);
     return NextResponse.json({
-      notifications: { ...DEFAULTS, ...(data?.notification_preferences ?? {}) },
+      notifications: {
+        ...DEFAULTS,
+        ...(workspace.teamMember.notificationPreferences ?? {}),
+      },
     });
   } catch (caught) {
     return NextResponse.json(
@@ -45,15 +41,14 @@ export async function PATCH(request: Request) {
         Object.entries(body).filter(([, value]) => typeof value === "boolean")
       ),
     };
-    const supabase = getSupabaseServiceClient();
-    const { error } = await supabase
-      .from("user_profiles")
-      .update({
+    await patchPropertyTeamMember({
+      propertyId: workspace.community.propertyTygId,
+      email: workspace.user.email,
+      patch: {
+        user_id: workspace.user.id,
         notification_preferences: notifications,
-        updated_at: new Date().toISOString(),
-      } as never)
-      .eq("user_id", workspace.user.id);
-    if (error) throw new Error(error.message);
+      },
+    });
     return NextResponse.json({ notifications });
   } catch (caught) {
     return NextResponse.json(

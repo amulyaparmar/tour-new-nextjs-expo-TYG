@@ -811,6 +811,7 @@ export async function setSessionStatus(
             sessionId,
             title: session.title,
             overallScore: typeof overallScore === "number" ? overallScore : session.overallScore,
+            propertyId: session.propertyId,
           });
         } catch {
           // Ignore push failures.

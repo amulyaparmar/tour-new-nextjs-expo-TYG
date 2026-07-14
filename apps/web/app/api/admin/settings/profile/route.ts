@@ -145,6 +145,40 @@ export async function PATCH(request: Request) {
         .update(profileUpdate as never)
         .eq("user_id", workspace.user.id);
       if (error) throw new Error(error.message);
+
+      // Keep the public check-in card in sync with the live app profile.
+      if (name || title !== undefined || phone !== undefined) {
+        const { data: property, error: propertyError } = await supabase
+          .from("propertiesTYG")
+          .select("alias,metadata")
+          .eq("id", workspace.community.propertyTygId)
+          .single<PropertySettingsRow>();
+        if (!propertyError && property) {
+          const metadata = isRecord(property.metadata) ? { ...property.metadata } : {};
+          const team = Array.isArray(metadata.property_team)
+            ? metadata.property_team.map((member) => (isRecord(member) ? { ...member } : member))
+            : [];
+          const memberIndex = team.findIndex(
+            (member) =>
+              isRecord(member) && String(member.email ?? "").trim().toLowerCase() === workspace.user.email
+          );
+          if (memberIndex >= 0 && isRecord(team[memberIndex])) {
+            const nextMember = { ...team[memberIndex] };
+            if (name) nextMember.name = name;
+            if (title !== undefined) nextMember.role = title || nextMember.role;
+            if (phone !== undefined) {
+              if (phone) nextMember.phone = phone;
+              else delete nextMember.phone;
+            }
+            team[memberIndex] = nextMember;
+            metadata.property_team = team;
+            await supabase
+              .from("propertiesTYG")
+              .update({ metadata, updated_at: new Date().toISOString() } as never)
+              .eq("id", workspace.community.propertyTygId);
+          }
+        }
+      }
     }
 
     const refreshedWorkspace = await requireAdminContext(request);

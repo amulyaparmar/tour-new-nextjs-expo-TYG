@@ -63,6 +63,7 @@ export function LoginScreen({
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [expectedCode, setExpectedCode] = useState("");
+  const [emailSent, setEmailSent] = useState(true);
   const [pendingSession, setPendingSession] = useState<MobileAuthSession | null>(null);
   const [propertyQuery, setPropertyQuery] = useState("");
   const [switchingPropertyId, setSwitchingPropertyId] = useState<string | null>(null);
@@ -117,6 +118,7 @@ export function LoginScreen({
       const challenge = await requestSignInCode(email);
       setEmail(challenge.email);
       setExpectedCode(challenge.expectedCode);
+      setEmailSent(challenge.emailSent !== false);
       setCode("");
       setResendCooldown(RESEND_COOLDOWN_SECONDS);
       transitionTo("code", "forward");
@@ -246,20 +248,47 @@ export function LoginScreen({
                 <LoginHeader
                   icon="key-outline"
                   title="Check your email"
-                  subtitle={`We sent a sign-in code to ${email}.`}
+                  subtitle={
+                    emailSent
+                      ? `We sent a sign-in code to ${email}.`
+                      : `Email delivery failed — use the test code below for ${email}.`
+                  }
                 />
                 <View style={styles.formBlock}>
                   <View style={styles.deliveryCard}>
                     <View style={styles.deliveryDotWrap}>
-                      <View style={styles.deliveryDot} />
+                      <View style={[styles.deliveryDot, !emailSent && styles.deliveryDotWarn]} />
                     </View>
                     <View style={styles.deliveryCopy}>
-                      <Text style={styles.deliveryTitle}>Waiting for your 4-digit code</Text>
+                      <Text style={styles.deliveryTitle}>
+                        {emailSent ? "Waiting for your 4-digit code" : "Use the on-screen code"}
+                      </Text>
                       <Text style={styles.deliveryText}>
-                        Look for an email from Tour. Delivery can take up to a minute.
+                        {emailSent
+                          ? "Look for an email from Tour. Delivery can take up to a minute."
+                          : "Tour could not deliver the email. Enter the test code shown below."}
                       </Text>
                     </View>
                   </View>
+                  {shouldShowTestCode(email, emailSent, expectedCode) ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Use test sign-in code"
+                      onPress={() => {
+                        setCode(expectedCode);
+                        setError(null);
+                      }}
+                      style={({ pressed }) => [styles.testCodeCard, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.testCodeLabel}>
+                        {email.trim().toLowerCase().endsWith("@leasemagnets.com")
+                          ? "Test code (or 4424)"
+                          : "Test code"}
+                      </Text>
+                      <Text style={styles.testCodeValue}>{expectedCode}</Text>
+                      <Text style={styles.testCodeHint}>Tap to autofill</Text>
+                    </Pressable>
+                  ) : null}
                   <Field
                     value={code}
                     onChangeText={(value) => {
@@ -327,6 +356,13 @@ export function LoginScreen({
       ) : null}
     </View>
   );
+}
+
+function shouldShowTestCode(email: string, emailSent: boolean, expectedCode: string) {
+  if (!/^\d{4}$/.test(expectedCode)) return false;
+  if (__DEV__) return true;
+  if (!emailSent) return true;
+  return email.trim().toLowerCase().endsWith("@leasemagnets.com");
 }
 
 function LoginHeader({
@@ -483,9 +519,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#d1fadf",
   },
   deliveryDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#17b26a" },
+  deliveryDotWarn: { backgroundColor: "#f79009" },
   deliveryCopy: { flex: 1, gap: 2 },
   deliveryTitle: { color: "#067647", fontSize: 12, lineHeight: 17, fontWeight: "800" },
   deliveryText: { color: "#027a48", fontSize: 11, lineHeight: 16, fontWeight: "500" },
+  testCodeCard: {
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#b2ddff",
+    borderRadius: 10,
+    backgroundColor: "#eff8ff",
+  },
+  testCodeLabel: { color: "#175cd3", fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  testCodeValue: { color: "#101828", fontSize: 28, fontWeight: "900", letterSpacing: 6 },
+  testCodeHint: { color: "#667085", fontSize: 11, fontWeight: "600" },
   input: {
     width: "100%",
     minHeight: 52,

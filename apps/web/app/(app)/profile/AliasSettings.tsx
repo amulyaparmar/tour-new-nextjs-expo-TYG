@@ -54,7 +54,7 @@ export function AliasSettings({
         <div>
           <h2>Public check-in link</h2>
           <p style={{ margin: "4px 0 0", color: "var(--slate-500)", fontSize: 13 }}>
-            Customize the property and team-member aliases used by your check-in page.
+            Defaults come from your current property and profile name. Customize them anytime.
           </p>
         </div>
       </div>
@@ -66,7 +66,7 @@ export function AliasSettings({
               id="property-alias"
               className="form-input"
               value={propertyAlias}
-              placeholder="property-name"
+              placeholder={propertyId || "property-name"}
               autoCapitalize="none"
               autoCorrect="off"
               onChange={(event) => setPropertyAlias(event.target.value)}
@@ -78,7 +78,7 @@ export function AliasSettings({
               id="user-alias"
               className="form-input"
               value={userAlias}
-              placeholder="your-name"
+              placeholder={memberFallback || "your-name"}
               autoCapitalize="none"
               autoCorrect="off"
               onChange={(event) => setUserAlias(event.target.value)}

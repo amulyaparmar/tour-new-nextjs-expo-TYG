@@ -62,6 +62,8 @@ import {
   type AudioInsightsStatus,
   formatSessionCardDescription,
   formatSessionCardMeta,
+  defaultMemberPublicAlias,
+  defaultPropertyPublicAlias,
   rubricItemCount,
   rubricTotalPoints,
 } from "@tour/shared";
@@ -1166,21 +1168,27 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
         visible={checkInOpen}
         onClose={() => setCheckInOpen(false)}
         property={property}
-        propertyId={authSession.workspace.community.id}
+        propertyId={authSession.workspace.community.propertyTygId || authSession.workspace.community.id}
         agentName={agentName}
-        repSlug={
-          authSession.workspace.teamMember?.alias
-          || authSession.workspace.teamMember?.id
-          || authSession.workspace.user.email.split("@")[0]
-          || authSession.workspace.user.id
-        }
+        repSlug={defaultMemberPublicAlias({
+          alias: authSession.workspace.teamMember?.alias,
+          name: authSession.workspace.teamMember?.name || authSession.workspace.user.fullName,
+          email: authSession.workspace.user.email,
+          id: authSession.workspace.teamMember?.id || authSession.workspace.user.id,
+        })}
         checkInUrl={`${getSiteBaseUrl().replace(/\/$/, "")}/p/${encodeURIComponent(
-          authSession.workspace.community.alias || authSession.workspace.community.propertyTygId
+          defaultPropertyPublicAlias({
+            alias: authSession.workspace.community.alias,
+            name: authSession.workspace.community.name,
+            propertyTygId: authSession.workspace.community.propertyTygId,
+          })
         )}/${encodeURIComponent(
-          authSession.workspace.teamMember?.alias
-          || authSession.workspace.teamMember?.id
-          || authSession.workspace.user.email.split("@")[0]
-          || authSession.workspace.user.id
+          defaultMemberPublicAlias({
+            alias: authSession.workspace.teamMember?.alias,
+            name: authSession.workspace.teamMember?.name || authSession.workspace.user.fullName,
+            email: authSession.workspace.user.email,
+            id: authSession.workspace.teamMember?.id || authSession.workspace.user.id,
+          })
         )}?check-in=true`}
         onCheckedIn={(sessionId) => {
           setCheckInOpen(false);
@@ -5668,23 +5676,51 @@ function SettingsScreen({ session, onSessionChange, onProfile, onRubrics, onSign
   const [communityPickerOpen, setCommunityPickerOpen] = useState(false);
   const [communityQuery, setCommunityQuery] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
-  const [userAlias, setUserAlias] = useState(session.workspace.teamMember?.alias ?? "");
-  const [propertyAlias, setPropertyAlias] = useState(session.workspace.community.alias ?? "");
+  const defaultUserAlias = defaultMemberPublicAlias({
+    alias: session.workspace.teamMember?.alias,
+    name: session.workspace.teamMember?.name || session.workspace.user.fullName,
+    email: session.workspace.user.email,
+    id: session.workspace.teamMember?.id || session.workspace.user.id,
+  });
+  const defaultPropertyAlias = defaultPropertyPublicAlias({
+    alias: session.workspace.community.alias,
+    name: session.workspace.community.name,
+    propertyTygId: session.workspace.community.propertyTygId,
+  });
+  const [userAlias, setUserAlias] = useState(defaultUserAlias);
+  const [propertyAlias, setPropertyAlias] = useState(defaultPropertyAlias);
   const [savingAliases, setSavingAliases] = useState(false);
   const teamRole = session.workspace.teamMember?.role || "Property Team";
   const authorizedPropertyCount = authorizedCommunitiesForSession(session).length;
-  const publicPropertyKey = propertyAlias.trim() || session.workspace.community.propertyTygId;
-  const publicMemberKey = userAlias.trim()
-    || session.workspace.teamMember?.id
-    || session.workspace.user.email.split("@")[0]
-    || session.workspace.user.id;
+  const publicPropertyKey = propertyAlias.trim() || defaultPropertyAlias;
+  const publicMemberKey = userAlias.trim() || defaultUserAlias;
   const publicCheckInUrl = `${getSiteBaseUrl().replace(/\/$/, "")}/p/${encodeURIComponent(publicPropertyKey)}/${encodeURIComponent(publicMemberKey)}`;
   const accent = resolveCardAccent(session.workspace.user.cardAccent);
 
   useEffect(() => {
-    setUserAlias(session.workspace.teamMember?.alias ?? "");
-    setPropertyAlias(session.workspace.community.alias ?? "");
-  }, [session.workspace.community.id, session.workspace.community.alias, session.workspace.teamMember?.alias]);
+    setUserAlias(defaultMemberPublicAlias({
+      alias: session.workspace.teamMember?.alias,
+      name: session.workspace.teamMember?.name || session.workspace.user.fullName,
+      email: session.workspace.user.email,
+      id: session.workspace.teamMember?.id || session.workspace.user.id,
+    }));
+    setPropertyAlias(defaultPropertyPublicAlias({
+      alias: session.workspace.community.alias,
+      name: session.workspace.community.name,
+      propertyTygId: session.workspace.community.propertyTygId,
+    }));
+  }, [
+    session.workspace.community.id,
+    session.workspace.community.alias,
+    session.workspace.community.name,
+    session.workspace.community.propertyTygId,
+    session.workspace.teamMember?.alias,
+    session.workspace.teamMember?.name,
+    session.workspace.teamMember?.id,
+    session.workspace.user.fullName,
+    session.workspace.user.email,
+    session.workspace.user.id,
+  ]);
 
   async function saveAliases() {
     setSavingAliases(true);
@@ -5769,7 +5805,7 @@ function SettingsScreen({ session, onSessionChange, onProfile, onRubrics, onSign
               accessibilityLabel="Property alias"
               autoCapitalize="none"
               autoCorrect={false}
-              placeholder="property-name"
+              placeholder={defaultPropertyAlias || "property-name"}
               placeholderTextColor={C.textMuted}
               value={propertyAlias}
               onChangeText={setPropertyAlias}
@@ -5785,7 +5821,7 @@ function SettingsScreen({ session, onSessionChange, onProfile, onRubrics, onSign
               accessibilityLabel="Your check-in alias"
               autoCapitalize="none"
               autoCorrect={false}
-              placeholder="your-name"
+              placeholder={defaultUserAlias || "your-name"}
               placeholderTextColor={C.textMuted}
               value={userAlias}
               onChangeText={setUserAlias}
@@ -5794,7 +5830,9 @@ function SettingsScreen({ session, onSessionChange, onProfile, onRubrics, onSign
           </View>
         </View>
         <Text style={st.aliasPreview} numberOfLines={2}>{publicCheckInUrl}</Text>
-        <Text style={st.aliasHelp}>This page uses your name, role, phone, email, and the active property.</Text>
+        <Text style={st.aliasHelp}>
+          Defaults from your current property and profile. This page uses your name, role, phone, email, and the active property.
+        </Text>
         <Pressable
           accessibilityRole="button"
           disabled={savingAliases}

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { toPublicAlias } from "@tour/shared";
+
 import { DEFAULT_QUESTIONS, type RepCard } from "./reps";
 import { getSupabaseServiceClient } from "./supabase";
 
@@ -39,24 +41,53 @@ export async function getPropertyRepCard(
     if (aliasError) throw new Error(aliasError.message);
     property = byAlias ?? null;
   }
+  if (!property) {
+    // Match defaults derived from the live property name before an alias is saved.
+    const { data: teamProperties, error: teamError } = await supabase
+      .from("propertiesTYG")
+      .select("id,name,alias,website,thumbnail_url,property_manager,metadata")
+      .not("metadata->property_team", "is", null)
+      .order("id", { ascending: true })
+      .limit(500);
+    if (teamError) throw new Error(teamError.message);
+    property = (teamProperties ?? []).find((row) =>
+      toPublicAlias(row.alias) === propertyKey || toPublicAlias(row.name) === propertyKey
+    ) ?? null;
+  }
   if (!property || !isRecord(property.metadata) || !Array.isArray(property.metadata.property_team)) return null;
 
   const member = property.metadata.property_team.find((candidate) => {
     if (!isRecord(candidate)) return false;
     const email = cleanString(candidate.email).toLowerCase();
     const emailKey = email.split("@")[0] ?? "";
+    const nameKey = toPublicAlias(candidate.name);
     return [candidate.alias, candidate.id, candidate.user_id, candidate.userId]
       .map((value) => cleanString(value).replace(/^@/, "").toLowerCase())
-      .concat(emailKey)
+      .concat(emailKey, nameKey)
+      .filter(Boolean)
       .includes(memberKey);
   });
   if (!isRecord(member)) return null;
 
   const email = cleanString(member.email);
-  const name = cleanString(member.name) || email.split("@")[0] || "Property team member";
-  const phoneValue = normalizePhone(cleanString(member.phone));
-  const slug = cleanString(member.alias ?? member.id ?? member.user_id ?? member.userId)
+  const { data: profile } = email
+    ? await supabase
+        .from("user_profiles")
+        .select("full_name, title, phone")
+        .ilike("email", email)
+        .maybeSingle<{ full_name: string | null; title: string | null; phone: string | null }>()
+    : { data: null };
+
+  const name = cleanString(profile?.full_name)
+    || cleanString(member.name)
     || email.split("@")[0]
+    || "Property team member";
+  const phoneValue = normalizePhone(cleanString(profile?.phone) || cleanString(member.phone));
+  const title = cleanString(profile?.title) || cleanString(member.role) || "Property Team";
+  const slug = toPublicAlias(member.alias)
+    || toPublicAlias(name)
+    || toPublicAlias(email.split("@")[0])
+    || cleanString(member.id ?? member.user_id ?? member.userId)
     || memberKey;
   const propertyName = cleanString(property.name) || "Property";
   return {
@@ -64,7 +95,7 @@ export async function getPropertyRepCard(
       slug,
       name,
       initials: initialsForName(name),
-      title: cleanString(member.role) || "Property Team",
+      title,
       company: cleanString(property.property_manager) || propertyName,
       email,
       phoneValue,

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { defaultMemberPublicAlias, defaultPropertyPublicAlias } from "@tour/shared";
 import { ContactCardPanel } from "../ContactCardPanel";
 import { requireTourWorkspace } from "@/lib/tour-auth";
 import { WorkspaceActions } from "./WorkspaceActions";
@@ -8,6 +9,17 @@ export default async function ProfilePage() {
   const workspace = await requireTourWorkspace();
   const displayName = workspace.user.fullName ?? workspace.user.email.split("@")[0] ?? "Tour user";
   const initials = displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+  const defaultPropertyAlias = defaultPropertyPublicAlias({
+    alias: workspace.community.alias,
+    name: workspace.community.name,
+    propertyTygId: workspace.community.propertyTygId,
+  });
+  const defaultUserAlias = defaultMemberPublicAlias({
+    alias: workspace.teamMember.alias,
+    name: workspace.teamMember.name || workspace.user.fullName,
+    email: workspace.user.email,
+    id: workspace.teamMember.id || workspace.user.id,
+  });
 
   return (
     <>
@@ -50,10 +62,10 @@ export default async function ProfilePage() {
       />
 
       <AliasSettings
-        initialPropertyAlias={workspace.community.alias ?? ""}
-        initialUserAlias={workspace.teamMember.alias ?? ""}
+        initialPropertyAlias={defaultPropertyAlias}
+        initialUserAlias={defaultUserAlias}
         propertyId={workspace.community.propertyTygId}
-        memberFallback={workspace.teamMember.id ?? workspace.user.email.split("@")[0] ?? workspace.user.id}
+        memberFallback={defaultUserAlias}
       />
 
       <ContactCardPanel id="profile-contact-card-heading" />

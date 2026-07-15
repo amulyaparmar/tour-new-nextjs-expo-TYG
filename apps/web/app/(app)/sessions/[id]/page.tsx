@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Download } from "lucide-react";
 
 import { SESSION_STATUS_LABELS } from "@tour/shared";
 
@@ -13,6 +12,7 @@ import { AnalysisVersionSelector } from "./AnalysisVersionSelector";
 import { DeleteSessionButton } from "./DeleteSessionButton";
 import { EditSessionForm } from "./EditSessionForm";
 import { EditSessionParticipants } from "./EditSessionParticipants";
+import { ExportSessionButton } from "./ExportSessionButton";
 import { SessionDetailExperience } from "./SessionDetailExperience";
 import { SessionScoreSummary } from "./SessionScoreSummary";
 import styles from "./session-detail.module.css";
@@ -107,14 +107,10 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
           )}
           <span className={`badge badge-${session.status}`}>{SESSION_STATUS_LABELS[session.status]}</span>
           {hasAnalysis && (
-            <a
+            <ExportSessionButton
               href={`/api/sessions/${encodeURIComponent(id)}/export${analysisRun && !analysisRun.isCurrent ? `?version=${analysisRun.version}` : ""}`}
-              download
-              className={`btn btn-outline btn-sm ${styles.downloadBtn}`}
-              aria-label={`Export ${session.title} evaluation as PDF`}
-            >
-              <Download size={14} /> Export
-            </a>
+              sessionTitle={session.title}
+            />
           )}
           <DeleteSessionButton sessionId={id} />
         </div>

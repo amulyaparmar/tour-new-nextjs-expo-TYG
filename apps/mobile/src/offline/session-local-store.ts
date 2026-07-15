@@ -1,4 +1,11 @@
 import { Directory, File, Paths } from "expo-file-system";
+import {
+  copyAsync,
+  deleteAsync,
+  documentDirectory,
+  getInfoAsync,
+  makeDirectoryAsync,
+} from "expo-file-system/legacy";
 
 import type { LiveRecordingDraft, LiveRecordingMeta } from "../recording/RecordingProvider";
 
@@ -69,13 +76,44 @@ export function recordingFile(localId: string): File {
   return new File(sessionDir(localId), RECORDING_FILE);
 }
 
+/** Stable legacy URI for a session recording (documents directory). */
+export function durableRecordingUri(localId: string): string | null {
+  if (!documentDirectory) return null;
+  return `${documentDirectory}sessions/${localId}/${RECORDING_FILE}`;
+}
+
 export function getRecordingUri(localId: string): string | null {
+  const legacyUri = durableRecordingUri(localId);
+  try {
+    // New File API has been unreliable for ExpoAudio/cache paths; prefer legacy URI
+    // and only treat it as present when the File API also confirms size (best-effort).
+    if (legacyUri) {
+      const legacyFile = new File(legacyUri);
+      if (legacyFile.exists && legacyFile.size > 0) return legacyUri;
+    }
+  } catch {
+    // continue
+  }
   try {
     const file = recordingFile(localId);
-    return file.exists && file.size > 0 ? file.uri : null;
+    return file.exists && file.size > 0 ? (legacyUri ?? file.uri) : null;
   } catch {
     return null;
   }
+}
+
+export async function getRecordingUriAsync(localId: string): Promise<string | null> {
+  const uri = durableRecordingUri(localId);
+  if (!uri) return null;
+  try {
+    const info = await getInfoAsync(uri);
+    if (info.exists && "size" in info && typeof info.size === "number" && info.size > 0) {
+      return uri;
+    }
+  } catch {
+    // missing
+  }
+  return null;
 }
 
 function readJsonFile<T>(file: File): T | null {
@@ -218,30 +256,77 @@ export function writeCheckpoint(
 }
 
 /**
- * Best-effort copy of the in-progress or finished recorder URI into durable storage.
- * Safe to call while recording (may fail on some platforms while the file is locked).
+ * Best-effort sync hint only — real copies must use ensureDurableRecording (legacy FS).
+ * Kept for mid-recording checkpoints that cannot await.
  */
 export function copyRecordingToDurableStore(localId: string, sourceUri: string | null | undefined): string | null {
   if (!sourceUri) return null;
-  try {
-    const source = new File(sourceUri);
-    if (!source.exists || source.size <= 0) return null;
+  updateLocalSession(localId, { recordingSourceUri: sourceUri });
+  return sourceUri;
+}
 
-    const destination = recordingFile(localId);
-    if (destination.exists) {
-      try {
-        destination.delete();
-      } catch {
-        // Fall through and attempt copy.
+async function waitForReadableFile(uri: string, attempts = 8): Promise<number | null> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const info = await getInfoAsync(uri);
+      if (info.exists && "size" in info && typeof info.size === "number" && info.size > 0) {
+        return info.size;
       }
+    } catch {
+      // retry
     }
-    source.copy(destination);
-    if (!destination.exists || destination.size <= 0) return null;
-    updateLocalSession(localId, { recordingSourceUri: sourceUri });
-    return destination.uri;
-  } catch {
-    return null;
+    await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
   }
+  return null;
+}
+
+/** Copy ExpoAudio/cache recording into Documents via legacy FileSystem (reliable on iOS). */
+export async function ensureDurableRecording(
+  localId: string,
+  sourceUri: string | null | undefined,
+): Promise<string | null> {
+  const existing = await getRecordingUriAsync(localId);
+  if (existing) return existing;
+
+  if (!documentDirectory) return sourceUri ?? null;
+  const destination = durableRecordingUri(localId);
+  if (!destination) return sourceUri ?? null;
+
+  if (!sourceUri) return null;
+  const sourceSize = await waitForReadableFile(sourceUri);
+  if (sourceSize == null) return null;
+
+  const dir = `${documentDirectory}sessions/${localId}`;
+  try {
+    await makeDirectoryAsync(dir, { intermediates: true });
+  } catch {
+    // directory may already exist
+  }
+
+  try {
+    await deleteAsync(destination, { idempotent: true });
+  } catch {
+    // ignore
+  }
+
+  try {
+    await copyAsync({ from: sourceUri, to: destination });
+  } catch (error) {
+    console.warn("[recording] copyAsync failed", { localId, sourceUri, destination, error });
+  }
+
+  const copied = await getRecordingUriAsync(localId);
+  if (copied) {
+    updateLocalSession(localId, { recordingSourceUri: sourceUri });
+    return copied;
+  }
+
+  // Last resort: upload from the still-readable cache path.
+  if ((await waitForReadableFile(sourceUri, 2)) != null) {
+    updateLocalSession(localId, { recordingSourceUri: sourceUri });
+    return sourceUri;
+  }
+  return null;
 }
 
 export function markReadyToSync(
@@ -255,9 +340,8 @@ export function markReadyToSync(
     mimeType?: string;
   },
 ): LocalSessionMeta | null {
-  const durableUri =
-    copyRecordingToDurableStore(localId, input.sourceUri) ?? getRecordingUri(localId);
-  if (!durableUri) {
+  const sourceUri = input.sourceUri ?? null;
+  if (!sourceUri && !getRecordingUri(localId) && !durableRecordingUri(localId)) {
     return updateLocalSession(localId, {
       status: "failed",
       lastError: "Recording file was not saved on device.",
@@ -275,6 +359,7 @@ export function markReadyToSync(
     draft: input.draft,
     fileName: input.fileName,
     mimeType: input.mimeType ?? "audio/m4a",
+    recordingSourceUri: sourceUri ?? undefined,
     lastError: null,
   });
 }

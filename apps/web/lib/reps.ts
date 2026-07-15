@@ -24,6 +24,8 @@ export type RepProfile = {
   linkedinDisplay?: string;
   avatarUrl?: string;
   brandLogoUrl?: string;
+  /** Profile card accent color for CTAs (property_team.card_accent). */
+  cardAccent?: string | null;
 };
 
 export type PropertyProfile = {

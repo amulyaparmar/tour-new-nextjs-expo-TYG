@@ -111,12 +111,17 @@ export function CheckInSheet({
 }) {
   const repFirst = firstNameOf(agentName);
   const resolvedRepSlug = (repSlug ?? "").trim() || slugifyRep(agentName);
-  const checkInUrl = useMemo(
-    () =>
-      (checkInUrlProp ?? "").trim() ||
-      `https://tour.you/p/${resolvedRepSlug}?check-in=true`,
-    [checkInUrlProp, resolvedRepSlug]
-  );
+  const checkInUrl = useMemo(() => {
+    const fromProp = (checkInUrlProp ?? "").trim();
+    if (fromProp) return fromProp;
+    // Prefer property/member live URL shape over legacy /p/{repSlug}.
+    const propertySlug = (property ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "property";
+    return `https://tour.you/p/${encodeURIComponent(propertySlug)}/${encodeURIComponent(resolvedRepSlug)}?check-in=true`;
+  }, [checkInUrlProp, property, resolvedRepSlug]);
   const checkInQrUrl = useMemo(
     () =>
       `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=12&format=png&data=${encodeURIComponent(checkInUrl)}`,
@@ -170,6 +175,7 @@ export function CheckInSheet({
         reason: reason.trim() || `Tour ${property}`,
         questionAnswers: answers,
         repSlug: resolvedRepSlug,
+        repName: agentName?.trim() || null,
         propertyName: property,
         propertyId: propertyId ?? null,
       });

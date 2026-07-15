@@ -60,6 +60,8 @@ import {
   type SessionSummary,
   type AudioInsights,
   type AudioInsightsStatus,
+  buildSessionTourTitle,
+  formatPersonName,
   formatSessionCardDescription,
   formatSessionCardMeta,
   defaultMemberPublicAlias,
@@ -107,7 +109,11 @@ import { computeDashboardMetrics } from "./src/dashboard";
 import type { UploadProgressInfo } from "./src/presignedUpload";
 import { authorizedCommunitiesForSession, type MobileAuthSession, authenticatedFetch, clearSession, getCurrentSession, restoreSession, switchCommunity, updateWorkspaceAliases } from "./src/auth";
 import { useEasUpdateCheck } from "./src/hooks/use-eas-update-check";
-import { registerForPushNotifications, addNotificationResponseListener } from "./src/push-notifications";
+import {
+  registerForPushNotifications,
+  addNotificationResponseListener,
+  addNotificationReceivedListener,
+} from "./src/push-notifications";
 import { trackAnalyticsEvent, setAnalyticsUserId } from "./src/analytics";
 import { LoginScreen } from "./src/LoginScreen";
 import { TourLogo, TourMark } from "./src/components/TourLogo";
@@ -121,8 +127,8 @@ import {
   type LiveSessionSnapshot,
 } from "./src/recording";
 import {
-  copyRecordingToDurableStore,
   deleteLocalSession,
+  ensureDurableRecording,
   findLocalSessionByRemoteId,
   getRecordingUri,
   listLocalSessions,
@@ -777,9 +783,28 @@ export default function App() {
   }, [screen]);
 
   useEffect(() => {
-    return addNotificationResponseListener((sessionId) => {
-      nav({ type: "session-detail", sessionId });
+    const refreshSessions = () => {
+      void appQueryClient.invalidateQueries({ queryKey: queryKeys.all() });
+    };
+    const removeReceived = addNotificationReceivedListener(() => {
+      refreshSessions();
     });
+    const removeResponse = addNotificationResponseListener((payload) => {
+      refreshSessions();
+      nav({
+        type: "session-detail",
+        sessionId: payload.sessionId,
+        autoStartRecording: Boolean(payload.autoStartRecording),
+      });
+    });
+    const appStateSub = AppState.addEventListener("change", (next) => {
+      if (next === "active") refreshSessions();
+    });
+    return () => {
+      removeReceived();
+      removeResponse();
+      appStateSub.remove();
+    };
   }, [nav]);
 
   if (authLoading) {
@@ -1319,15 +1344,26 @@ function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrar
       </View>
 
       {todayTours.length > 0 && (
-        <HomeSection title="Ready Today">
+        <HomeSection title="Needs your attention">
           <View style={homeSt.focusStack}>
             {todayTours.map((session) => (
               <MotionPressable key={session.id} onPress={() => onSession(session.id)} haptic="selection" style={homeSt.tourCard}>
                 <View style={st.flex1}>
-                  <Text style={homeSt.tourTitle} numberOfLines={1}>{session.title}</Text>
+                  <Text style={homeSt.tourTitle} numberOfLines={1}>
+                    {buildSessionTourTitle({
+                      title: session.title,
+                      agentName: session.agentName,
+                      prospectName: session.prospectName ?? session.leads?.[0]?.name,
+                      preferPeopleTitle: session.source === "qr" || session.status === "in_progress",
+                    })}
+                  </Text>
                   <View style={homeSt.tourMetaRow}>
                     <Text style={homeSt.timePill}>{session.status === "in_progress" ? "Now" : session.scheduledAt ? fmtTime(session.scheduledAt) : "Today"}</Text>
-                    <Text style={homeSt.tourMeta} numberOfLines={1}>{session.prospectName ?? session.agentName ?? "Guest ready for tour"}</Text>
+                    <Text style={homeSt.tourMeta} numberOfLines={1}>
+                      {formatPersonName(session.prospectName)
+                        ?? formatPersonName(session.agentName)
+                        ?? "Guest ready for tour"}
+                    </Text>
                   </View>
                   {formatSessionCardDescription(session) ? (
                     <Text style={homeSt.tourMeta} numberOfLines={2}>{formatSessionCardDescription(session)}</Text>
@@ -2905,13 +2941,13 @@ function CreateSessionScreen({
     const nextRubricId = draftOverrides?.rubricId !== undefined ? draftOverrides.rubricId : rubricId;
     let sid = existingSessionId ?? sessionId;
     const durableUri = localId
-      ? (copyRecordingToDurableStore(localId, uri) ?? getRecordingUri(localId) ?? uri)
+      ? ((await ensureDurableRecording(localId, uri)) ?? getRecordingUri(localId) ?? uri)
       : uri;
 
     if (localId) {
       markReadyToSync(localId, {
         durationSec: durationSec ?? 1,
-        sourceUri: uri,
+        sourceUri: durableUri,
         remoteSessionId: sid,
         draft: {
           notes: nextNotes,
@@ -3072,16 +3108,19 @@ function CreateSessionScreen({
           showToast("Failed to save recording", "error");
           return;
         }
-        const durableUri = localId
-          ? (markReadyToSync(localId, {
-              durationSec: result.durationSec,
-              sourceUri: result.uri,
-              remoteSessionId: meta.sessionId,
-              draft,
-              fileName: `tour-${Date.now()}.m4a`,
-              mimeType: "audio/m4a",
-            }) && getRecordingUri(localId)) ?? result.uri
-          : result.uri;
+        let durableUri = result.uri;
+        if (localId) {
+          durableUri = (await ensureDurableRecording(localId, result.uri)) ?? result.uri;
+          markReadyToSync(localId, {
+            durationSec: result.durationSec,
+            sourceUri: durableUri,
+            remoteSessionId: meta.sessionId,
+            draft,
+            fileName: `tour-${Date.now()}.m4a`,
+            mimeType: "audio/m4a",
+          });
+          durableUri = getRecordingUri(localId) ?? durableUri;
+        }
         snapshot.clearLiveSession();
         onRecordingFinished({
           localId,
@@ -3237,6 +3276,30 @@ function CreateSessionScreen({
 // ═══════════════════════════════════════
 
 type DTab = "overview" | "rubric" | "transcript" | "actions" | "comments";
+
+type TranscriptAnnotation = {
+  id: string;
+  kind: "ai_note" | "comment" | "key_moment";
+  title: string;
+  body: string;
+  timestampSec: number | null;
+};
+
+function transcriptAnnotationChipLabel(kind: TranscriptAnnotation["kind"]) {
+  if (kind === "ai_note") return "AI notes";
+  if (kind === "key_moment") return "Key moments";
+  return "Comments";
+}
+
+function transcriptAnnotationChipIcon(kind: TranscriptAnnotation["kind"]): keyof typeof Ionicons.glyphMap {
+  if (kind === "ai_note") return "sparkles";
+  if (kind === "key_moment") return "film-outline";
+  return "chatbubble-outline";
+}
+
+function transcriptAnnotationChipColor(kind: TranscriptAnnotation["kind"]) {
+  return kind === "ai_note" ? C.purple : C.brand;
+}
 
 function SampleSessionDetailScreen({ sessionId, onBack }: { sessionId: string; onBack: () => void }) {
   const sampleQuery = useSampleSessionQuery(sessionId);
@@ -3550,6 +3613,10 @@ function SessionReviewExperience({
   const [selectionBusy, setSelectionBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [followPlayback, setFollowPlayback] = useState(true);
+  const [annotationSheet, setAnnotationSheet] = useState<{
+    items: TranscriptAnnotation[];
+    index: number;
+  } | null>(null);
   const postCommentMutation = usePostCommentMutation(sessionId);
   const scrollRef = useRef<ScrollView | null>(null);
   const segmentY = useRef<Record<string, number>>({});
@@ -3870,6 +3937,7 @@ function SessionReviewExperience({
           <SessionModeTabs
             value={reviewMode}
             modes={readOnly ? ["rubric", "transcript", "search", "coaching"] : undefined}
+            commentCount={comments.filter((comment) => !comment.parentId).length}
             onChange={(mode) => {
               if (mode === "ai") {
                 onOpenAiChat();
@@ -4069,50 +4137,78 @@ function SessionReviewExperience({
                         <Text style={reviewSt.segmentTime}>{fmtSec(segment.startTime)}</Text>
                       </View>
                       <Text style={reviewSt.turnText}>{segment.text}</Text>
-                      {moments.length > 0 || segmentComments.length > 0 ? (
-                        <View style={reviewSt.annotationRow}>
-                          {moments.map((moment) => (
+                    </View>
+                  </Pressable>
+                  {(() => {
+                    const groups: Array<{ kind: TranscriptAnnotation["kind"]; items: TranscriptAnnotation[] }> = [
+                      {
+                        kind: "ai_note",
+                        items: moments.map((moment) => ({
+                          id: moment.id,
+                          kind: "ai_note" as const,
+                          title: "AI coaching note",
+                          body: [
+                            moment.explanation,
+                            moment.suggestedImprovement ? `Try: ${moment.suggestedImprovement}` : null,
+                          ].filter(Boolean).join("\n\n"),
+                          timestampSec: moment.seconds,
+                        })),
+                      },
+                      {
+                        kind: "comment",
+                        items: segmentComments
+                          .filter((comment) => comment.kind !== "key_moment")
+                          .map((comment) => ({
+                            id: comment.id,
+                            kind: "comment" as const,
+                            title: comment.authorName || "Comment",
+                            body: comment.body,
+                            timestampSec: comment.timestampSec,
+                          })),
+                      },
+                      {
+                        kind: "key_moment",
+                        items: segmentComments
+                          .filter((comment) => comment.kind === "key_moment")
+                          .map((comment) => ({
+                            id: comment.id,
+                            kind: "key_moment" as const,
+                            title: "Key moment",
+                            body: comment.body,
+                            timestampSec: comment.timestampSec,
+                          })),
+                      },
+                    ].filter((group) => group.items.length > 0);
+                    if (groups.length === 0) return null;
+                    return (
+                      <View style={[reviewSt.annotationRow, { marginLeft: 36 }]}>
+                        {groups.map((group) => {
+                          const color = transcriptAnnotationChipColor(group.kind);
+                          const label = transcriptAnnotationChipLabel(group.kind);
+                          const count = group.items.length;
+                          return (
                             <Pressable
-                              key={moment.id}
-                              accessibilityLabel={`AI coaching note at ${fmtSec(moment.seconds ?? segment.startTime)}`}
-                              onPress={() => Alert.alert("AI coaching note", moment.explanation, [
-                                { text: "Play", onPress: () => void seekToSeconds(moment.seconds ?? segment.startTime, true) },
-                                { text: "Close", style: "cancel" },
-                              ])}
-                              style={reviewSt.annotationChip}
-                            >
-                              <Ionicons name="sparkles" size={12} color={C.purple} />
-                              <Text style={[reviewSt.annotationText, { color: C.purple }]}>AI note</Text>
-                            </Pressable>
-                          ))}
-                          {segmentComments.map((comment) => (
-                            <Pressable
-                              key={comment.id}
-                              accessibilityLabel={`${comment.kind === "key_moment" ? "Saved clip" : "Comment"} at ${fmtSec(comment.timestampSec ?? segment.startTime)}`}
-                              onPress={() => {
-                                void seekToSeconds(comment.timestampSec ?? segment.startTime, true);
-                                Alert.alert(
-                                  comment.kind === "key_moment" ? "Saved clip" : comment.authorName,
-                                  comment.body,
-                                  [{ text: "Close", style: "cancel" }],
-                                );
-                              }}
+                              key={group.kind}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${count} ${label}`}
+                              onPress={() => setAnnotationSheet({ items: group.items, index: 0 })}
                               style={reviewSt.annotationChip}
                             >
                               <Ionicons
-                                name={comment.kind === "key_moment" ? "film-outline" : "chatbubble-outline"}
+                                name={transcriptAnnotationChipIcon(group.kind)}
                                 size={12}
-                                color={C.brand}
+                                color={color}
                               />
-                              <Text style={reviewSt.annotationText}>
-                                {comment.kind === "key_moment" ? "Clip" : "Comment"}
-                              </Text>
+                              <Text style={[reviewSt.annotationText, { color }]}>{label}</Text>
+                              <View style={[reviewSt.annotationCountBadge, { backgroundColor: color }]}>
+                                <Text style={reviewSt.annotationCountText}>{count > 99 ? "99+" : String(count)}</Text>
+                              </View>
                             </Pressable>
-                          ))}
-                        </View>
-                      ) : null}
-                    </View>
-                  </Pressable>
+                          );
+                        })}
+                      </View>
+                    );
+                  })()}
                 </Reanimated.View>
               );
             })}
@@ -4167,6 +4263,96 @@ function SessionReviewExperience({
         showReturnToPlaying={reviewMode === "transcript" && !followPlayback}
         onReturnToPlaying={returnToPlayingTranscript}
       />
+
+      <Modal
+        visible={Boolean(annotationSheet)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAnnotationSheet(null)}
+      >
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={reviewSt.commentModalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setAnnotationSheet(null)} />
+          <View style={reviewSt.commentModalCard}>
+            {annotationSheet ? (() => {
+              const { items, index } = annotationSheet;
+              const current = items[index]!;
+              const canBrowse = items.length > 1;
+              return (
+                <>
+                  <View style={reviewSt.commentModalHeader}>
+                    <View style={[
+                      reviewSt.commentModalIcon,
+                      current.kind === "ai_note" && { backgroundColor: C.purple + "18" },
+                    ]}>
+                      <Ionicons
+                        name={
+                          current.kind === "ai_note"
+                            ? "sparkles"
+                            : current.kind === "key_moment"
+                              ? "film-outline"
+                              : "chatbubble-outline"
+                        }
+                        size={18}
+                        color={current.kind === "ai_note" ? C.purple : C.brand}
+                      />
+                    </View>
+                    <View style={st.flex1}>
+                      <Text style={reviewSt.commentModalTitle}>{current.title}</Text>
+                      <Text style={reviewSt.commentModalTime}>
+                        {current.timestampSec != null ? fmtSec(current.timestampSec) : "No timestamp"}
+                        {canBrowse ? ` · ${index + 1}/${items.length}` : ""}
+                      </Text>
+                    </View>
+                    <Pressable onPress={() => setAnnotationSheet(null)} hitSlop={10}>
+                      <Ionicons name="close" size={21} color={C.textMuted} />
+                    </Pressable>
+                  </View>
+                  <Text style={reviewSt.annotationSheetBody}>{current.body}</Text>
+                  <View style={reviewSt.annotationSheetActions}>
+                    {canBrowse ? (
+                      <View style={reviewSt.annotationSheetNav}>
+                        <Pressable
+                          accessibilityLabel="Previous note"
+                          onPress={() => setAnnotationSheet({
+                            items,
+                            index: (index - 1 + items.length) % items.length,
+                          })}
+                          style={reviewSt.annotationSheetNavBtn}
+                        >
+                          <Ionicons name="chevron-back" size={18} color={C.brand} />
+                        </Pressable>
+                        <Text style={reviewSt.annotationSheetNavCount}>{index + 1}/{items.length}</Text>
+                        <Pressable
+                          accessibilityLabel="Next note"
+                          onPress={() => setAnnotationSheet({
+                            items,
+                            index: (index + 1) % items.length,
+                          })}
+                          style={reviewSt.annotationSheetNavBtn}
+                        >
+                          <Ionicons name="chevron-forward" size={18} color={C.brand} />
+                        </Pressable>
+                      </View>
+                    ) : <View style={st.flex1} />}
+                    {current.timestampSec != null ? (
+                      <Pressable
+                        onPress={() => {
+                          void seekToSeconds(current.timestampSec!, true);
+                          setAnnotationSheet(null);
+                        }}
+                        style={reviewSt.annotationSheetPlay}
+                      >
+                        <Ionicons name="play" size={14} color="#fff" />
+                        <Text style={reviewSt.annotationSheetPlayText}>Play</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </>
+              );
+            })() : null}
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal
         visible={commentComposerOpen}
@@ -4500,12 +4686,12 @@ function UploadProcessCard({
     setErrorKind(null);
     setUploadStats(initialUploadStats(file.size));
     const durableUri = localId
-      ? (copyRecordingToDurableStore(localId, file.uri) ?? getRecordingUri(localId) ?? file.uri)
+      ? ((await ensureDurableRecording(localId, file.uri)) ?? getRecordingUri(localId) ?? file.uri)
       : file.uri;
     if (localId) {
       markReadyToSync(localId, {
         durationSec: file.durationSec ?? 1,
-        sourceUri: file.uri,
+        sourceUri: durableUri,
         remoteSessionId: sessionId,
         fileName: file.name,
         mimeType: file.mimeType,
@@ -4616,17 +4802,19 @@ function UploadProcessCard({
           showToast("Failed to save recording", "error");
           return;
         }
+        let durableUri = result.uri;
         if (localId) {
+          durableUri = (await ensureDurableRecording(localId, result.uri)) ?? result.uri;
           markReadyToSync(localId, {
             durationSec: result.durationSec,
-            sourceUri: result.uri,
+            sourceUri: durableUri,
             remoteSessionId: sessionId,
             draft: snapshot.draft,
             fileName: `tour-${Date.now()}.m4a`,
             mimeType: "audio/m4a",
           });
+          durableUri = getRecordingUri(localId) ?? durableUri;
         }
-        const durableUri = (localId && getRecordingUri(localId)) || result.uri;
         snapshot.clearLiveSession();
         setDNotes(notes);
         await uploadPickedFile({
@@ -5313,7 +5501,15 @@ function SessionCommentsScreen({
   );
 }
 
-function CommentsTab({ comments, sessionId, onUpdate }: { comments: SessionComment[]; sessionId: string; onUpdate: () => void }) {
+function CommentsTab({
+  comments,
+  sessionId,
+  onUpdate,
+}: {
+  comments: SessionComment[];
+  sessionId: string;
+  onUpdate: () => void;
+}) {
   const [body, setBody] = useState("");
   const [replyToId, setReplyToId] = useState<string | null>(null);
   const postCommentMutation = usePostCommentMutation(sessionId);
@@ -6278,8 +6474,39 @@ const reviewSt = StyleSheet.create({
   segmentTime: { color: "#98a2b3", fontSize: 11, fontWeight: "800", marginLeft: "auto" },
   turnText: { color: "#344054", fontSize: 14, lineHeight: 20, fontWeight: "600" },
   annotationRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
-  annotationChip: { minHeight: 26, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: "#dbeafe", backgroundColor: "#fff" },
+  annotationSheetBody: { fontSize: 15, fontWeight: "600", color: C.textSec, lineHeight: 22 },
+  annotationSheetActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 4 },
+  annotationSheetNav: { flexDirection: "row", alignItems: "center", gap: 8 },
+  annotationSheetNavBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#eff6ff",
+  },
+  annotationSheetNavCount: { fontSize: 13, fontWeight: "900", color: C.brand, fontVariant: ["tabular-nums"] },
+  annotationSheetPlay: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: C.brand,
+  },
+  annotationSheetPlayText: { color: "#fff", fontSize: 13, fontWeight: "900" },
+  annotationChip: { minHeight: 28, flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 8, paddingRight: 4, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: "#dbeafe", backgroundColor: "#fff" },
   annotationText: { color: C.brand, fontSize: 10, fontWeight: "900" },
+  annotationCountBadge: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 5,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  annotationCountText: { color: "#fff", fontSize: 10, fontWeight: "900", fontVariant: ["tabular-nums"] },
   commentHint: {
     flexDirection: "row",
     alignItems: "flex-start",

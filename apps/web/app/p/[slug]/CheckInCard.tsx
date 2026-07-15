@@ -33,6 +33,8 @@ type CheckInCardProps = {
   card: RepCard;
   vCardUrl: string;
   offlineQrUrl: string;
+  /** Open check-in form immediately (e.g. QR `?check-in=true`). */
+  initialSheet?: "none" | "contact";
 };
 
 type Sheet = "none" | "qr" | "contact" | "questions" | "done";
@@ -120,9 +122,14 @@ function EmailSuggestionList({ id, suggestions }: { id: string; suggestions: str
   );
 }
 
-export function CheckInCard({ card, vCardUrl, offlineQrUrl }: CheckInCardProps) {
+export function CheckInCard({
+  card,
+  vCardUrl,
+  offlineQrUrl,
+  initialSheet = "none",
+}: CheckInCardProps) {
   const { rep, property, questions } = card;
-  const [sheet, setSheet] = useState<Sheet>("none");
+  const [sheet, setSheet] = useState<Sheet>(initialSheet === "contact" ? "contact" : "none");
   const [sharedCheckInAnswers, setSharedCheckInAnswers] = useState<Record<string, string>>({});
   const [notification, setNotification] = useState<Notification | null>(null);
   const [isSaveDockFloating, setIsSaveDockFloating] = useState(false);
@@ -153,12 +160,16 @@ export function CheckInCard({ card, vCardUrl, offlineQrUrl }: CheckInCardProps) 
   useEffect(() => clearNotificationTimers, []);
 
   useEffect(() => {
+    if (initialSheet === "contact") {
+      setSheet("contact");
+      return;
+    }
     const params = new URLSearchParams(window.location.search);
     const checkIn = params.get("check-in");
     if (checkIn === "true" || checkIn === "1" || checkIn === "yes") {
       setSheet("contact");
     }
-  }, []);
+  }, [initialSheet]);
 
   useEffect(() => {
     function updateSaveDockState() {
@@ -183,8 +194,10 @@ export function CheckInCard({ card, vCardUrl, offlineQrUrl }: CheckInCardProps) 
     };
   }, []);
 
+  const accent = rep.cardAccent?.trim() || "#111";
+
   return (
-    <main className={styles.page}>
+    <main className={styles.page} style={{ ["--card-accent" as string]: accent }}>
       <div className={styles.stage}>
         <section className={styles.card}>
           <div className={styles.header}>
@@ -243,7 +256,13 @@ export function CheckInCard({ card, vCardUrl, offlineQrUrl }: CheckInCardProps) 
               ) : null}
             </div>
 
-            <div ref={saveSlotRef} className={styles.saveSlot}>
+            <div
+              ref={saveSlotRef}
+              className={styles.saveSlot}
+              // Floating dock must not sit over open sheets (steals form submit taps).
+              aria-hidden={sheet !== "none"}
+              style={sheet !== "none" ? { visibility: "hidden", pointerEvents: "none" } : undefined}
+            >
               <div
                 className={`${styles.saveDock} ${
                   isSaveDockFloating ? styles.saveDockFloating : ""
@@ -460,13 +479,13 @@ function ContactSheet({
     return (
       <div className={styles.scrim} onClick={onClose}>
         <div className={styles.sheet} onClick={(e) => e.stopPropagation()}>
-          <button className={styles.skip} onClick={onClose}>
+          <button type="button" className={styles.skip} onClick={onClose}>
             Skip
           </button>
           <p className={styles.sheetTitle}>
             {firstName ? `${firstName}, ` : ""}one last thing before your tour
           </p>
-          <form onSubmit={submitQuestions}>
+          <form onSubmit={submitQuestions} action="#" method="post">
             {questions.map((question) =>
               question.type === "select" ? (
                 <label key={question.id} className={styles.floatingField}>
@@ -535,7 +554,7 @@ function ContactSheet({
   return (
     <div className={styles.scrim} onClick={onClose}>
       <div className={styles.sheet} onClick={(e) => e.stopPropagation()}>
-        <button className={styles.skip} onClick={onClose}>
+        <button type="button" className={styles.skip} onClick={onClose}>
           Skip
         </button>
         <div className={styles.formHeadRow}>
@@ -554,7 +573,7 @@ function ContactSheet({
           </div>
         </div>
 
-        <form onSubmit={submitContact} noValidate>
+        <form onSubmit={submitContact} action="#" method="post" noValidate>
           <div className={styles.row2}>
             <FloatingInput
               inputRef={firstNameRef}

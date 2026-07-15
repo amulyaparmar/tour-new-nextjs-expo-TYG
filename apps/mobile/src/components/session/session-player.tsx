@@ -54,6 +54,7 @@ export function SessionPlayer({
           <Text style={styles.returnText}>Return to playing</Text>
         </Pressable>
       ) : null}
+
       <View
         accessibilityRole="adjustable"
         accessibilityLabel="Recording playhead"

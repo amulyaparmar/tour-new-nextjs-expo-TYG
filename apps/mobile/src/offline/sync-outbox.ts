@@ -10,7 +10,9 @@ import {
 import { getApiBaseUrl } from "../config";
 import { promoteLocalRecordingToCache } from "../session-audio-cache";
 import {
+  ensureDurableRecording,
   getRecordingUri,
+  getRecordingUriAsync,
   listPendingSyncSessions,
   listRecoverableRecordingSessions,
   type LocalSessionMeta,
@@ -67,7 +69,10 @@ export async function isOnline(): Promise<boolean> {
 }
 
 async function syncOne(session: LocalSessionMeta): Promise<LocalSessionMeta | null> {
-  const recordingUri = getRecordingUri(session.localId);
+  const recordingUri =
+    (await ensureDurableRecording(session.localId, session.recordingSourceUri))
+    ?? (await getRecordingUriAsync(session.localId))
+    ?? session.recordingSourceUri;
   if (!recordingUri) {
     return updateLocalSession(session.localId, {
       status: "failed",
@@ -152,11 +157,16 @@ export async function drainSyncOutbox(): Promise<void> {
   try {
     // Promote interrupted recordings that already have durable audio into the outbox.
     for (const recoverable of listRecoverableRecordingSessions()) {
-      if (getRecordingUri(recoverable.localId)) {
+      const durable =
+        (await ensureDurableRecording(recoverable.localId, recoverable.recordingSourceUri))
+        ?? (await getRecordingUriAsync(recoverable.localId))
+        ?? getRecordingUri(recoverable.localId);
+      if (durable) {
         writeLocalSessionMeta({
           ...recoverable,
           status: "ready_to_sync",
           durationSec: recoverable.durationSec ?? Math.max(1, recoverable.elapsedSec),
+          recordingSourceUri: recoverable.recordingSourceUri ?? durable,
           updatedAt: new Date().toISOString(),
         });
       }

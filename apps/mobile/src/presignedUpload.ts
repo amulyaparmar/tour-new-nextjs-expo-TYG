@@ -1,4 +1,10 @@
 import type { PresignedUploadInfo } from "@tour/shared";
+import {
+  createUploadTask,
+  FileSystemUploadType,
+  getInfoAsync,
+} from "expo-file-system/legacy";
+import { Platform } from "react-native";
 
 export type UploadProgressInfo = {
   loaded: number;
@@ -13,7 +19,54 @@ type AuthenticatedFetch = (
   init?: RequestInit
 ) => Promise<Response>;
 
-async function readUploadBody(
+function progressFromBytes(
+  loaded: number,
+  total: number,
+  startedAt: number
+): UploadProgressInfo {
+  const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.1);
+  const bytesPerSecond = loaded > 0 ? loaded / elapsedSeconds : null;
+  const remaining = Math.max(total - loaded, 0);
+  return {
+    loaded,
+    total,
+    percent: total > 0 ? Math.round((loaded / total) * 100) : 0,
+    bytesPerSecond,
+    etaSeconds: bytesPerSecond && bytesPerSecond > 0 ? remaining / bytesPerSecond : null,
+  };
+}
+
+async function resolveLocalUploadFile(fileUri: string): Promise<{ uri: string; size: number }> {
+  const candidates = [fileUri];
+  if (fileUri.startsWith("file://")) {
+    try {
+      candidates.push(decodeURI(fileUri));
+    } catch {
+      // keep original only
+    }
+  } else if (fileUri.startsWith("/")) {
+    candidates.push(`file://${fileUri}`);
+  }
+
+  // Recorder may still be flushing to disk right after stop.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (const candidate of candidates) {
+      try {
+        const info = await getInfoAsync(candidate);
+        if (info.exists && "size" in info && typeof info.size === "number" && info.size > 0) {
+          return { uri: candidate, size: info.size };
+        }
+      } catch {
+        // try next candidate
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+  }
+
+  throw new Error("Recording file is missing on device. Record again or pick another file.");
+}
+
+async function readUploadBodyWeb(
   fileUri: string,
   mimeType: string
 ): Promise<Blob> {
@@ -43,7 +96,46 @@ async function requestJson<T>(
   return parsed as T;
 }
 
-function putFileToSignedUrl(
+/** Native: stream file URI straight to the signed URL (no JS Blob read). */
+async function putLocalFileUriToSignedUrl(
+  signedUrl: string,
+  fileUri: string,
+  contentType: string,
+  totalBytes: number,
+  onProgress?: (progress: UploadProgressInfo) => void
+): Promise<void> {
+  const startedAt = Date.now();
+  const task = createUploadTask(
+    signedUrl,
+    fileUri,
+    {
+      httpMethod: "PUT",
+      uploadType: FileSystemUploadType.BINARY_CONTENT,
+      headers: { "Content-Type": contentType },
+    },
+    (event) => {
+      if (!onProgress) return;
+      onProgress(progressFromBytes(event.totalBytesSent, event.totalBytesExpectedToSend || totalBytes, startedAt));
+    }
+  );
+
+  const result = await task.uploadAsync();
+  if (!result || result.status < 200 || result.status >= 300) {
+    throw new Error(
+      result?.body?.trim()
+        || `Direct upload failed (${result?.status ?? "no response"}).`
+    );
+  }
+  onProgress?.({
+    loaded: totalBytes,
+    total: totalBytes,
+    percent: 100,
+    bytesPerSecond: null,
+    etaSeconds: 0,
+  });
+}
+
+function putBlobToSignedUrl(
   signedUrl: string,
   body: Blob,
   contentType: string,
@@ -69,17 +161,7 @@ function putFileToSignedUrl(
     xhr.setRequestHeader("Content-Type", contentType);
     xhr.upload.onprogress = (event) => {
       const total = event.lengthComputable ? event.total : body.size;
-      const loaded = event.loaded;
-      const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.1);
-      const bytesPerSecond = loaded > 0 ? loaded / elapsedSeconds : null;
-      const remaining = Math.max(total - loaded, 0);
-      onProgress({
-        loaded,
-        total,
-        percent: total > 0 ? Math.round((loaded / total) * 100) : 0,
-        bytesPerSecond,
-        etaSeconds: bytesPerSecond && bytesPerSecond > 0 ? remaining / bytesPerSecond : null,
-      });
+      onProgress(progressFromBytes(event.loaded, total, startedAt));
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -112,28 +194,75 @@ export async function uploadLocalFileWithPresign<TComplete>(options: {
   completeBody?: (presign: PresignedUploadInfo) => Record<string, unknown>;
   onProgress?: (progress: UploadProgressInfo) => void;
 }): Promise<TComplete> {
-  const file = await readUploadBody(options.fileUri, options.mimeType);
-  const presign = await requestJson<PresignedUploadInfo>(
-    options.authenticatedFetch,
-    options.presignPath,
-    {
-      fileName: options.fileName,
-      contentType: options.mimeType,
-      ...(options.presignBody ?? {}),
-    }
-  );
+  let fileUri = options.fileUri?.trim();
+  if (!fileUri) {
+    throw new Error("Recording file is missing on device. Record again or pick another file.");
+  }
+  if (!fileUri.includes("://") && fileUri.startsWith("/")) {
+    fileUri = `file://${fileUri}`;
+  }
 
-  await putFileToSignedUrl(presign.signedUrl, file, options.mimeType, options.onProgress);
-
-  return requestJson<TComplete>(
-    options.authenticatedFetch,
-    options.completePath,
-    {
-      objectKey: presign.objectKey,
-      token: presign.token,
-      contentType: options.mimeType,
-      fileName: options.fileName,
-      ...(options.completeBody?.(presign) ?? {}),
+  let resolvedUri = fileUri;
+  let totalBytes = 0;
+  if (Platform.OS !== "web") {
+    try {
+      const local = await resolveLocalUploadFile(fileUri);
+      resolvedUri = local.uri;
+      totalBytes = local.size;
+    } catch (caught) {
+      console.warn("[upload] local file resolve failed", { fileUri, caught });
+      throw caught;
     }
-  );
+  }
+
+  let presign: PresignedUploadInfo;
+  try {
+    presign = await requestJson<PresignedUploadInfo>(
+      options.authenticatedFetch,
+      options.presignPath,
+      {
+        fileName: options.fileName,
+        contentType: options.mimeType,
+        ...(options.presignBody ?? {}),
+      }
+    );
+  } catch (caught) {
+    const detail = caught instanceof Error ? caught.message : "presign failed";
+    throw new Error(`Could not prepare upload: ${detail}`);
+  }
+
+  try {
+    if (Platform.OS === "web") {
+      const body = await readUploadBodyWeb(resolvedUri, options.mimeType);
+      await putBlobToSignedUrl(presign.signedUrl, body, options.mimeType, options.onProgress);
+    } else {
+      await putLocalFileUriToSignedUrl(
+        presign.signedUrl,
+        resolvedUri,
+        options.mimeType,
+        totalBytes,
+        options.onProgress
+      );
+    }
+  } catch (caught) {
+    const detail = caught instanceof Error ? caught.message : "upload failed";
+    throw new Error(`Could not upload recording: ${detail}`);
+  }
+
+  try {
+    return await requestJson<TComplete>(
+      options.authenticatedFetch,
+      options.completePath,
+      {
+        objectKey: presign.objectKey,
+        token: presign.token,
+        contentType: options.mimeType,
+        fileName: options.fileName,
+        ...(options.completeBody?.(presign) ?? {}),
+      }
+    );
+  } catch (caught) {
+    const detail = caught instanceof Error ? caught.message : "finalize failed";
+    throw new Error(`Upload finished but could not finalize: ${detail}`);
+  }
 }

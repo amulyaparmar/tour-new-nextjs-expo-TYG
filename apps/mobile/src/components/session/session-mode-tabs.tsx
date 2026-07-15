@@ -28,10 +28,13 @@ export function SessionModeTabs({
   value,
   onChange,
   modes,
+  commentCount = 0,
 }: {
   value: SessionReviewMode;
   onChange: (mode: SessionReviewMode) => void;
   modes?: SessionReviewMode[];
+  /** Indicator count for the Comments tab (not every mode). */
+  commentCount?: number;
 }) {
   const visibleModes = modes ? MODES.filter((mode) => modes.includes(mode.id)) : MODES;
   return (
@@ -46,6 +49,7 @@ export function SessionModeTabs({
       >
         {visibleModes.map((mode) => {
           const active = value === mode.id;
+          const showCommentBadge = mode.id === "comments" && commentCount > 0;
           return (
             <Pressable
               key={mode.id}
@@ -61,6 +65,11 @@ export function SessionModeTabs({
               <Text numberOfLines={1} style={[styles.label, active && styles.labelActive]}>
                 {mode.label}
               </Text>
+              {showCommentBadge ? (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{commentCount > 99 ? "99+" : String(commentCount)}</Text>
+                </View>
+              ) : null}
             </Pressable>
           );
         })}
@@ -105,5 +114,20 @@ const styles = StyleSheet.create({
   },
   labelActive: {
     color: "#006ce5",
+  },
+  badge: {
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#006ce5",
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: "#fff",
+    fontVariant: ["tabular-nums"],
   },
 });

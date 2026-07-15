@@ -20,8 +20,9 @@ export async function getPropertyRepCard(
   memberIdentity: string
 ): Promise<RepCard | null> {
   const supabase = getSupabaseServiceClient();
-  const propertyKey = propertyIdentity.trim().replace(/^@/, "").toLowerCase();
-  const memberKey = memberIdentity.trim().replace(/^@/, "").toLowerCase();
+  // Strip accidental query/hash fragments if a shared URL stuffed them into the path segment.
+  const propertyKey = propertyIdentity.trim().replace(/^@/, "").split(/[?#]/)[0]!.toLowerCase();
+  const memberKey = memberIdentity.trim().replace(/^@/, "").split(/[?#]/)[0]!.toLowerCase();
   if (!propertyKey || !memberKey) return null;
 
   let property: PropertyRepRow | null = null;
@@ -80,6 +81,7 @@ export async function getPropertyRepCard(
     || toPublicAlias(email.split("@")[0])
     || cleanString(member.id ?? member.user_id ?? member.userId)
     || memberKey;
+  const cardAccent = cleanString(member.card_accent ?? member.cardAccent) || null;
   const propertyName = cleanString(property.name) || "Property";
   return {
     rep: {
@@ -93,6 +95,7 @@ export async function getPropertyRepCard(
       phoneDisplay: formatPhone(phoneValue),
       website: property.website || undefined,
       websiteDisplay: property.website ? property.website.replace(/^https?:\/\//, "").replace(/\/$/, "") : undefined,
+      cardAccent,
     },
     property: {
       id: property.id,

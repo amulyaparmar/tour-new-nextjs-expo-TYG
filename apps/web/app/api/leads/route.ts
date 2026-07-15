@@ -68,6 +68,8 @@ export async function POST(request: Request) {
     const propertyId = body.propertyId?.trim() || null;
     let agentId = body.repSlug?.trim() || null;
     let agentName = body.repName?.trim() || null;
+    let agentMatchIds: string[] | null = agentId ? [agentId] : null;
+
     if (propertyId) {
       const { data, error } = await getSupabaseServiceClient()
         .from("propertiesTYG")
@@ -92,14 +94,31 @@ export async function POST(request: Request) {
         if (!isRecord(member)) {
           return NextResponse.json({ error: "Team member not found for this property." }, { status: 404 });
         }
-        agentId = cleanString(member.alias ?? member.id ?? member.user_id ?? member.userId)
-          || cleanString(member.email)
-          || agentId;
+
+        const alias = cleanString(member.alias);
+        const authUserId = cleanString(member.user_id ?? member.userId);
+        const memberId = cleanString(member.id);
+        const emailLocal = cleanString(member.email).split("@")[0] ?? "";
+
+        // Prefer auth id for ownership filters; alias is public URL key + fallback.
+        agentId = authUserId
+          ? `user:${authUserId}`
+          : alias || memberId || emailLocal || agentId;
         agentName = cleanString(member.name) || agentName;
+
+        agentMatchIds = uniqueNonEmpty([
+          agentId,
+          alias,
+          authUserId ? `user:${authUserId}` : "",
+          authUserId,
+          memberId,
+          emailLocal,
+          body.repSlug?.trim() || "",
+        ]);
       }
     }
 
-    const openSession = await findOpenQrSession(propertyId, agentId);
+    const openSession = await findOpenQrSession(propertyId, agentMatchIds ?? agentId);
     if (openSession) {
       await addSessionLead(openSession.id, lead);
       return NextResponse.json({ sessionId: openSession.id, grouped: true, startRecording: true }, { status: 200 });
@@ -108,8 +127,8 @@ export async function POST(request: Request) {
     const property = body.propertyName?.trim() || "Property";
     const session = await createSession({
       title: buildSessionTourTitle({
+        agentName,
         prospectName: lead.name,
-        title: `${property} tour — ${lead.name}`,
         preferPeopleTitle: true,
       }),
       status: "in_progress",
@@ -138,4 +157,16 @@ function cleanString(value: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function uniqueNonEmpty(values: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
 }

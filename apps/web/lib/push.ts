@@ -87,13 +87,41 @@ export async function sendPushToUser(input: {
   return { sent };
 }
 
-/** Notify property-team members about a new session (best-effort). */
+/** Notify about a new session (best-effort). Prefer the checked-in agent when known. */
 export async function notifyNewSession(input: {
   propertyId: string;
   sessionId: string;
   title: string;
+  agentId?: string | null;
+  source?: string | null;
+  autoStartRecording?: boolean;
 }): Promise<void> {
   try {
+    const isCheckIn = input.source === "qr";
+    const title = isCheckIn ? "Prospect checked in" : "New tour session";
+    const body = isCheckIn
+      ? `${input.title || "A prospect"} is ready — tap to start recording`
+      : input.title || "A new session was created";
+    const data = {
+      sessionId: input.sessionId,
+      autoStartRecording: Boolean(input.autoStartRecording),
+    };
+
+    if (input.agentId) {
+      const userId = await resolveAgentAuthUserId(input.agentId);
+      if (userId) {
+        await sendPushToUser({
+          userId,
+          propertyId: input.propertyId,
+          preferenceKey: "newSession",
+          title,
+          body,
+          data,
+        }).catch(() => ({ sent: 0 }));
+        return;
+      }
+    }
+
     const userIds = await listPropertyTeamAuthUserIds(input.propertyId);
     await Promise.all(
       userIds.map((userId) =>
@@ -101,9 +129,9 @@ export async function notifyNewSession(input: {
           userId,
           propertyId: input.propertyId,
           preferenceKey: "newSession",
-          title: "New tour session",
-          body: input.title || "A new session was created",
-          data: { sessionId: input.sessionId },
+          title,
+          body,
+          data,
         }).catch(() => ({ sent: 0 })),
       ),
     );

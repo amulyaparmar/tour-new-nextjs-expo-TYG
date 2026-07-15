@@ -8,6 +8,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as { email?: string };
   const email = body.email?.trim().toLowerCase() ?? "";
   const domain = email.split("@")[1] ?? "";
+  const isMobileClient = request.headers.get("x-tour-client") === "mobile";
 
   if (!email || !domain) {
     return NextResponse.json({ error: "Enter a valid work email address." }, { status: 400 });
@@ -42,6 +43,16 @@ export async function POST(request: Request) {
       message?: string;
     } | null;
     if (!deliveryResponse.ok || !deliveryBody?.success) {
+      // Mobile verifies client-side. If email delivery fails, still return the
+      // challenge so TestFlight/dev can sign in without the inbox.
+      if (isMobileClient) {
+        return NextResponse.json({
+          sent: false,
+          email,
+          challengeCode,
+          deliveryError: deliveryBody?.message ?? "Could not send a sign-in code.",
+        });
+      }
       return NextResponse.json(
         { error: deliveryBody?.message ?? "Could not send a sign-in code." },
         { status: deliveryResponse.status || 502 }

@@ -87,6 +87,8 @@ export type MobileAuthSession = {
 export type MobileSignInChallenge = {
   email: string;
   expectedCode: string;
+  /** False when tour.report email delivery failed but the code is still usable. */
+  emailSent?: boolean;
 };
 
 export type CommunityEnrichment = {
@@ -221,12 +223,14 @@ export async function requestSignInCode(email: string) {
     sent?: boolean;
     email?: string;
     challengeCode?: string;
+    deliveryError?: string;
     error?: string;
   } | null;
-  if (response.ok && body?.sent && /^\d{4}$/.test(body.challengeCode ?? "")) {
+  if (response.ok && /^\d{4}$/.test(body.challengeCode ?? "")) {
     return {
       email: body.email ?? normalizedEmail,
       expectedCode: body.challengeCode!,
+      emailSent: body.sent !== false,
     } satisfies MobileSignInChallenge;
   }
   if (response.status === 404 || response.status === 405) {

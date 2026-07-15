@@ -91,6 +91,14 @@ function drawPageHeader(doc: PDFKit.PDFDocument, input: SessionReportInput) {
       align: "right",
       lineBreak: false,
     });
+  drawHeaderLink(doc, "VIEW SESSION", input.sessionUrl, MARGIN + 342, 42, 74);
+  doc
+    .moveTo(MARGIN + 424, 41)
+    .lineTo(MARGIN + 424, 51)
+    .lineWidth(0.6)
+    .strokeColor(COLORS.line)
+    .stroke();
+  drawHeaderLink(doc, "DOWNLOAD AUDIO", input.audioDownloadUrl, MARGIN + 436, 42, 84);
   doc
     .moveTo(MARGIN, 62)
     .lineTo(PAGE_WIDTH - MARGIN, 62)
@@ -202,16 +210,7 @@ function drawOverview(doc: PDFKit.PDFDocument, input: SessionReportInput) {
   drawDetailGrid(doc, detailX, cardY, detailWidth, details);
   doc.y = cardY + 158;
 
-  const sectionalScoresY = doc.y;
   sectionTitle(doc, "SECTIONAL SCORES");
-  drawHeaderLink(doc, "VIEW SESSION", input.sessionUrl, MARGIN + 342, sectionalScoresY + 1, 74);
-  doc
-    .moveTo(MARGIN + 424, sectionalScoresY)
-    .lineTo(MARGIN + 424, sectionalScoresY + 10)
-    .lineWidth(0.6)
-    .strokeColor(COLORS.line)
-    .stroke();
-  drawHeaderLink(doc, "DOWNLOAD AUDIO", input.audioDownloadUrl, MARGIN + 436, sectionalScoresY + 1, 84);
   doc.moveDown(0.55);
   for (const section of analysis.sectionScores) {
     const y = doc.y;

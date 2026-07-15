@@ -106,10 +106,15 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
             />
           )}
           <span className={`badge badge-${session.status}`}>{SESSION_STATUS_LABELS[session.status]}</span>
-          {hasAnalysis && session.status === "analysis_ready" && (
-            <button type="button" className={`btn btn-outline btn-sm ${styles.downloadBtn}`}>
+          {hasAnalysis && (
+            <a
+              href={`/api/sessions/${encodeURIComponent(id)}/export${analysisRun && !analysisRun.isCurrent ? `?version=${analysisRun.version}` : ""}`}
+              download
+              className={`btn btn-outline btn-sm ${styles.downloadBtn}`}
+              aria-label={`Export ${session.title} evaluation as PDF`}
+            >
               <Download size={14} /> Export
-            </button>
+            </a>
           )}
           <DeleteSessionButton sessionId={id} />
         </div>

@@ -68,7 +68,8 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
       summary: { type: "string", description: "Executive summary of the leasing professional's performance" },
       cardSummary: {
         type: "string",
-        description: "Exactly 9 words summarizing tour performance for session list cards",
+        description:
+          "Exactly 9 words summarizing conversation outcome and what happened for session list cards — interest, decisions, objections, next step — not agent performance critique",
       },
       needsImprovement: {
         type: "string",

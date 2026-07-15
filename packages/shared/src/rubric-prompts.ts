@@ -116,7 +116,9 @@ export function buildRubricAnalysisPrompt(definition: RubricDefinition): string 
   lines.push("- Identify coaching-worthy moments in exactMoments with question references.");
   lines.push("- suggestedRewrite should transform the weakest line into a model script.");
   lines.push("- The executive summary should cover attitude, closing technique, lease likelihood, strengths, and opportunities.");
-  lines.push("- cardSummary must be exactly 9 words (no more) for list cards — punchy performance takeaway.");
+  lines.push("- cardSummary must be exactly 9 words for list cards (no more, no filler padding).");
+  lines.push("- cardSummary is an outcome brief for someone scanning the list: what happened in the conversation and where things stand — interest level, objections, decisions, next step, urgency — not a judgment of agent skill.");
+  lines.push("- Prefer concrete tour substance over coaching language (avoid: \"warm discovery\", \"weak close\", \"missed rapport\").");
   lines.push("- needsImprovement must be one short sentence: the single most important coaching fix.");
 
   return lines.join("\n");

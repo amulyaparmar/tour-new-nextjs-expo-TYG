@@ -14,7 +14,11 @@ export async function GET(request: Request, context: Context) {
     }
 
     const range = request.headers.get("range");
+    const wantsDownload = new URL(request.url).searchParams.get("download") === "1";
     const total = file.buffer.length;
+    const downloadHeader: Record<string, string> = wantsDownload
+      ? { "Content-Disposition": `attachment; filename="${file.fileName.split("/").at(-1) || `${id}.bin`}"` }
+      : {};
 
     if (range) {
       const match = /^bytes=(\d+)-(\d*)$/.exec(range);
@@ -31,6 +35,7 @@ export async function GET(request: Request, context: Context) {
             "Content-Range": `bytes ${start}-${end}/${total}`,
             "Accept-Ranges": "bytes",
             "Cache-Control": "private, max-age=3600",
+            ...downloadHeader,
           },
         });
       }
@@ -42,6 +47,7 @@ export async function GET(request: Request, context: Context) {
         "Content-Length": String(total),
         "Accept-Ranges": "bytes",
         "Cache-Control": "private, max-age=3600",
+        ...downloadHeader,
       },
     });
   } catch (error) {

@@ -132,13 +132,12 @@ import {
   findLocalSessionByRemoteId,
   getRecordingUri,
   listLocalSessions,
-  listPendingSyncSessions,
   listRecoverableRecordingSessions,
   markReadyToSync,
   type LocalSessionMeta,
   updateLocalSession,
 } from "./src/offline/session-local-store";
-import { drainSyncOutbox, isOnline, startSyncOutbox, syncLocalSessionNow } from "./src/offline/sync-outbox";
+import { drainSyncOutbox, isOnline, startSyncOutbox } from "./src/offline/sync-outbox";
 import { promoteLocalRecordingToCache, resolveSessionPlaybackUri } from "./src/session-audio-cache";
 import { MotionBlock, MotionPressable, AnimatedTabContent } from "./src/components/ui/motion";
 import {
@@ -259,33 +258,20 @@ type PendingCreateSessionUpload = {
   };
 };
 
-function localSessionToSummary(local: LocalSessionMeta): SessionSummary {
-  const pendingStatus = local.status === "failed" ? "failed" : "uploaded";
+function emptyLiveDraft(): LocalSessionMeta["draft"] {
   return {
-    id: local.remoteSessionId ?? `local:${local.localId}`,
-    title: local.title || "Tour conversation",
-    prospectName: local?.draft?.prospect || local?.prospectName,
-    agentName: local.agentName,
-    scheduledAt: null,
-    location: local?.draft?.location || local?.propertyName,
-    status: pendingStatus,
-    source: "manual",
-    leads: [],
-    attachments: local?.draft?.attachments ?? [],
-    rubricId: local?.draft?.rubricId,
-    overallScore: null,
-    duration: local?.durationSec,
-    createdAt: local?.createdAt,
-    audioInsightsStatus: "pending",
-    cardSummary: null,
-    needsImprovement: null,
+    notes: "",
+    assets: [],
+    selectedAssetIds: [],
+    participants: [],
+    attachments: [],
+    prospect: "",
+    location: "",
+    rubricId: null,
   };
 }
 
 function sessionStatusLabel(session: SessionSummary): string {
-  if (session.id.startsWith("local:")) {
-    return session.status === "failed" ? "Sync failed" : "Pending sync";
-  }
   return STATUS_LABELS[session.status] ?? session.status;
 }
 
@@ -387,12 +373,10 @@ async function loadPendingRecordingUpload(sessionId: string): Promise<(PendingRe
 
 async function clearPendingRecordingUpload(sessionId: string, localId?: string | null) {
   try {
-    if (localId) {
-      updateLocalSession(localId, { status: "uploaded", remoteSessionId: sessionId, lastError: null });
-    } else {
-      const local = findLocalSessionByRemoteId(sessionId);
-      if (local) updateLocalSession(local.localId, { status: "uploaded", lastError: null });
-    }
+    // Keep local folders only while live audio is pending upload. After upload,
+    // playback uses the audio cache / signed URL — not session meta cards.
+    const resolvedLocalId = localId ?? findLocalSessionByRemoteId(sessionId)?.localId ?? null;
+    if (resolvedLocalId) deleteLocalSession(resolvedLocalId);
     await SecureStore.deleteItemAsync(pendingUploadKey(sessionId));
   } catch {
     // Best-effort local retry metadata only.
@@ -686,19 +670,30 @@ function OfflineSyncHost({ onOpenRemoteSession }: { onOpenRemoteSession: (sessio
   const recoveryShownRef = useRef(false);
 
   useEffect(() => {
+    // Local session folders are for live-recording audio recovery/upload only.
+    // Drop uploaded or empty meta so stale cards never reappear in the UI.
+    for (const session of listLocalSessions()) {
+      if (session.status === "uploaded" || !session.draft) {
+        if (session.status === "uploaded" || !getRecordingUri(session.localId)) {
+          deleteLocalSession(session.localId);
+        }
+      }
+    }
     const stop = startSyncOutbox();
     return stop;
   }, []);
 
   useEffect(() => {
     if (recoveryShownRef.current) return;
-    const recoverable = listRecoverableRecordingSessions();
+    const recoverable = listRecoverableRecordingSessions().filter(
+      (session) => Boolean(getRecordingUri(session.localId) || session.recordingSourceUri),
+    );
     if (recoverable.length === 0) return;
     recoveryShownRef.current = true;
     const first = recoverable[0]!;
     Alert.alert(
       "Recover recording?",
-      `“${first.title}” was interrupted. Upload the saved audio when you’re back online?`,
+      `“${first.title || "Tour conversation"}” was interrupted. Upload the saved audio when you’re back online?`,
       [
         {
           text: "Discard",
@@ -715,18 +710,23 @@ function OfflineSyncHost({ onOpenRemoteSession }: { onOpenRemoteSession: (sessio
                 durationSec: session.durationSec ?? Math.max(1, session.elapsedSec),
                 sourceUri: getRecordingUri(session.localId) ?? session.recordingSourceUri,
                 remoteSessionId: session.remoteSessionId,
-                draft: session.draft,
+                draft: session.draft ?? emptyLiveDraft(),
                 fileName: session.fileName,
                 mimeType: session.mimeType,
               });
             }
             void drainSyncOutbox().then(() => {
-              const synced = listLocalSessions().find((s) => s.localId === first.localId);
-              if (synced?.remoteSessionId && synced.status === "uploaded") {
-                onOpenRemoteSession(synced.remoteSessionId);
-              } else {
-                showToast("Saved on device — will upload when online", "info");
+              const leftover = listLocalSessions().find((s) => s.localId === first.localId);
+              if (!leftover) {
+                showToast("Recording uploaded", "success");
+                if (first.remoteSessionId) onOpenRemoteSession(first.remoteSessionId);
+                return;
               }
+              if (leftover.lastError) {
+                showToast(leftover.lastError, "error");
+                return;
+              }
+              showToast("Saved on device — will upload when online", "info");
             });
           },
         },
@@ -1567,18 +1567,16 @@ function SessionListSwipeRow({
 }) {
   const swipeableRef = useRef<SwipeableMethods | null>(null);
   const needsReview = ["uploaded", "failed", "analysis_ready"].includes(session.status);
-  const isLocalPending = session.id.startsWith("local:");
-  const checkedInSummary = session.source === "qr" && session.leads.length
-    ? `${session.leads.map((lead) => lead.name).join(", ")} · ${session.leads.length} checked in`
+  const leads = session.leads ?? [];
+  const checkedInSummary = session.source === "qr" && leads.length
+    ? `${leads.map((lead) => lead.name).join(", ")} · ${leads.length} checked in`
     : null;
-  const badgeLabel = isLocalPending
-    ? (session.status === "failed" ? "SYNC FAILED" : "PENDING SYNC")
-    : needsReview
-      ? "REVIEW"
-      : session.status === "in_progress"
-        ? "LIVE"
-        : "SYNCED";
-  const badgeReviewStyle = isLocalPending || needsReview;
+  const badgeLabel = needsReview
+    ? "REVIEW"
+    : session.status === "in_progress"
+      ? "LIVE"
+      : "SYNCED";
+  const badgeReviewStyle = needsReview;
 
   return (
     <Swipeable
@@ -1716,26 +1714,12 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     sort,
     search: debouncedSearch.trim() || undefined,
   });
-  const [localPending, setLocalPending] = useState<LocalSessionMeta[]>([]);
 
-  const refreshLocalPending = useCallback(() => {
-    setLocalPending(listPendingSyncSessions());
-  }, []);
-
-  useEffect(() => {
-    refreshLocalPending();
-    const interval = setInterval(refreshLocalPending, 4000);
-    return () => clearInterval(interval);
-  }, [refreshLocalPending]);
-
-  const sessions = useMemo(() => {
-    const remote = sessionsQuery.data?.pages.flatMap((pageData) => pageData.sessions) ?? [];
-    const remoteIds = new Set(remote.map((session) => session.id));
-    const locals = localPending
-      .filter((local) => !local.remoteSessionId || !remoteIds.has(local.remoteSessionId))
-      .map(localSessionToSummary);
-    return [...locals, ...remote];
-  }, [localPending, sessionsQuery.data]);
+  // Remote-only list. Local folders hold in-flight live audio, not session cards.
+  const sessions = useMemo(
+    () => sessionsQuery.data?.pages.flatMap((pageData) => pageData.sessions) ?? [],
+    [sessionsQuery.data],
+  );
   const total = sessionsQuery.data?.pages[0]?.total ?? sessions.length;
   const sampleSessionsQuery = useSampleSessionsQuery(true);
   const sampleSessions = sampleSessionsQuery.data?.sessions ?? [];
@@ -1747,15 +1731,13 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    refreshLocalPending();
     await drainSyncOutbox();
-    refreshLocalPending();
     await Promise.all([
       sessionsQuery.refetch(),
       sampleSessionsQuery.refetch(),
     ]);
     setRefreshing(false);
-  }, [refreshLocalPending, sampleSessionsQuery, sessionsQuery]);
+  }, [sampleSessionsQuery, sessionsQuery]);
 
   const onEndReached = useCallback(() => {
     if (hasMore && !loadingMore && !loading) void sessionsQuery.fetchNextPage();
@@ -1784,25 +1766,19 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     setDeletingId(sessionId);
     closeOpenSwipeable();
     try {
-      if (sessionId.startsWith("local:")) {
-        deleteLocalSession(sessionId.slice("local:".length));
-        refreshLocalPending();
-        showToast("Pending session discarded", "success");
-      } else {
-        await deleteSessionMutation.mutateAsync(sessionId);
-        showToast("Session deleted", "success");
-      }
+      await deleteSessionMutation.mutateAsync(sessionId);
+      showToast("Session deleted", "success");
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : "Could not delete session", "error");
     } finally {
       setDeletingId(null);
     }
-  }, [closeOpenSwipeable, deleteSessionMutation, deletingId, refreshLocalPending]);
+  }, [closeOpenSwipeable, deleteSessionMutation, deletingId]);
 
   const confirmDeleteSession = useCallback((session: SessionSummary) => {
     Alert.alert(
       "Delete session?",
-      `Delete “${session.title}”${session.id.startsWith("local:") ? " pending sync data" : " and its generated analysis"}? This can’t be undone.`,
+      `Delete “${session.title}” and its generated analysis? This can’t be undone.`,
       [
         { text: "Cancel", style: "cancel", onPress: closeOpenSwipeable },
         {
@@ -1815,26 +1791,8 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
   }, [closeOpenSwipeable, performDeleteSession]);
 
   const openSession = useCallback((session: SessionSummary) => {
-    if (session.id.startsWith("local:")) {
-      const localId = session.id.slice("local:".length);
-      void (async () => {
-        showToast("Uploading when online…", "info");
-        const synced = await syncLocalSessionNow(localId);
-        refreshLocalPending();
-        if (synced?.remoteSessionId && synced.status === "uploaded") {
-          onSession(synced.remoteSessionId);
-          return;
-        }
-        if (!(await isOnline())) {
-          showToast("Saved on device — will upload when online", "info");
-        } else if (synced?.lastError) {
-          showToast(synced.lastError, "error");
-        }
-      })();
-      return;
-    }
     onSession(session.id);
-  }, [onSession, refreshLocalPending]);
+  }, [onSession]);
 
   type SessionListItem =
     | { kind: "header"; id: string; label: string; count: number }
@@ -3514,10 +3472,10 @@ function SessionDetailScreen({
           {session.location && <DetailMeta icon="location-outline" text={session.location} />}
         </View>
 
-        {session.source === "qr" && session.leads.length > 0 ? (
+        {session.source === "qr" && (session.leads?.length ?? 0) > 0 ? (
           <CheckedInVisitorsCard
-            leads={session.leads}
-            description={`${session.leads.length} ${session.leads.length === 1 ? "visitor" : "visitors"} ready for this tour`}
+            leads={session.leads ?? []}
+            description={`${session.leads?.length} ${(session.leads?.length ?? 0) === 1 ? "visitor" : "visitors"} ready for this tour`}
           />
         ) : null}
 
@@ -3533,7 +3491,7 @@ function SessionDetailScreen({
             propertyName={session.location || session.title}
             autoStartRecording={autoStartRecording}
             initialNotes={session.notes}
-            initialLeads={session.leads}
+            initialLeads={session.leads ?? []}
             initialAttachments={session.attachments ?? []}
             onDone={load}
           />

@@ -10,6 +10,7 @@ import {
 import { getApiBaseUrl } from "../config";
 import { promoteLocalRecordingToCache } from "../session-audio-cache";
 import {
+  deleteLocalSession,
   ensureDurableRecording,
   getRecordingUri,
   getRecordingUriAsync,
@@ -86,14 +87,15 @@ async function syncOne(session: LocalSessionMeta): Promise<LocalSessionMeta | nu
   let remoteSessionId = session.remoteSessionId;
 
   try {
+    const draft = session.draft;
     if (!remoteSessionId) {
       const created = await createSession({
         title: session.title.trim() || "Tour conversation",
-        prospectName: session.draft.prospect.trim() || session.prospectName,
+        prospectName: draft?.prospect?.trim() || session.prospectName,
         agentName: session.agentName,
-        location: session.draft.location.trim() || session.propertyName,
-        notes: session.draft.notes.trim() || null,
-        rubricId: session.draft.rubricId,
+        location: draft?.location?.trim() || session.propertyName,
+        notes: draft?.notes?.trim() || null,
+        rubricId: draft?.rubricId ?? null,
       });
       remoteSessionId = created.session.id;
       updateLocalSession(session.localId, { remoteSessionId });
@@ -102,13 +104,9 @@ async function syncOne(session: LocalSessionMeta): Promise<LocalSessionMeta | nu
       try {
         const { session: remote } = await fetchSession(remoteSessionId);
         if (remote.audioUrl || remote.videoUrl || remote.status === "uploaded" || remote.status === "analysis_ready" || remote.status === "reviewed" || remote.status === "transcribing" || remote.status === "segmenting" || remote.status === "analyzing") {
-          const uploaded = updateLocalSession(session.localId, {
-            status: "uploaded",
-            lastError: null,
-            remoteSessionId,
-          });
           promoteLocalRecordingToCache(remoteSessionId, recordingUri);
-          return uploaded;
+          deleteLocalSession(session.localId);
+          return null;
         }
       } catch {
         // Continue with upload if status check fails.
@@ -133,11 +131,8 @@ async function syncOne(session: LocalSessionMeta): Promise<LocalSessionMeta | nu
       }
     }
 
-    return updateLocalSession(session.localId, {
-      status: "uploaded",
-      remoteSessionId,
-      lastError: null,
-    });
+    deleteLocalSession(session.localId);
+    return null;
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : "Sync failed";
     return updateLocalSession(session.localId, {

@@ -10,6 +10,8 @@ type SessionReportInput = {
   rubricName: string | null;
   analysisVersion: number;
   analysisCreatedAt: string;
+  sessionUrl: string;
+  audioDownloadUrl: string;
 };
 
 const PAGE_WIDTH = 612;
@@ -84,11 +86,19 @@ function drawPageHeader(doc: PDFKit.PDFDocument, input: SessionReportInput) {
     .fillColor(COLORS.muted)
     .font("Helvetica")
     .fontSize(8)
-    .text(plain(input.propertyName).toUpperCase(), MARGIN + 292, 32, {
+    .text(plain(input.propertyName).toUpperCase(), MARGIN + 292, 25, {
       width: CONTENT_WIDTH - 292,
       align: "right",
       lineBreak: false,
     });
+  drawHeaderLink(doc, "VIEW SESSION", input.sessionUrl, MARGIN + 342, 42, 74);
+  doc
+    .moveTo(MARGIN + 424, 41)
+    .lineTo(MARGIN + 424, 51)
+    .lineWidth(0.6)
+    .strokeColor(COLORS.line)
+    .stroke();
+  drawHeaderLink(doc, "DOWNLOAD AUDIO", input.audioDownloadUrl, MARGIN + 436, 42, 84);
   doc
     .moveTo(MARGIN, 62)
     .lineTo(PAGE_WIDTH - MARGIN, 62)
@@ -97,6 +107,27 @@ function drawPageHeader(doc: PDFKit.PDFDocument, input: SessionReportInput) {
     .stroke()
     .restore();
   doc.y = Math.max(previousY, 80);
+}
+
+function drawHeaderLink(
+  doc: PDFKit.PDFDocument,
+  label: string,
+  url: string,
+  x: number,
+  y: number,
+  width: number
+) {
+  doc
+    .fillColor(COLORS.indigo)
+    .font("Helvetica-Bold")
+    .fontSize(6.5)
+    .text(label, x, y, {
+      width,
+      align: "right",
+      link: url,
+      underline: true,
+      lineBreak: false,
+    });
 }
 
 function drawTourLogo(doc: PDFKit.PDFDocument, x: number, y: number, scale: number) {

@@ -21,7 +21,8 @@ export async function GET(request: Request, context: Context) {
       return NextResponse.json({ error: "Session not found." }, { status: 404 });
     }
 
-    const version = new URL(request.url).searchParams.get("version");
+    const requestUrl = new URL(request.url);
+    const version = requestUrl.searchParams.get("version");
     const analysisRun = await getAnalysisRun(id, version);
     if (!analysisRun) {
       return NextResponse.json({ error: "No completed analysis is available for export." }, { status: 404 });
@@ -45,6 +46,8 @@ export async function GET(request: Request, context: Context) {
       rubricName: analysisRun.rubricName,
       analysisVersion: analysisRun.version,
       analysisCreatedAt: analysisRun.createdAt,
+      sessionUrl: `${requestUrl.origin}/sessions/${encodeURIComponent(id)}${version ? `?version=${encodeURIComponent(version)}` : ""}`,
+      audioDownloadUrl: `${requestUrl.origin}/api/sessions/${encodeURIComponent(id)}/recording?download=1`,
     });
     const filename = `${safeFilename(session.title) || "session"}-evaluation.pdf`;
 

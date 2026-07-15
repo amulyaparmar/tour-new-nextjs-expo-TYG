@@ -59,7 +59,7 @@ export async function buildSessionReportPdf(input: SessionReportInput): Promise<
 
     drawPageHeader(doc, input);
     drawOverview(doc, input);
-    drawRubricScorecard(doc, input.analysis);
+    drawRubricScorecard(doc, input.analysis, input.session.notes);
     drawCoachingReview(doc, input.analysis);
     drawFooters(doc);
     doc.end();
@@ -230,7 +230,11 @@ function drawOverview(doc: PDFKit.PDFDocument, input: SessionReportInput) {
   doc.addPage();
 }
 
-function drawRubricScorecard(doc: PDFKit.PDFDocument, analysis: AnalysisResult) {
+function drawRubricScorecard(
+  doc: PDFKit.PDFDocument,
+  analysis: AnalysisResult,
+  customNotes: string | null
+) {
   doc
     .fillColor(COLORS.ink)
     .font("Helvetica-Bold")
@@ -297,6 +301,60 @@ function drawRubricScorecard(doc: PDFKit.PDFDocument, analysis: AnalysisResult) 
 
     if (sectionIndex < analysis.sectionScores.length - 1) doc.moveDown(0.7);
   });
+
+  drawCustomNotes(doc, customNotes);
+}
+
+function drawCustomNotes(doc: PDFKit.PDFDocument, notes: string | null) {
+  const safeNotes = plain(notes);
+  const notesWidth = CONTENT_WIDTH - 28;
+  const notesHeight = safeNotes
+    ? doc.heightOfString(safeNotes, { width: notesWidth, lineGap: 2 })
+    : 0;
+  const boxHeight = safeNotes ? Math.max(125, Math.min(300, notesHeight + 48)) : 150;
+
+  doc.moveDown(0.9);
+  ensureSpace(doc, boxHeight + 46);
+  sectionTitle(doc, "CUSTOM NOTES");
+  doc
+    .fillColor(COLORS.muted)
+    .font("Helvetica")
+    .fontSize(8)
+    .text(
+      safeNotes
+        ? "Session notes added by the leasing or coaching team."
+        : "Use this space for manager feedback, coaching commitments, or follow-up notes.",
+      MARGIN,
+      doc.y + 3,
+      { width: CONTENT_WIDTH }
+    );
+  doc.moveDown(0.8);
+
+  const y = doc.y;
+  doc.roundedRect(MARGIN, y, CONTENT_WIDTH, boxHeight, 7).fillAndStroke(COLORS.white, COLORS.line);
+  if (safeNotes) {
+    doc
+      .fillColor(COLORS.ink)
+      .font("Helvetica")
+      .fontSize(9)
+      .text(safeNotes, MARGIN + 14, y + 15, {
+        width: notesWidth,
+        height: boxHeight - 28,
+        lineGap: 2,
+        ellipsis: true,
+      });
+  } else {
+    for (let line = 1; line <= 5; line += 1) {
+      const lineY = y + 20 + line * 21;
+      doc
+        .moveTo(MARGIN + 14, lineY)
+        .lineTo(PAGE_WIDTH - MARGIN - 14, lineY)
+        .lineWidth(0.6)
+        .strokeColor(COLORS.line)
+        .stroke();
+    }
+  }
+  doc.y = y + boxHeight;
 }
 
 function drawQuestionRow(

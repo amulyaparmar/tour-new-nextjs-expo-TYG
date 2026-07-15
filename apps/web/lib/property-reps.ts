@@ -50,7 +50,10 @@ export async function getPropertyRepCard(
       .order("id", { ascending: true })
       .limit(500);
     if (teamError) throw new Error(teamError.message);
-    property = (teamProperties ?? []).find((row) =>
+    const propertyRows: PropertyRepRow[] = Array.isArray(teamProperties as unknown)
+      ? (teamProperties as unknown[]).filter(isPropertyRepRow)
+      : [];
+    property = propertyRows.find((row) =>
       toPublicAlias(row.alias) === propertyKey || toPublicAlias(row.name) === propertyKey
     ) ?? null;
   }
@@ -60,7 +63,7 @@ export async function getPropertyRepCard(
     if (!isRecord(candidate)) return false;
     const email = cleanString(candidate.email).toLowerCase();
     const emailKey = email.split("@")[0] ?? "";
-    const nameKey = toPublicAlias(candidate.name);
+    const nameKey = toPublicAlias(cleanString(candidate.name));
     return [candidate.alias, candidate.id, candidate.user_id, candidate.userId]
       .map((value) => cleanString(value).replace(/^@/, "").toLowerCase())
       .concat(emailKey, nameKey)
@@ -84,7 +87,7 @@ export async function getPropertyRepCard(
     || "Property team member";
   const phoneValue = normalizePhone(cleanString(profile?.phone) || cleanString(member.phone));
   const title = cleanString(profile?.title) || cleanString(member.role) || "Property Team";
-  const slug = toPublicAlias(member.alias)
+  const slug = toPublicAlias(cleanString(member.alias))
     || toPublicAlias(name)
     || toPublicAlias(email.split("@")[0])
     || cleanString(member.id ?? member.user_id ?? member.userId)
@@ -119,6 +122,12 @@ function cleanString(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPropertyRepRow(value: unknown): value is PropertyRepRow {
+  if (!isRecord(value) || typeof value.id !== "string") return false;
+  return [value.name, value.alias, value.website, value.thumbnail_url, value.property_manager]
+    .every((field) => field === null || typeof field === "string");
 }
 
 function initialsForName(name: string) {

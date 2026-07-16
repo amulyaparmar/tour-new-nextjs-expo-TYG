@@ -10,9 +10,18 @@ type PropertyMemberPageProps = {
     slug: string;
     member: string;
   }>;
+  searchParams: Promise<{
+    "check-in"?: string | string[];
+  }>;
 };
 
 export const dynamic = "force-dynamic";
+
+function wantsCheckIn(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const normalized = (raw ?? "").trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
 
 export async function generateMetadata({ params }: PropertyMemberPageProps): Promise<Metadata> {
   const { slug, member } = await params;
@@ -39,8 +48,9 @@ export async function generateMetadata({ params }: PropertyMemberPageProps): Pro
   };
 }
 
-export default async function PropertyMemberPage({ params }: PropertyMemberPageProps) {
+export default async function PropertyMemberPage({ params, searchParams }: PropertyMemberPageProps) {
   const { slug, member } = await params;
+  const query = await searchParams;
   const card = await getPropertyRepCard(slug, member);
   if (!card) notFound();
 
@@ -49,6 +59,7 @@ export default async function PropertyMemberPage({ params }: PropertyMemberPageP
       card={card}
       vCardUrl={vCardDownloadUrl(card.rep)}
       offlineQrUrl={offlineContactQrUrl(card.rep)}
+      initialSheet={wantsCheckIn(query["check-in"]) ? "contact" : "none"}
     />
   );
 }

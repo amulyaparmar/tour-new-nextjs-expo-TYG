@@ -15,6 +15,22 @@ Notifications.setNotificationHandler({
   }),
 });
 
+export type SessionNotificationPayload = {
+  sessionId: string;
+  autoStartRecording?: boolean;
+};
+
+function readSessionPayload(data: unknown): SessionNotificationPayload | null {
+  if (!data || typeof data !== "object") return null;
+  const record = data as Record<string, unknown>;
+  const sessionId = record.sessionId;
+  if (typeof sessionId !== "string" || !sessionId) return null;
+  return {
+    sessionId,
+    autoStartRecording: record.autoStartRecording === true || record.autoStartRecording === "true",
+  };
+}
+
 export async function registerForPushNotifications(): Promise<string | null> {
   if (isExpoGo() || Platform.OS === "web") return null;
 
@@ -59,11 +75,22 @@ export async function registerForPushNotifications(): Promise<string | null> {
 }
 
 export function addNotificationResponseListener(
-  onSession: (sessionId: string) => void,
+  onSession: (payload: SessionNotificationPayload) => void,
 ): () => void {
   const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-    const sessionId = response.notification.request.content.data?.sessionId;
-    if (typeof sessionId === "string" && sessionId) onSession(sessionId);
+    const payload = readSessionPayload(response.notification.request.content.data);
+    if (payload) onSession(payload);
+  });
+  return () => sub.remove();
+}
+
+/** Foreground notification — refresh home session lists without requiring a tap. */
+export function addNotificationReceivedListener(
+  onSession: (payload: SessionNotificationPayload) => void,
+): () => void {
+  const sub = Notifications.addNotificationReceivedListener((notification) => {
+    const payload = readSessionPayload(notification.request.content.data);
+    if (payload) onSession(payload);
   });
   return () => sub.remove();
 }

@@ -20,8 +20,9 @@ export async function getPropertyRepCard(
   memberIdentity: string
 ): Promise<RepCard | null> {
   const supabase = getSupabaseServiceClient();
-  const propertyKey = propertyIdentity.trim().replace(/^@/, "").toLowerCase();
-  const memberKey = memberIdentity.trim().replace(/^@/, "").toLowerCase();
+  // Strip accidental query/hash fragments if a shared URL stuffed them into the path segment.
+  const propertyKey = propertyIdentity.trim().replace(/^@/, "").split(/[?#]/)[0]!.toLowerCase();
+  const memberKey = memberIdentity.trim().replace(/^@/, "").split(/[?#]/)[0]!.toLowerCase();
   if (!propertyKey || !memberKey) return null;
 
   let property: PropertyRepRow | null = null;
@@ -63,7 +64,7 @@ export async function getPropertyRepCard(
     if (!isRecord(candidate)) return false;
     const email = cleanString(candidate.email).toLowerCase();
     const emailKey = email.split("@")[0] ?? "";
-    const nameKey = toPublicAlias(cleanString(candidate.name));
+    const nameKey = toPublicAlias(cleanString(candidate.name) || null);
     return [candidate.alias, candidate.id, candidate.user_id, candidate.userId]
       .map((value) => cleanString(value).replace(/^@/, "").toLowerCase())
       .concat(emailKey, nameKey)
@@ -73,25 +74,17 @@ export async function getPropertyRepCard(
   if (!isRecord(member)) return null;
 
   const email = cleanString(member.email);
-  const { data: profile } = email
-    ? await supabase
-        .from("user_profiles")
-        .select("full_name, title, phone")
-        .ilike("email", email)
-        .maybeSingle<{ full_name: string | null; title: string | null; phone: string | null }>()
-    : { data: null };
-
-  const name = cleanString(profile?.full_name)
-    || cleanString(member.name)
+  const name = cleanString(member.name)
     || email.split("@")[0]
     || "Property team member";
-  const phoneValue = normalizePhone(cleanString(profile?.phone) || cleanString(member.phone));
-  const title = cleanString(profile?.title) || cleanString(member.role) || "Property Team";
-  const slug = toPublicAlias(cleanString(member.alias))
+  const phoneValue = normalizePhone(cleanString(member.phone));
+  const title = cleanString(member.title) || cleanString(member.role) || "Property Team";
+  const slug = toPublicAlias(cleanString(member.alias) || null)
     || toPublicAlias(name)
     || toPublicAlias(email.split("@")[0])
     || cleanString(member.id ?? member.user_id ?? member.userId)
     || memberKey;
+  const cardAccent = cleanString(member.card_accent ?? member.cardAccent) || null;
   const propertyName = cleanString(property.name) || "Property";
   return {
     rep: {
@@ -105,6 +98,7 @@ export async function getPropertyRepCard(
       phoneDisplay: formatPhone(phoneValue),
       website: property.website || undefined,
       websiteDisplay: property.website ? property.website.replace(/^https?:\/\//, "").replace(/\/$/, "") : undefined,
+      cardAccent,
     },
     property: {
       id: property.id,

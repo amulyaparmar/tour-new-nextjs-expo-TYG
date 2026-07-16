@@ -1,12 +1,27 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
 import { getApiBaseUrl } from "./config";
 
-const SESSION_KEY = "tour.mobile.session.v1";
-const BASE_URL = getApiBaseUrl();
+/** Tokens only — stays under SecureStore's ~2KB limit. */
+const TOKENS_KEY = "tour.mobile.tokens.v1";
+/** Workspace payload — AsyncStorage (no SizeLimit). */
+const WORKSPACE_KEY = "tour.mobile.workspace.v1";
+/** Pre-split blob; migrated once then deleted. */
+const LEGACY_SESSION_KEY = "tour.mobile.session.v1";
 const REPORT_ACCESS_URL = "https://tour.report/api/verify-access";
 const REPORT_ACCESS_KEY = "LeaseMagnets2025TYG";
+
+type StoredTokens = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+};
+
+function apiBaseUrl() {
+  return getApiBaseUrl();
+}
 
 export type MobileWorkspace = {
   user: {
@@ -24,8 +39,12 @@ export type MobileWorkspace = {
     email: string;
     role: string;
     accessRole: "admin" | "manager" | "member";
+    title?: string | null;
     phone: string | null;
+    cardAccent?: string | null;
     verified: boolean | null;
+    userId?: string | null;
+    notificationPreferences?: Record<string, boolean> | null;
   };
   organization: {
     id: string;
@@ -49,8 +68,12 @@ export type MobileWorkspace = {
       email: string;
       role: string;
       accessRole: "admin" | "manager" | "member";
+      title?: string | null;
       phone: string | null;
+      cardAccent?: string | null;
       verified: boolean | null;
+      userId?: string | null;
+      notificationPreferences?: Record<string, boolean> | null;
     }>;
   };
   communities: Array<{
@@ -123,44 +146,56 @@ export function getCurrentSession() {
 export function authorizedCommunitiesForSession(
   session: MobileAuthSession
 ): MobileWorkspace["communities"] {
-  const email = session.workspace?.user?.email?.trim().toLowerCase();
   const communities = Array.isArray(session.workspace?.communities)
     ? session.workspace.communities
     : [];
-  if (!email) return [];
 
+  // Server already filtered to properties this email belongs to; don't require
+  // embedded teamMembers on non-active properties.
   const seen = new Set<string>();
   return communities.filter((community) => {
-    if (!community?.id || seen.has(community.id) || !Array.isArray(community.teamMembers)) {
-      return false;
-    }
-    const authorized = community.teamMembers.some(
-      (member) => member?.email?.trim().toLowerCase() === email
-    );
-    if (authorized) seen.add(community.id);
-    return authorized;
+    if (!community?.id || seen.has(community.id)) return false;
+    seen.add(community.id);
+    return true;
   });
 }
 
 export async function restoreSession() {
-  const raw = await readStoredSession();
-  if (!raw) return null;
-
-  let storedSession: MobileAuthSession;
-  try {
-    storedSession = JSON.parse(raw) as MobileAuthSession;
-  } catch {
-    await clearSession();
+  let storedSession = await readPersistedSession();
+  if (!storedSession) {
+    try {
+      storedSession = await migrateLegacySession();
+    } catch {
+      storedSession = null;
+    }
+  }
+  if (!storedSession) {
+    const [orphanTokens, orphanWorkspace, legacy] = await Promise.all([
+      readStoredTokens(),
+      readStoredWorkspace(),
+      readLegacyStoredSession(),
+    ]);
+    if (orphanTokens || orphanWorkspace || legacy) await clearSession();
     return null;
   }
 
   currentSession = storedSession;
+  const tokenStillValid = storedSession.expiresAt > Math.floor(Date.now() / 1000) + 30;
   try {
     // Always re-resolve propertiesTYG.metadata.property_team on a cold launch.
-    // OTA updates can otherwise revive a workspace cached by an older access model.
-    return await refreshSession();
+    // Cap wait so a slow API cannot leave the app on the splash forever.
+    const refreshed = await Promise.race([
+      refreshSession(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
+    ]);
+    if (refreshed) return refreshed;
+    if (tokenStillValid && hasCanonicalWorkspace(storedSession)) {
+      currentSession = storedSession;
+      return storedSession;
+    }
+    await clearSession();
+    return null;
   } catch {
-    const tokenStillValid = storedSession.expiresAt > Math.floor(Date.now() / 1000) + 30;
     if (tokenStillValid && hasCanonicalWorkspace(storedSession)) {
       currentSession = storedSession;
       return storedSession;
@@ -172,7 +207,7 @@ export async function restoreSession() {
 
 export async function listBusinesses(query = "") {
   const response = await fetch(
-    `${BASE_URL}/api/admin/auth/businesses${query ? `?q=${encodeURIComponent(query)}` : ""}`
+    `${apiBaseUrl()}/api/admin/auth/businesses${query ? `?q=${encodeURIComponent(query)}` : ""}`
   );
   const body = await response.json().catch(() => null) as {
     businesses?: BusinessOption[];
@@ -183,7 +218,7 @@ export async function listBusinesses(query = "") {
 }
 
 export async function signIn(email: string, password: string, communityId: string) {
-  const response = await fetch(`${BASE_URL}/api/admin/auth/login`, {
+  const response = await fetch(`${apiBaseUrl()}/api/admin/auth/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -208,7 +243,7 @@ export async function requestSignInCode(email: string) {
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}/api/admin/auth/otp/start`, {
+    response = await fetch(`${apiBaseUrl()}/api/admin/auth/otp/start`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -250,7 +285,7 @@ export async function verifySignInCode(email: string, token: string, expectedCod
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}/api/admin/auth/otp/verify`, {
+    response = await fetch(`${apiBaseUrl()}/api/admin/auth/otp/verify`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -429,7 +464,7 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}) {
   const session = currentSession;
   if (!session) throw new Error("Sign in is required.");
 
-  const response = await fetch(`${BASE_URL}${path}`, withAuth(init, session));
+  const response = await fetch(`${apiBaseUrl()}${path}`, withAuth(init, session));
   if (response.status !== 401) return response;
 
   // FormData bodies are consumed on the first request and cannot be retried.
@@ -439,7 +474,7 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}) {
 
   const refreshed = await refreshSession();
   if (!refreshed) return response;
-  return fetch(`${BASE_URL}${path}`, withAuth(init, refreshed));
+  return fetch(`${apiBaseUrl()}${path}`, withAuth(init, refreshed));
 }
 
 async function refreshSession() {
@@ -447,7 +482,7 @@ async function refreshSession() {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
-    const response = await fetch(`${BASE_URL}/api/admin/auth/refresh`, {
+    const response = await fetch(`${apiBaseUrl()}/api/admin/auth/refresh`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -480,9 +515,32 @@ async function persistSession(session: MobileAuthSession) {
   if (!hasCanonicalWorkspace(session)) {
     throw new Error("Your property access could not be verified. Please sign in again.");
   }
+  // Tokens → SecureStore; workspace → AsyncStorage. Drop team trees on
+  // inactive properties so the switcher list stays small.
+  const storedWorkspace: MobileWorkspace = {
+    ...session.workspace,
+    communities: (session.workspace.communities ?? []).map((community) => ({
+      ...community,
+      teamMembers: community.id === session.workspace.community.id
+        ? (session.workspace.community.teamMembers ?? community.teamMembers ?? [])
+        : [],
+    })),
+  };
   currentSession = session;
-  await writeStoredSession(JSON.stringify(session));
-  return session;
+  try {
+    await Promise.all([
+      writeStoredTokens({
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+        expiresAt: session.expiresAt,
+      }),
+      writeStoredWorkspace(storedWorkspace),
+      deleteLegacyStoredSession(),
+    ]);
+  } catch {
+    // Disk write failed; in-memory session still works this launch.
+  }
+  return currentSession;
 }
 
 function hasCanonicalWorkspace(session: MobileAuthSession) {
@@ -500,7 +558,7 @@ function hasCanonicalWorkspace(session: MobileAuthSession) {
   );
 }
 
-/** Update in-memory + SecureStore session (e.g. after profile edits). */
+/** Update in-memory + persisted session (e.g. after profile edits). */
 export async function replaceStoredSession(session: MobileAuthSession) {
   return persistSession(session);
 }
@@ -517,25 +575,107 @@ function withAuth(init: RequestInit, session: MobileAuthSession): RequestInit {
   return { ...init, headers };
 }
 
-function readStoredSession() {
-  if (Platform.OS === "web") {
-    return Promise.resolve(globalThis.localStorage?.getItem(SESSION_KEY) ?? null);
+async function readPersistedSession(): Promise<MobileAuthSession | null> {
+  const [tokens, workspace] = await Promise.all([
+    readStoredTokens(),
+    readStoredWorkspace(),
+  ]);
+  if (!tokens?.accessToken || !tokens.refreshToken || !workspace?.community?.id) {
+    return null;
   }
-  return SecureStore.getItemAsync(SESSION_KEY);
+  return {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    expiresAt: tokens.expiresAt,
+    workspace,
+  };
 }
 
-function writeStoredSession(value: string) {
-  if (Platform.OS === "web") {
-    globalThis.localStorage?.setItem(SESSION_KEY, value);
-    return Promise.resolve();
+async function migrateLegacySession(): Promise<MobileAuthSession | null> {
+  const raw = await readLegacyStoredSession();
+  if (!raw) return null;
+  try {
+    const legacy = JSON.parse(raw) as MobileAuthSession;
+    if (!legacy?.accessToken || !legacy.refreshToken || !legacy.workspace?.community?.id) {
+      await deleteLegacyStoredSession();
+      return null;
+    }
+    await persistSession(legacy);
+    return getCurrentSession();
+  } catch {
+    await deleteLegacyStoredSession();
+    return null;
   }
-  return SecureStore.setItemAsync(SESSION_KEY, value);
 }
 
-function deleteStoredSession() {
-  if (Platform.OS === "web") {
-    globalThis.localStorage?.removeItem(SESSION_KEY);
-    return Promise.resolve();
+async function readStoredTokens(): Promise<StoredTokens | null> {
+  try {
+    const raw = Platform.OS === "web"
+      ? (globalThis.localStorage?.getItem(TOKENS_KEY) ?? null)
+      : await SecureStore.getItemAsync(TOKENS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredTokens;
+  } catch {
+    return null;
   }
-  return SecureStore.deleteItemAsync(SESSION_KEY);
+}
+
+async function writeStoredTokens(tokens: StoredTokens) {
+  const value = JSON.stringify(tokens);
+  if (Platform.OS === "web") {
+    globalThis.localStorage?.setItem(TOKENS_KEY, value);
+    return;
+  }
+  await SecureStore.setItemAsync(TOKENS_KEY, value);
+}
+
+async function readStoredWorkspace(): Promise<MobileWorkspace | null> {
+  try {
+    const raw = await AsyncStorage.getItem(WORKSPACE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as MobileWorkspace;
+  } catch {
+    return null;
+  }
+}
+
+async function writeStoredWorkspace(workspace: MobileWorkspace) {
+  await AsyncStorage.setItem(WORKSPACE_KEY, JSON.stringify(workspace));
+}
+
+async function readLegacyStoredSession() {
+  if (Platform.OS === "web") {
+    return globalThis.localStorage?.getItem(LEGACY_SESSION_KEY) ?? null;
+  }
+  return SecureStore.getItemAsync(LEGACY_SESSION_KEY);
+}
+
+async function deleteLegacyStoredSession() {
+  if (Platform.OS === "web") {
+    globalThis.localStorage?.removeItem(LEGACY_SESSION_KEY);
+    return;
+  }
+  try {
+    await SecureStore.deleteItemAsync(LEGACY_SESSION_KEY);
+  } catch {
+    // Key may not exist.
+  }
+}
+
+async function deleteStoredSession() {
+  await Promise.all([
+    (async () => {
+      if (Platform.OS === "web") {
+        globalThis.localStorage?.removeItem(TOKENS_KEY);
+        return;
+      }
+      try {
+        await SecureStore.deleteItemAsync(TOKENS_KEY);
+      } catch {
+        // Key may not exist.
+      }
+    })(),
+    AsyncStorage.removeItem(WORKSPACE_KEY),
+    deleteLegacyStoredSession(),
+  ]);
 }

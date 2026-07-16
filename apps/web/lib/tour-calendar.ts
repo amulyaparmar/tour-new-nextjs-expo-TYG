@@ -3,7 +3,12 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import type { AdminWorkspace } from "./admin-auth";
+import { propertySessionKeys } from "./admin-auth";
 import { buildSessionTourTitle } from "@tour/shared";
+import {
+  patchPropertyEntrataSettings,
+  readEntrataSyncSettings,
+} from "./property-team";
 import { getSupabaseServiceClient } from "./supabase";
 
 const TOUR_API_BASE_URL = (process.env.TOUR_API_BASE_URL ?? "https://tour.new").replace(/\/$/, "");
@@ -12,17 +17,6 @@ const TOUR_EVENT_TYPE_IDS = "17,449";
 type TourEntrataConfig = {
   username: string;
   propertyId: string;
-};
-
-type CalendarIntegrationRow = {
-  provider: string;
-  status: string;
-  source: string;
-  external_property_id: string | null;
-  last_synced_at: string | null;
-  last_error: string | null;
-  stats: Record<string, unknown> | null;
-  auto_sync_enabled?: boolean | null;
 };
 
 export type StoredCalendarEvent = {
@@ -57,7 +51,6 @@ type EntrataEvent = Record<string, unknown> & {
 };
 
 type NormalizedCalendarEvent = {
-  company_id: string;
   property_id: string;
   provider: "entrata";
   external_event_id: string;
@@ -81,26 +74,26 @@ type NormalizedCalendarEvent = {
 export async function getCommunityCalendarIntegration(workspace: AdminWorkspace) {
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
-    .from("calendar_integrations")
-    .select("provider,status,source,external_property_id,last_synced_at,last_error,stats,auto_sync_enabled")
-    .eq("property_id", workspace.community.id)
-    .eq("provider", "entrata")
-    .maybeSingle();
+    .from("propertiesTYG")
+    .select("metadata,entrata_auto_sync_enabled")
+    .eq("id", workspace.community.propertyTygId)
+    .maybeSingle<{ metadata: unknown; entrata_auto_sync_enabled: boolean | null }>();
   if (error) throw new Error(error.message);
 
-  const row = data as unknown as CalendarIntegrationRow | null;
+  const settings = readEntrataSyncSettings(data?.metadata);
+  const autoSyncEnabled = Boolean(data?.entrata_auto_sync_enabled ?? settings.autoSyncEnabled);
   return {
     provider: "entrata" as const,
-    status: row?.status ?? "disconnected",
+    status: settings.status || "disconnected",
     domain: "tour.new",
-    propertyId: row?.external_property_id ?? workspace.community.entrataPropertyId,
-    source: row?.source ?? "tour_new",
+    propertyId: settings.externalPropertyId ?? workspace.community.entrataPropertyId,
+    source: "tour_new",
     scopes: ["availability", "scheduled_tours", "lead_events"],
-    stats: row?.stats ?? {},
-    autoSyncEnabled: Boolean(row?.auto_sync_enabled),
+    stats: settings.stats ?? {},
+    autoSyncEnabled,
     lastTestedAt: null,
-    lastSyncedAt: row?.last_synced_at ?? null,
-    lastError: row?.last_error ?? null,
+    lastSyncedAt: settings.lastSyncedAt ?? null,
+    lastError: settings.lastError ?? null,
   };
 }
 
@@ -108,64 +101,47 @@ export async function setCommunityEntrataAutoSync(
   workspace: AdminWorkspace,
   autoSyncEnabled: boolean,
 ) {
-  const supabase = getSupabaseServiceClient();
-  const now = new Date().toISOString();
-  const { data: existing } = await supabase
-    .from("calendar_integrations")
-    .select("property_id")
-    .eq("property_id", workspace.community.id)
-    .eq("provider", "entrata")
-    .maybeSingle();
-
-  if (existing) {
-    const { error } = await supabase
-      .from("calendar_integrations")
-      .update({
-        auto_sync_enabled: autoSyncEnabled,
-        updated_at: now,
-      } as never)
-      .eq("property_id", workspace.community.id)
-      .eq("provider", "entrata");
-    if (error) throw new Error(error.message);
-  } else {
-    const { error } = await supabase.from("calendar_integrations").insert({
-      property_id: workspace.community.id,
-      company_id: workspace.organization.id,
-      provider: "entrata",
-      source: "tour_new",
-      status: "connected",
-      auto_sync_enabled: autoSyncEnabled,
-      updated_at: now,
-    } as never);
-    if (error) throw new Error(error.message);
-  }
-
+  await patchPropertyEntrataSettings({
+    propertyId: workspace.community.propertyTygId,
+    patch: {
+      autoSyncEnabled,
+      status: autoSyncEnabled ? "connected" : "disconnected",
+      lastError: null,
+    },
+  });
   return getCommunityCalendarIntegration(workspace);
 }
 
-/** Communities with Entrata connected and auto-sync enabled (for cron). */
+export async function disconnectCommunityEntrata(workspace: AdminWorkspace) {
+  await patchPropertyEntrataSettings({
+    propertyId: workspace.community.propertyTygId,
+    patch: {
+      autoSyncEnabled: false,
+      status: "disconnected",
+      lastError: null,
+    },
+  });
+  return getCommunityCalendarIntegration(workspace);
+}
+
+/** Properties with Entrata auto-sync enabled (for cron). */
 export async function listAutoSyncEntrataIntegrations(): Promise<Array<{
   propertyId: string;
-  companyId: string;
   externalPropertyId: string | null;
 }>> {
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
-    .from("calendar_integrations")
-    .select("property_id,company_id,external_property_id,status,auto_sync_enabled")
-    .eq("provider", "entrata")
-    .eq("auto_sync_enabled", true)
-    .in("status", ["connected", "error", "syncing"]);
+    .from("propertiesTYG")
+    .select("id,metadata,entrata_auto_sync_enabled")
+    .eq("entrata_auto_sync_enabled", true);
   if (error) throw new Error(error.message);
-  return ((data ?? []) as unknown as Array<{
-    property_id: string;
-    company_id: string;
-    external_property_id: string | null;
-  }>).map((row) => ({
-    propertyId: row.property_id,
-    companyId: row.company_id,
-    externalPropertyId: row.external_property_id,
-  }));
+  return ((data ?? []) as Array<{ id: string; metadata: unknown }>).map((row) => {
+    const settings = readEntrataSyncSettings(row.metadata);
+    return {
+      propertyId: row.id,
+      externalPropertyId: settings.externalPropertyId,
+    };
+  });
 }
 
 export async function syncCommunityCalendar(
@@ -179,12 +155,12 @@ export async function syncCommunityCalendar(
   const createdTo = formatEntrataDate(parseDate(toDate));
   const config = await loadTourEntrataConfig(workspace);
   const supabase = getSupabaseServiceClient();
+  const propertyId = workspace.community.propertyTygId;
 
-  await supabase
-    .from("calendar_integrations")
-    .update({ status: "syncing", last_error: null, updated_at: new Date().toISOString() } as never)
-    .eq("property_id", workspace.community.id)
-    .eq("provider", "entrata");
+  await patchPropertyEntrataSettings({
+    propertyId,
+    patch: { status: "syncing", lastError: null },
+  });
 
   try {
     const payload = await callTourEntrata("getLeadEvents", {
@@ -220,28 +196,24 @@ export async function syncCommunityCalendar(
       rangeFrom: fromDate,
       rangeTo: toDate,
     };
-    const { error: integrationError } = await supabase
-      .from("calendar_integrations")
-      .update({
+    await patchPropertyEntrataSettings({
+      propertyId,
+      patch: {
         status: "connected",
-        external_property_id: config.propertyId,
-        last_synced_at: now,
-        last_error: null,
+        externalPropertyId: config.propertyId,
+        lastSyncedAt: now,
+        lastError: null,
         stats,
-        updated_at: now,
-      } as never)
-      .eq("property_id", workspace.community.id)
-      .eq("provider", "entrata");
-    if (integrationError) throw new Error(integrationError.message);
+      },
+    });
 
     return { ...stats, events: normalized.map(toPublicCalendarEvent) };
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : "Calendar sync failed.";
-    await supabase
-      .from("calendar_integrations")
-      .update({ status: "error", last_error: message, updated_at: new Date().toISOString() } as never)
-      .eq("property_id", workspace.community.id)
-      .eq("provider", "entrata");
+    await patchPropertyEntrataSettings({
+      propertyId,
+      patch: { status: "error", lastError: message },
+    });
     throw caught;
   }
 }
@@ -254,10 +226,11 @@ export async function listCommunityCalendarEvents(
   const fromDate = parseIsoDate(options.fromDate) ?? formatIsoDate(today);
   const toDate = parseIsoDate(options.toDate) ?? formatIsoDate(addDays(today, 120));
   const supabase = getSupabaseServiceClient();
+  const propertyKeys = propertySessionKeys(workspace.community);
   const { data, error } = await supabase
     .from("calendar_events")
     .select("id,session_id,external_event_id,external_application_id,event_type,status,appointment_date,time_from,time_to,prospect_name,prospect_email,prospect_phone,notes,synced_at")
-    .eq("property_id", workspace.community.id)
+    .in("property_id", propertyKeys)
     .gte("appointment_date", fromDate)
     .lte("appointment_date", toDate)
     .order("appointment_date", { ascending: true })
@@ -337,10 +310,11 @@ async function syncEntrataSessions(
 
   const supabase = getSupabaseServiceClient();
   const externalIds = activeEvents.map((event) => event.external_event_id);
+  const propertyKeys = propertySessionKeys(workspace.community);
   const { data: existingRows, error: existingError } = await supabase
     .from("sessions")
     .select("id,status,external_event_id")
-    .eq("property_id", workspace.community.id)
+    .in("property_id", propertyKeys)
     .eq("external_provider", "entrata")
     .in("external_event_id", externalIds);
   if (existingError) throw new Error(existingError.message);
@@ -378,7 +352,7 @@ async function syncEntrataSessions(
     const { error: linkError } = await supabase
       .from("calendar_events")
       .update({ session_id: session.id } as never)
-      .eq("property_id", workspace.community.id)
+      .eq("property_id", workspace.community.propertyTygId)
       .eq("provider", "entrata")
       .eq("external_event_id", event.external_event_id);
     if (linkError) throw new Error(linkError.message);
@@ -390,7 +364,7 @@ function toSessionPayload(event: NormalizedCalendarEvent, workspace: AdminWorksp
     ...toSessionRefreshPayload(event),
     status: "scheduled",
     source: "entrata",
-    property_id: workspace.community.id,
+    property_id: workspace.community.propertyTygId,
     external_provider: "entrata",
     external_event_id: event.external_event_id,
     external_application_id: event.external_application_id,
@@ -545,7 +519,7 @@ function normalizeLeadEvents(
         stringValue(event.eventId) ??
         createHash("sha256")
           .update([
-            workspace.community.id,
+            workspace.community.propertyTygId,
             applicationId,
             appointmentDate,
             stringValue(event.timeFrom),
@@ -555,8 +529,7 @@ function normalizeLeadEvents(
           .digest("hex");
 
       events.push({
-        company_id: workspace.organization.id,
-        property_id: workspace.community.id,
+        property_id: workspace.community.propertyTygId,
         provider: "entrata",
         external_event_id: externalEventId,
         external_application_id: applicationId,

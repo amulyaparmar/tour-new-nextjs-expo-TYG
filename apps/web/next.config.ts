@@ -1,7 +1,27 @@
+import os from "node:os";
+
 import { withWorkflow } from "workflow/next";
 import type { NextConfig } from "next";
 
+/** Hosts that can load Next.js `/_next/*` assets during `next dev` (LAN phones, etc.). */
+function resolveAllowedDevOrigins() {
+  const fromEnv = (process.env.ALLOWED_DEV_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const lanHosts = Object.values(os.networkInterfaces())
+    .flat()
+    .filter((entry): entry is os.NetworkInterfaceInfo => Boolean(entry))
+    .filter((entry) => entry.family === "IPv4" && !entry.internal)
+    .map((entry) => entry.address);
+  return Array.from(new Set(["127.0.0.1", "localhost", ...lanHosts, ...fromEnv]));
+}
+
 const nextConfig: NextConfig = {
+  // Phone / LAN testing (e.g. http://192.168.x.x:3000) must be allowlisted so
+  // Next.js serves /_next dev assets. Without this, React never hydrates and
+  // buttons/forms appear dead (native GET submit only).
+  allowedDevOrigins: resolveAllowedDevOrigins(),
   experimental: {
     // Tour recordings can exceed the default 10MB proxy buffer (see proxy.ts on /api/*).
     proxyClientMaxBodySize: "50mb",

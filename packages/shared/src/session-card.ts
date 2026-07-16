@@ -23,9 +23,32 @@ export type SessionCardFields = {
   needsImprovement?: string | null;
 };
 
+/** Display casing for a single name token: `amulya` → `Amulya`, `MARY-JANE` → `Mary-Jane`. */
+function formatNamePart(value: string): string {
+  return value
+    .split(/([-'])/)
+    .map((part) => {
+      if (part === "-" || part === "'") return part;
+      if (!part) return part;
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join("");
+}
+
+/** Title-case a person name for UI: `joseph smith` → `Joseph Smith`. */
+export function formatPersonName(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return trimmed
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(formatNamePart)
+    .join(" ");
+}
+
 function firstName(value: string | null | undefined): string | null {
   const token = value?.trim().split(/\s+/).filter(Boolean)[0];
-  return token || null;
+  return token ? formatNamePart(token) : null;
 }
 
 function leadName(fields: SessionCardFields): string | null {
@@ -46,7 +69,7 @@ export function isGenericSessionTitle(title: string | null | undefined): boolean
 }
 
 /**
- * Default future session name: `Laura <> Amulya Tour`
+ * Default future session name: `Laura x Amulya Tour`
  * Used when callers don't provide a custom title.
  */
 export function buildSessionTourTitle(input: {
@@ -60,7 +83,7 @@ export function buildSessionTourTitle(input: {
   const prospect = firstName(input.prospectName);
   const peopleTitle =
     agent && prospect
-      ? `${agent} <> ${prospect} Tour`
+      ? `${agent} x ${prospect} Tour`
       : prospect
         ? `${prospect} Tour`
         : agent

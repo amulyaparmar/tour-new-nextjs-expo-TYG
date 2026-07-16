@@ -1,0 +1,29 @@
+---
+description: Property-team data hierarchy — profile on team members; no user_profiles or org tables
+alwaysApply: true
+---
+
+# Property-team data model
+
+Canonical access and **per-user profile** are **property-team based**. There is no separate user profile entity.
+
+## Hierarchy
+
+- **Property** = `propertiesTYG` row
+- **Team member / ACL / profile** = one object in `propertiesTYG.metadata.property_team[]` per user on that property
+- **Auth identity** = Supabase `auth.users` only (login/session). Profile fields (name, title, phone, alias, card accent, etc.) live on the matching `property_team` member — not a parallel table
+
+## Do
+
+- Store and update display/profile fields on the `property_team` member record for the active property
+- Prefer columns or metadata on `propertiesTYG` (and existing domain tables like sessions/leads) over new entity graphs
+- Keep interoperability with legacy shapes already keyed by property + team member
+
+## Do not (without explicit user approval)
+
+- Use, extend, or depend on `user_profiles` as the source of truth for profile data (treat as legacy to migrate off)
+- Create new tables for companies, org memberships, agents, or junction tables that parallel `property_team`
+- Treat `company_memberships` (or similar invalidated legacy org tables) as authoritative for access or profile
+- Introduce a separate “agent entity” or global profile table when the agent is already a `property_team` member
+
+If a feature seems to need a new table outside this hierarchy, **stop and ask** before writing migrations.

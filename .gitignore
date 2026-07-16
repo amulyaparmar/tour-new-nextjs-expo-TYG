@@ -22,3 +22,5 @@ tmp/
 # Firebase secrets (keep *.example files)
 apps/mobile/GoogleService-Info.plist
 apps/mobile/google-services.json
+
+apps/mobile/ios/**/GoogleService-Info.plist

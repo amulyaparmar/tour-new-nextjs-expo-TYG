@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { AdminAuthError, requireAdminContext } from "@/lib/admin-auth";
-import { getSupabaseServiceClient } from "@/lib/supabase";
 import {
+  disconnectCommunityEntrata,
   getCommunityCalendarIntegration,
   setCommunityEntrataAutoSync,
 } from "@/lib/tour-calendar";
@@ -42,19 +42,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Unsupported integration update." }, { status: 400 });
     }
 
-    const supabase = getSupabaseServiceClient();
-    const { error } = await supabase
-      .from("calendar_integrations")
-      .update({
-        status: "disconnected",
-        auto_sync_enabled: false,
-        last_error: null,
-        updated_at: new Date().toISOString(),
-      } as never)
-      .eq("property_id", workspace.community.id)
-      .eq("provider", "entrata");
-    if (error) throw new Error(error.message);
-    const entrata = await getCommunityCalendarIntegration(workspace);
+    const entrata = await disconnectCommunityEntrata(workspace);
     return NextResponse.json({ integrations: { entrata } });
   } catch (error) {
     return NextResponse.json(

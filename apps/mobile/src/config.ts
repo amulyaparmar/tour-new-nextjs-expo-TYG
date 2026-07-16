@@ -2,39 +2,61 @@ import Constants from "expo-constants";
 
 const PRODUCTION_API_BASE_URL = "https://tour.you";
 
+function isLoopbackHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+/** RFC1918 / link-local — typical laptop LAN IPs that change between Wi‑Fi networks. */
+function isMutableLanHost(hostname: string) {
+  if (isLoopbackHost(hostname)) return true;
+  const parts = hostname.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+  const [a, b] = parts;
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 192 && b === 168) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 169 && b === 254)
+  );
+}
+
+function metroLanHostname(): string | null {
+  const debuggerHost =
+    Constants.expoConfig?.hostUri ??
+    (Constants as { manifest?: { debuggerHost?: string } }).manifest?.debuggerHost;
+  if (!debuggerHost) return null;
+  const lanIp = debuggerHost.split(":")[0]?.trim();
+  if (!lanIp || isLoopbackHost(lanIp)) return null;
+  return lanIp;
+}
+
 export function getApiBaseUrl(): string {
   const raw = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
-  const debuggerHost =
-    Constants.expoConfig?.hostUri ?? (Constants as any).manifest?.debuggerHost;
+  const metroHost = metroLanHostname();
 
   if (raw) {
     const configuredUrl = raw.replace(/\/+$/, "");
     try {
       const url = new URL(configuredUrl);
-      const isLocalHost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-      if (!isLocalHost) {
+      // In dev, follow Metro's LAN IP so a stale .env (e.g. old 192.168.x.x) can't break fetch.
+      if (__DEV__ && metroHost && isMutableLanHost(url.hostname)) {
+        url.hostname = metroHost;
+        return url.toString().replace(/\/+$/, "");
+      }
+      if (!isLoopbackHost(url.hostname)) {
         return configuredUrl;
       }
-
-      if (debuggerHost) {
-        const lanIp = debuggerHost.split(":")[0];
-        if (lanIp && lanIp !== "localhost" && lanIp !== "127.0.0.1") {
-          url.hostname = lanIp;
-          return url.toString().replace(/\/+$/, "");
-        }
-      }
-
       return __DEV__ ? configuredUrl : PRODUCTION_API_BASE_URL;
     } catch {
       return __DEV__ ? configuredUrl : PRODUCTION_API_BASE_URL;
     }
   }
 
-  if (__DEV__ && debuggerHost) {
-    const lanIp = debuggerHost.split(":")[0];
-    if (lanIp && lanIp !== "localhost" && lanIp !== "127.0.0.1") {
-      return `http://${lanIp}:3000`;
-    }
+  if (__DEV__ && metroHost) {
+    return `http://${metroHost}:3000`;
   }
 
   return __DEV__ ? "http://localhost:3000" : PRODUCTION_API_BASE_URL;

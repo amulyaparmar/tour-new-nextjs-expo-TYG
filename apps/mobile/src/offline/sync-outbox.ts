@@ -7,9 +7,13 @@ import {
   processSession,
   uploadRecording,
 } from "../api";
+import { getApiBaseUrl } from "../config";
 import { promoteLocalRecordingToCache } from "../session-audio-cache";
 import {
+  deleteLocalSession,
+  ensureDurableRecording,
   getRecordingUri,
+  getRecordingUriAsync,
   listPendingSyncSessions,
   listRecoverableRecordingSessions,
   type LocalSessionMeta,
@@ -45,11 +49,31 @@ function emit(event: Parameters<SyncListener>[0]) {
 
 export async function isOnline(): Promise<boolean> {
   const state = await NetInfo.fetch();
-  return Boolean(state.isConnected && state.isInternetReachable !== false);
+  // Local API hosts are reachable without "internet"; treat null/unknown as online.
+  if (!state.isConnected) return false;
+  if (state.isInternetReachable === false) {
+    try {
+      const host = new URL(getApiBaseUrl()).hostname;
+      const isPrivateLan =
+        host === "localhost"
+        || host === "127.0.0.1"
+        || host.startsWith("192.168.")
+        || host.startsWith("10.")
+        || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+      if (isPrivateLan) return true;
+    } catch {
+      // fall through
+    }
+    return false;
+  }
+  return true;
 }
 
 async function syncOne(session: LocalSessionMeta): Promise<LocalSessionMeta | null> {
-  const recordingUri = getRecordingUri(session.localId);
+  const recordingUri =
+    (await ensureDurableRecording(session.localId, session.recordingSourceUri))
+    ?? (await getRecordingUriAsync(session.localId))
+    ?? session.recordingSourceUri;
   if (!recordingUri) {
     return updateLocalSession(session.localId, {
       status: "failed",
@@ -63,14 +87,15 @@ async function syncOne(session: LocalSessionMeta): Promise<LocalSessionMeta | nu
   let remoteSessionId = session.remoteSessionId;
 
   try {
+    const draft = session.draft;
     if (!remoteSessionId) {
       const created = await createSession({
         title: session.title.trim() || "Tour conversation",
-        prospectName: session.draft.prospect.trim() || session.prospectName,
+        prospectName: draft?.prospect?.trim() || session.prospectName,
         agentName: session.agentName,
-        location: session.draft.location.trim() || session.propertyName,
-        notes: session.draft.notes.trim() || null,
-        rubricId: session.draft.rubricId,
+        location: draft?.location?.trim() || session.propertyName,
+        notes: draft?.notes?.trim() || null,
+        rubricId: draft?.rubricId ?? null,
       });
       remoteSessionId = created.session.id;
       updateLocalSession(session.localId, { remoteSessionId });
@@ -79,13 +104,9 @@ async function syncOne(session: LocalSessionMeta): Promise<LocalSessionMeta | nu
       try {
         const { session: remote } = await fetchSession(remoteSessionId);
         if (remote.audioUrl || remote.videoUrl || remote.status === "uploaded" || remote.status === "analysis_ready" || remote.status === "reviewed" || remote.status === "transcribing" || remote.status === "segmenting" || remote.status === "analyzing") {
-          const uploaded = updateLocalSession(session.localId, {
-            status: "uploaded",
-            lastError: null,
-            remoteSessionId,
-          });
           promoteLocalRecordingToCache(remoteSessionId, recordingUri);
-          return uploaded;
+          deleteLocalSession(session.localId);
+          return null;
         }
       } catch {
         // Continue with upload if status check fails.
@@ -110,11 +131,8 @@ async function syncOne(session: LocalSessionMeta): Promise<LocalSessionMeta | nu
       }
     }
 
-    return updateLocalSession(session.localId, {
-      status: "uploaded",
-      remoteSessionId,
-      lastError: null,
-    });
+    deleteLocalSession(session.localId);
+    return null;
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : "Sync failed";
     return updateLocalSession(session.localId, {
@@ -134,11 +152,16 @@ export async function drainSyncOutbox(): Promise<void> {
   try {
     // Promote interrupted recordings that already have durable audio into the outbox.
     for (const recoverable of listRecoverableRecordingSessions()) {
-      if (getRecordingUri(recoverable.localId)) {
+      const durable =
+        (await ensureDurableRecording(recoverable.localId, recoverable.recordingSourceUri))
+        ?? (await getRecordingUriAsync(recoverable.localId))
+        ?? getRecordingUri(recoverable.localId);
+      if (durable) {
         writeLocalSessionMeta({
           ...recoverable,
           status: "ready_to_sync",
           durationSec: recoverable.durationSec ?? Math.max(1, recoverable.elapsedSec),
+          recordingSourceUri: recoverable.recordingSourceUri ?? durable,
           updatedAt: new Date().toISOString(),
         });
       }

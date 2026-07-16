@@ -14,6 +14,7 @@
 		3AC0CCB5EFD10C5112122642 /* libPods-Tour.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 89B66003E632E9EB007B3899 /* libPods-Tour.a */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		56FCF999F8D3F3A2F6B06F83 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8532350171622913F5A801 /* ExpoModulesProvider.swift */; };
+		7F160B008FE672E86204694F /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A837E1FBE12F075657412A5B /* GoogleService-Info.plist */; };
 		83C41F4AA15BAC60531DFD60 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9685D8EC7F4D9C714A16D456 /* PrivacyInfo.xcprivacy */; };
 		8A97C1F2A3354070B591FCBD /* Image+dynamic.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0E067F6075418C87E2AFFA /* Image+dynamic.swift */; };
 		8ABA38416ACE4C2BBCBB6316 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF87D51896A4418A8CE16568 /* Assets.xcassets */; };
@@ -68,6 +69,7 @@
 		957087FA5B3C4868BDF08949 /* LiveActivityWidget.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; path = LiveActivityWidget.swift; sourceTree = "<group>"; };
 		9685D8EC7F4D9C714A16D456 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Tour/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A515259A4358A7E2C442965D /* Pods-Tour.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Tour.debug.xcconfig"; path = "Target Support Files/Pods-Tour/Pods-Tour.debug.xcconfig"; sourceTree = "<group>"; };
+		A837E1FBE12F075657412A5B /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Tour/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		C432C035BFC447E095027647 /* LiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; fileEncoding = 9; includeInIndex = 0; path = LiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -109,6 +111,7 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				9685D8EC7F4D9C714A16D456 /* PrivacyInfo.xcprivacy */,
+				A837E1FBE12F075657412A5B /* GoogleService-Info.plist */,
 			);
 			name = Tour;
 			sourceTree = "<group>";
@@ -300,6 +303,7 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				83C41F4AA15BAC60531DFD60 /* PrivacyInfo.xcprivacy in Resources */,
+				7F160B008FE672E86204694F /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -371,6 +375,7 @@
 				"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseInstallations/FirebaseInstallations_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleUtilities/GoogleUtilities_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/PromisesObjC/FBLPromises_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/RNCAsyncStorage/RNCAsyncStorage_resources.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/RNSVG/RNSVGFilters.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ReachabilitySwift/ReachabilitySwift.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
@@ -390,6 +395,7 @@
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FirebaseInstallations_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleUtilities_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FBLPromises_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNCAsyncStorage_resources.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNSVGFilters.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ReachabilitySwift.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",

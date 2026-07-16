@@ -2,6 +2,11 @@ import "server-only";
 
 import { Expo, type ExpoPushMessage } from "expo-server-sdk";
 
+import {
+  listPropertyTeamAuthUserIds,
+  notificationPrefsForAuthUser,
+  resolveAuthUserIdFromAgentRef,
+} from "./property-team";
 import { getSupabaseServiceClient } from "./supabase";
 
 const expo = new Expo();
@@ -19,14 +24,16 @@ export const DEFAULT_PUSH_PREFS = {
 
 type PreferenceKey = keyof typeof DEFAULT_PUSH_PREFS;
 
-async function getUserPreference(userId: string, key: PreferenceKey): Promise<boolean> {
-  const supabase = getSupabaseServiceClient();
-  const { data } = await supabase
-    .from("user_profiles")
-    .select("notification_preferences")
-    .eq("user_id", userId)
-    .maybeSingle<{ notification_preferences: Record<string, boolean> | null }>();
-  return Boolean({ ...DEFAULT_PUSH_PREFS, ...(data?.notification_preferences ?? {}) }[key]);
+async function getUserPreference(input: {
+  userId: string;
+  propertyId?: string | null;
+  key: PreferenceKey;
+}): Promise<boolean> {
+  const prefs = await notificationPrefsForAuthUser({
+    propertyId: input.propertyId,
+    userId: input.userId,
+  });
+  return Boolean({ ...DEFAULT_PUSH_PREFS, ...prefs }[input.key]);
 }
 
 async function tokensForUser(userId: string): Promise<string[]> {
@@ -42,14 +49,7 @@ async function tokensForUser(userId: string): Promise<string[]> {
 }
 
 export async function resolveAgentAuthUserId(agentId: string | null | undefined): Promise<string | null> {
-  if (!agentId) return null;
-  const supabase = getSupabaseServiceClient();
-  const { data } = await supabase
-    .from("agents")
-    .select("auth_user_id")
-    .eq("id", agentId)
-    .maybeSingle<{ auth_user_id: string | null }>();
-  return data?.auth_user_id ?? null;
+  return resolveAuthUserIdFromAgentRef(agentId);
 }
 
 export async function sendPushToUser(input: {
@@ -58,8 +58,16 @@ export async function sendPushToUser(input: {
   body: string;
   data?: Record<string, unknown>;
   preferenceKey?: PreferenceKey;
+  propertyId?: string | null;
 }): Promise<{ sent: number }> {
-  if (input.preferenceKey && !(await getUserPreference(input.userId, input.preferenceKey))) {
+  if (
+    input.preferenceKey
+    && !(await getUserPreference({
+      userId: input.userId,
+      propertyId: input.propertyId,
+      key: input.preferenceKey,
+    }))
+  ) {
     return { sent: 0 };
   }
 
@@ -79,37 +87,51 @@ export async function sendPushToUser(input: {
   return { sent };
 }
 
-/** Notify community agents/members about a new session (best-effort). */
+/** Notify about a new session (best-effort). Prefer the checked-in agent when known. */
 export async function notifyNewSession(input: {
   propertyId: string;
   sessionId: string;
   title: string;
+  agentId?: string | null;
+  source?: string | null;
+  autoStartRecording?: boolean;
 }): Promise<void> {
   try {
-    const supabase = getSupabaseServiceClient();
-    const { data: memberships } = await supabase
-      .from("membership_communities")
-      .select("membership_id")
-      .eq("property_id", input.propertyId);
-    const membershipIds = ((memberships ?? []) as Array<{ membership_id: string }>)
-      .map((row) => row.membership_id);
-    if (membershipIds.length === 0) return;
+    const isCheckIn = input.source === "qr";
+    const title = isCheckIn ? "Prospect checked in" : "New tour session";
+    const body = isCheckIn
+      ? `${input.title || "A prospect"} is ready — tap to start recording`
+      : input.title || "A new session was created";
+    const data = {
+      sessionId: input.sessionId,
+      autoStartRecording: Boolean(input.autoStartRecording),
+    };
 
-    const { data: members } = await supabase
-      .from("company_memberships")
-      .select("user_id")
-      .in("id", membershipIds)
-      .eq("status", "active");
-    const userIds = [...new Set(((members ?? []) as Array<{ user_id: string }>).map((row) => row.user_id))];
+    if (input.agentId) {
+      const userId = await resolveAgentAuthUserId(input.agentId);
+      if (userId) {
+        await sendPushToUser({
+          userId,
+          propertyId: input.propertyId,
+          preferenceKey: "newSession",
+          title,
+          body,
+          data,
+        }).catch(() => ({ sent: 0 }));
+        return;
+      }
+    }
 
+    const userIds = await listPropertyTeamAuthUserIds(input.propertyId);
     await Promise.all(
       userIds.map((userId) =>
         sendPushToUser({
           userId,
+          propertyId: input.propertyId,
           preferenceKey: "newSession",
-          title: "New tour session",
-          body: input.title || "A new session was created",
-          data: { sessionId: input.sessionId },
+          title,
+          body,
+          data,
         }).catch(() => ({ sent: 0 })),
       ),
     );
@@ -123,6 +145,7 @@ export async function notifyAnalysisReady(input: {
   sessionId: string;
   title: string;
   overallScore: number | null;
+  propertyId?: string | null;
 }): Promise<void> {
   try {
     const userId = await resolveAgentAuthUserId(input.agentId);
@@ -131,6 +154,7 @@ export async function notifyAnalysisReady(input: {
       typeof input.overallScore === "number" ? ` · ${input.overallScore}%` : "";
     await sendPushToUser({
       userId,
+      propertyId: input.propertyId,
       preferenceKey: "analysisReady",
       title: "Analysis ready",
       body: `${input.title || "Your session"} is ready to review${scoreSuffix}`,
@@ -140,6 +164,7 @@ export async function notifyAnalysisReady(input: {
     if (typeof input.overallScore === "number" && input.overallScore < 70) {
       await notifyLowScore({
         userId,
+        propertyId: input.propertyId,
         sessionId: input.sessionId,
         title: input.title,
         overallScore: input.overallScore,
@@ -156,12 +181,14 @@ export async function notifyLowScore(input: {
   title: string;
   overallScore: number;
   threshold?: number;
+  propertyId?: string | null;
 }): Promise<void> {
   const threshold = input.threshold ?? 70;
   if (!input.userId || input.overallScore >= threshold) return;
   try {
     await sendPushToUser({
       userId: input.userId,
+      propertyId: input.propertyId,
       preferenceKey: "lowScore",
       title: "Low tour score",
       body: `${input.title || "Session"} scored ${input.overallScore}%`,
@@ -182,9 +209,9 @@ export async function notifySessionComment(input: {
     const supabase = getSupabaseServiceClient();
     const { data: session } = await supabase
       .from("sessions")
-      .select("id,title,agent_id")
+      .select("id,title,agent_id,property_id")
       .eq("id", input.sessionId)
-      .maybeSingle<{ id: string; title: string; agent_id: string | null }>();
+      .maybeSingle<{ id: string; title: string; agent_id: string | null; property_id: string | null }>();
     if (!session) return;
 
     const userId = await resolveAgentAuthUserId(session.agent_id);
@@ -194,6 +221,7 @@ export async function notifySessionComment(input: {
     const isMoment = input.kind === "key_moment";
     await sendPushToUser({
       userId,
+      propertyId: session.property_id,
       preferenceKey: "comments",
       title: isMoment ? "New key moment" : "New session comment",
       body: `${input.authorName}: ${preview || (isMoment ? "Added a key moment" : "Left a comment")}`,
@@ -216,7 +244,7 @@ export async function sendUpcomingSessionReminders(windowMinutes = 60): Promise<
 
   const { data, error } = await supabase
     .from("sessions")
-    .select("id,title,agent_id,scheduled_at,reminder_sent_at")
+    .select("id,title,agent_id,property_id,scheduled_at,reminder_sent_at")
     .eq("status", "scheduled")
     .not("agent_id", "is", null)
     .not("scheduled_at", "is", null)
@@ -230,6 +258,7 @@ export async function sendUpcomingSessionReminders(windowMinutes = 60): Promise<
     id: string;
     title: string;
     agent_id: string | null;
+    property_id: string | null;
     scheduled_at: string;
     reminder_sent_at: string | null;
   }>;
@@ -248,6 +277,7 @@ export async function sendUpcomingSessionReminders(windowMinutes = 60): Promise<
     const mins = Math.max(1, Math.round((when.getTime() - now) / 60_000));
     const result = await sendPushToUser({
       userId,
+      propertyId: session.property_id,
       preferenceKey: "sessionReminders",
       title: "Upcoming tour",
       body: `${session.title || "Tour"} starts in about ${mins} min`,
@@ -255,7 +285,6 @@ export async function sendUpcomingSessionReminders(windowMinutes = 60): Promise<
     }).catch(() => ({ sent: 0 }));
 
     sent += result.sent;
-    // Mark attempted so we don't re-spam when prefs/tokens are off.
     await supabase
       .from("sessions")
       .update({ reminder_sent_at: new Date().toISOString() } as never)

@@ -188,19 +188,28 @@ export async function setLocalSessionStatus(
 export async function findOpenLocalQrSession(
   cutoffIso: string,
   propertyId?: string | null,
-  agentId?: string | null
+  agentId?: string | string[] | null
 ): Promise<SessionSummary | null> {
   const store = await loadStore();
+  const agentIds = Array.isArray(agentId)
+    ? agentId.map((value) => value.trim()).filter(Boolean)
+    : agentId?.trim()
+      ? [agentId.trim()]
+      : [];
   return (
     store.sessions
-      .filter(
-        (session) =>
-          session.source === "qr" &&
-          session.status === "in_progress" &&
-          (session.propertyId ?? null) === (propertyId ?? null) &&
-          (session.agentId ?? null) === (agentId ?? null) &&
-          session.createdAt >= cutoffIso
-      )
+      .filter((session) => {
+        if (
+          session.source !== "qr" ||
+          session.status !== "in_progress" ||
+          (session.propertyId ?? null) !== (propertyId ?? null) ||
+          session.createdAt < cutoffIso
+        ) {
+          return false;
+        }
+        if (agentIds.length === 0) return (session.agentId ?? null) === null;
+        return session.agentId != null && agentIds.includes(session.agentId);
+      })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
   );
 }

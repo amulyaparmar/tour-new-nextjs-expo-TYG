@@ -88,15 +88,22 @@ export async function createSession(payload: {
   notes?: string | null;
   rubricId?: string | null;
 }) {
-  const res = await authenticatedFetch("/api/sessions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    throw new Error("Failed to create session.");
+  let res: Response;
+  try {
+    res = await authenticatedFetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (caught) {
+    const detail = caught instanceof Error ? caught.message : "Network request failed";
+    throw new Error(`Could not reach Tour API (${getApiBaseUrl()}): ${detail}`);
   }
-  return (await res.json()) as { session: SessionSummary };
+  const body = await res.json().catch(() => null) as { session?: SessionSummary; error?: string } | null;
+  if (!res.ok || !body?.session) {
+    throw new Error(body?.error ?? "Failed to create session.");
+  }
+  return { session: body.session };
 }
 
 export type CheckInLeadPayload = {

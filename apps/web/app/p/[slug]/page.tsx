@@ -8,7 +8,16 @@ type LeadPageProps = {
   params: Promise<{
     slug: string;
   }>;
+  searchParams: Promise<{
+    "check-in"?: string | string[];
+  }>;
 };
+
+function wantsCheckIn(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const normalized = (raw ?? "").trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
 
 export async function generateMetadata({ params }: LeadPageProps): Promise<Metadata> {
   const { slug } = await params;
@@ -43,8 +52,9 @@ export async function generateMetadata({ params }: LeadPageProps): Promise<Metad
   };
 }
 
-export default async function LeadPage({ params }: LeadPageProps) {
+export default async function LeadPage({ params, searchParams }: LeadPageProps) {
   const { slug } = await params;
+  const query = await searchParams;
   const card = getRepCard(slug);
 
   if (!card) {
@@ -56,6 +66,7 @@ export default async function LeadPage({ params }: LeadPageProps) {
       card={card}
       vCardUrl={vCardDownloadUrl(card.rep)}
       offlineQrUrl={offlineContactQrUrl(card.rep)}
+      initialSheet={wantsCheckIn(query["check-in"]) ? "contact" : "none"}
     />
   );
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { AdminAuthError, requireAdminContext } from "@/lib/admin-auth";
 import { getSupabaseServiceClient } from "@/lib/supabase";
+import { patchPropertyTeamMember } from "@/lib/property-team";
 
 type PropertySettingsRow = {
   alias: string | null;
@@ -85,21 +86,22 @@ export async function PATCH(request: Request) {
     }
 
     const supabase = getSupabaseServiceClient();
+    const propertyId = workspace.community.propertyTygId;
 
-    if (userAlias !== undefined || propertyAlias !== undefined) {
+    if (propertyAlias !== undefined || userAlias !== undefined) {
       const { data: property, error: propertyError } = await supabase
         .from("propertiesTYG")
         .select("alias,metadata")
-        .eq("id", workspace.community.propertyTygId)
+        .eq("id", propertyId)
         .single<PropertySettingsRow>();
       if (propertyError || !property) throw new Error(propertyError?.message ?? "Property not found.");
 
       const metadata = isRecord(property.metadata) ? { ...property.metadata } : {};
       const team = Array.isArray(metadata.property_team)
-        ? metadata.property_team.map((member) => isRecord(member) ? { ...member } : member)
+        ? metadata.property_team.map((member) => (isRecord(member) ? { ...member } : member))
         : [];
-      const memberIndex = team.findIndex((member) =>
-        isRecord(member) && String(member.email ?? "").trim().toLowerCase() === workspace.user.email
+      const memberIndex = team.findIndex(
+        (member) => isRecord(member) && String(member.email ?? "").trim().toLowerCase() === workspace.user.email
       );
       if (memberIndex < 0 || !isRecord(team[memberIndex])) {
         throw new AdminAuthError("Your property-team record could not be found.", 403);
@@ -107,9 +109,13 @@ export async function PATCH(request: Request) {
 
       if (userAlias !== undefined) {
         const duplicate = userAlias && team.some((member, index) =>
-          index !== memberIndex && isRecord(member) && String(member.alias ?? "").trim().toLowerCase() === userAlias
+          index !== memberIndex
+          && isRecord(member)
+          && String(member.alias ?? "").trim().toLowerCase() === userAlias
         );
-        if (duplicate) return NextResponse.json({ error: "That user alias is already used on this property." }, { status: 409 });
+        if (duplicate) {
+          return NextResponse.json({ error: "That user alias is already used on this property." }, { status: 409 });
+        }
         const nextMember = { ...team[memberIndex] };
         if (userAlias) nextMember.alias = userAlias;
         else delete nextMember.alias;
@@ -123,61 +129,35 @@ export async function PATCH(request: Request) {
       const { error: updateError } = await supabase
         .from("propertiesTYG")
         .update(propertyUpdate as never)
-        .eq("id", workspace.community.propertyTygId);
+        .eq("id", propertyId);
       if (updateError?.code === "23505") {
         return NextResponse.json({ error: "That property alias is already in use." }, { status: 409 });
       }
       if (updateError) throw new Error(updateError.message);
     }
 
-    const hasProfileUpdates = name || title !== undefined || phone !== undefined || cardAccentRaw !== undefined;
-    if (hasProfileUpdates) {
-      const profileUpdate: Record<string, string | null> = {
-        updated_at: new Date().toISOString(),
-      };
-      if (name) profileUpdate.full_name = name;
-      if (title !== undefined) profileUpdate.title = title;
-      if (phone !== undefined) profileUpdate.phone = phone;
-      if (cardAccentRaw !== undefined) profileUpdate.card_accent = cardAccentRaw;
+    const memberPatch: Record<string, unknown> = {
+      user_id: workspace.user.id,
+    };
+    if (name) memberPatch.name = name;
+    if (title !== undefined) memberPatch.title = title;
+    if (phone !== undefined) memberPatch.phone = phone;
+    if (cardAccentRaw !== undefined) memberPatch.card_accent = cardAccentRaw;
+    // Alias may already be written above when only aliases change; still ok to re-apply with other fields.
+    if (userAlias !== undefined) memberPatch.alias = userAlias;
 
-      const { error } = await supabase
-        .from("user_profiles")
-        .update(profileUpdate as never)
-        .eq("user_id", workspace.user.id);
-      if (error) throw new Error(error.message);
-
-      // Keep the public check-in card in sync with the live app profile.
-      if (name || title !== undefined || phone !== undefined) {
-        const { data: property, error: propertyError } = await supabase
-          .from("propertiesTYG")
-          .select("alias,metadata")
-          .eq("id", workspace.community.propertyTygId)
-          .single<PropertySettingsRow>();
-        if (!propertyError && property) {
-          const metadata = isRecord(property.metadata) ? { ...property.metadata } : {};
-          const team = Array.isArray(metadata.property_team)
-            ? metadata.property_team.map((member) => (isRecord(member) ? { ...member } : member))
-            : [];
-          const memberIndex = team.findIndex(
-            (member) =>
-              isRecord(member) && String(member.email ?? "").trim().toLowerCase() === workspace.user.email
-          );
-          if (memberIndex >= 0 && isRecord(team[memberIndex])) {
-            const nextMember = { ...team[memberIndex] };
-            if (name) nextMember.name = name;
-            if (title !== undefined) nextMember.role = title || nextMember.role;
-            if (phone !== undefined) {
-              if (phone) nextMember.phone = phone;
-              else delete nextMember.phone;
-            }
-            team[memberIndex] = nextMember;
-            metadata.property_team = team;
-            await supabase
-              .from("propertiesTYG")
-              .update({ metadata, updated_at: new Date().toISOString() } as never)
-              .eq("id", workspace.community.propertyTygId);
-          }
+    if (name || title !== undefined || phone !== undefined || cardAccentRaw !== undefined || userAlias !== undefined) {
+      try {
+        await patchPropertyTeamMember({
+          propertyId,
+          email: workspace.user.email,
+          patch: memberPatch,
+        });
+      } catch (caught) {
+        if (caught instanceof Error && caught.message.includes("property-team record")) {
+          throw new AdminAuthError(caught.message, 403);
         }
+        throw caught;
       }
     }
 

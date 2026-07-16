@@ -15,6 +15,7 @@ import {
   copyRecordingToDurableStore,
   createLocalSession,
   deleteLocalSession,
+  ensureDurableRecording,
   updateLocalSession,
   writeCheckpoint,
 } from "../offline/session-local-store";
@@ -461,9 +462,11 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       await configureRecordingAudioMode(false);
       const uri = activeRecorder.uri;
       const id = localIdRef.current;
+      let durableUri = uri;
       if (id && uri) {
-        copyRecordingToDurableStore(id, uri);
         writeCheckpoint(id, durationSec, uri);
+        durableUri = (await ensureDurableRecording(id, uri)) ?? uri;
+        copyRecordingToDurableStore(id, durableUri);
       }
       setIsRecording(false);
       setIsPaused(false);
@@ -472,7 +475,7 @@ export function RecordingProvider({ children, onNotify }: RecordingProviderProps
       waveformLevelsRef.current = EMPTY_WAVEFORM;
       setWaveformLevels(EMPTY_WAVEFORM);
       setExperienceVisible(false);
-      return uri ? { uri, durationSec } : null;
+      return durableUri ? { uri: durableUri, durationSec } : null;
     } catch {
       await configureRecordingAudioMode(false).catch(() => {});
       setIsRecording(false);

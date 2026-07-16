@@ -51,7 +51,10 @@ export async function getPropertyRepCard(
       .order("id", { ascending: true })
       .limit(500);
     if (teamError) throw new Error(teamError.message);
-    property = ((teamProperties ?? []) as PropertyRepRow[]).find((row) =>
+    const propertyRows: PropertyRepRow[] = Array.isArray(teamProperties as unknown)
+      ? (teamProperties as unknown[]).filter(isPropertyRepRow)
+      : [];
+    property = propertyRows.find((row) =>
       toPublicAlias(row.alias) === propertyKey || toPublicAlias(row.name) === propertyKey
     ) ?? null;
   }
@@ -113,6 +116,12 @@ function cleanString(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPropertyRepRow(value: unknown): value is PropertyRepRow {
+  if (!isRecord(value) || typeof value.id !== "string") return false;
+  return [value.name, value.alias, value.website, value.thumbnail_url, value.property_manager]
+    .every((field) => field === null || typeof field === "string");
 }
 
 function initialsForName(name: string) {

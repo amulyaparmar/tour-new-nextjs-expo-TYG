@@ -149,6 +149,14 @@
   gap: 5px;
 }
 
+.exportSpinner {
+  animation: export-spin 0.75s linear infinite;
+}
+
+@keyframes export-spin {
+  to { transform: rotate(360deg); }
+}
+
 .participantEditorRoot {
   position: relative;
   display: inline-flex;

@@ -71,6 +71,11 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
         description:
           "Exactly 9 words summarizing conversation outcome and what happened for session list cards — interest, decisions, objections, next step — not agent performance critique",
       },
+      performanceSummary: {
+        type: "string",
+        description:
+          "Exactly 9 words: punchy agent-performance takeaway for session list cards (executive coaching lens)",
+      },
       needsImprovement: {
         type: "string",
         description: "One short sentence: the single most important coaching improvement for list cards",
@@ -127,6 +132,7 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
       "totalPointsPossible",
       "summary",
       "cardSummary",
+      "performanceSummary",
       "needsImprovement",
       "strengths",
       "opportunities",
@@ -297,6 +303,7 @@ function safeParseAnalysis(parsed: Record<string, unknown>): AnalysisResult | nu
       totalPointsPossible: totalPossible,
       summary: String(parsed.summary ?? ""),
       cardSummary: String(parsed.cardSummary ?? ""),
+      performanceSummary: String(parsed.performanceSummary ?? ""),
       needsImprovement: String(parsed.needsImprovement ?? ""),
       strengths: parsed.strengths as string[],
       opportunities: parsed.opportunities as string[],
@@ -312,6 +319,7 @@ function safeParseAnalysis(parsed: Record<string, unknown>): AnalysisResult | nu
       totalPointsPossible: totalPossible,
       summary: String(parsed.summary ?? ""),
       cardSummary: cardFields.cardSummary ?? "",
+      performanceSummary: cardFields.performanceSummary ?? "",
       needsImprovement: cardFields.needsImprovement ?? "",
       strengths: parsed.strengths as string[],
       opportunities: parsed.opportunities as string[],

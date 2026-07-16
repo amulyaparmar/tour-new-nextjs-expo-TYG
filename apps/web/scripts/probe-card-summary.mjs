@@ -60,9 +60,10 @@ const TOOL = {
     type: "object",
     properties: {
       cardSummary: { type: "string" },
+      performanceSummary: { type: "string" },
       needsImprovement: { type: "string" },
     },
-    required: ["cardSummary", "needsImprovement"],
+    required: ["cardSummary", "performanceSummary", "needsImprovement"],
   },
 };
 
@@ -70,6 +71,7 @@ const OLD_SYSTEM = [
   "You are an expert mystery shopping evaluator for apartment leasing tours.",
   "From the transcript only, write list-card fields.",
   "- cardSummary must be exactly 9 words (no more) for list cards — punchy performance takeaway.",
+  "- performanceSummary should match cardSummary (legacy performance lens).",
   "- needsImprovement must be one short sentence: the single most important coaching fix.",
   "Return ONLY via the submit_card_summary tool.",
 ].join("\n");
@@ -80,6 +82,7 @@ const NEW_SYSTEM = [
   "- cardSummary must be exactly 9 words (no more, no filler padding).",
   "- cardSummary is an outcome brief: what happened and where things stand — interest level, objections, decisions, next step, urgency — not a judgment of agent skill.",
   "- Prefer concrete tour substance over coaching language (avoid: \"warm discovery\", \"weak close\", \"missed rapport\").",
+  "- performanceSummary must be exactly 9 words — punchy agent-performance takeaway (executive coaching lens).",
   "- needsImprovement must be one short sentence: the single most important coaching fix.",
   "Return ONLY via the submit_card_summary tool.",
 ].join("\n");
@@ -133,7 +136,7 @@ async function invokeCardSummary(system, session, transcriptText) {
 const { data: sessions, error } = await supabase
   .from("sessions")
   .select(
-    "id,title,prospect_name,agent_name,location,card_summary,needs_improvement,status,created_at,transcript_json"
+    "id,title,prospect_name,agent_name,location,card_summary,performance_summary,needs_improvement,status,created_at,transcript_json"
   )
   .order("created_at", { ascending: false })
   .limit(50);
@@ -165,6 +168,7 @@ for (const session of picked) {
     `prospect=${session.prospect_name ?? "—"} | agent=${session.agent_name ?? "—"} | segs=${transcript.length} | ~${Math.round(durationSec / 60)}m`
   );
   console.log(`stored cardSummary: ${session.card_summary ?? "(null)"}`);
+  console.log(`stored performanceSummary: ${session.performance_summary ?? "(null)"}`);
   console.log(`stored needsImprovement: ${session.needs_improvement ?? "(null)"}`);
 
   const [oldResult, newResult] = await Promise.all([
@@ -174,9 +178,11 @@ for (const session of picked) {
 
   const oldSummary = String(oldResult.cardSummary ?? "").trim();
   const newSummary = String(newResult.cardSummary ?? "").trim();
+  const newPerf = String(newResult.performanceSummary ?? "").trim();
   console.log(`\nOLD (${wordCount(oldSummary)}w): ${oldSummary}`);
   console.log(`    needsImprovement: ${String(oldResult.needsImprovement ?? "").trim()}`);
-  console.log(`NEW (${wordCount(newSummary)}w): ${newSummary}`);
+  console.log(`NEW outcome (${wordCount(newSummary)}w): ${newSummary}`);
+  console.log(`NEW performance (${wordCount(newPerf)}w): ${newPerf}`);
   console.log(`    needsImprovement: ${String(newResult.needsImprovement ?? "").trim()}`);
   console.log("");
 }

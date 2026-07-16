@@ -20,6 +20,7 @@ export type SessionCardFields = {
   createdAt?: string | null;
   location?: string | null;
   cardSummary?: string | null;
+  performanceSummary?: string | null;
   needsImprovement?: string | null;
 };
 
@@ -142,25 +143,29 @@ export function clipToWordCount(
   return words.slice(0, maxWords).join(" ");
 }
 
-/** Nine-word summary + primary improvement line. */
+/** Outcome blurb + performance takeaway + primary improvement line. */
 export function formatSessionCardDescription(fields: SessionCardFields): string | null {
-  const summary = clipToWordCount(fields.cardSummary);
+  const outcome = clipToWordCount(fields.cardSummary);
+  const performance = clipToWordCount(fields.performanceSummary);
   const improvement = fields.needsImprovement?.trim() || null;
-  if (summary && improvement) return `${summary} ${improvement}`;
-  return summary ?? improvement;
+  const parts = [outcome, performance, improvement].filter(Boolean);
+  return parts.length > 0 ? parts.join(" ") : null;
 }
 
 export function cardFieldsFromAnalysis(result: AnalysisResult | null | undefined): {
   cardSummary: string | null;
+  performanceSummary: string | null;
   needsImprovement: string | null;
 } {
   if (!result) {
-    return { cardSummary: null, needsImprovement: null };
+    return { cardSummary: null, performanceSummary: null, needsImprovement: null };
   }
 
-  const cardSummary =
-    clipToWordCount(result.cardSummary) ??
-    clipToWordCount(result.summary);
+  const cardSummary = clipToWordCount(result.cardSummary);
+  const performanceSummary =
+    clipToWordCount(result.performanceSummary) ??
+    // Older analyses only had a performance-style cardSummary / executive summary.
+    (!cardSummary ? clipToWordCount(result.summary) : null);
 
   const needsImprovement =
     result.needsImprovement?.trim() ||
@@ -170,7 +175,11 @@ export function cardFieldsFromAnalysis(result: AnalysisResult | null | undefined
       ?.trim() ||
     null;
 
-  return { cardSummary, needsImprovement };
+  return {
+    cardSummary: cardSummary ?? (!performanceSummary ? clipToWordCount(result.summary) : null),
+    performanceSummary,
+    needsImprovement,
+  };
 }
 
 /** @deprecated Use formatSessionCardTitle */
@@ -183,6 +192,7 @@ export function analysisPreviewFromResult(result: AnalysisResult | null | undefi
   const fields = cardFieldsFromAnalysis(result);
   return {
     analysisSummary: fields.cardSummary,
+    performanceSummary: fields.performanceSummary,
     needsImprovement: fields.needsImprovement,
   };
 }

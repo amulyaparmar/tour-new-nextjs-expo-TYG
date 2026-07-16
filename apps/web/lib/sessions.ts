@@ -85,11 +85,12 @@ type SessionRow = {
   created_at: string;
   audio_insights_status: AudioInsightsStatus | null;
   card_summary?: string | null;
+  performance_summary?: string | null;
   needs_improvement?: string | null;
 };
 
 const SESSION_COLUMNS =
-  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,leads,attachments,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,card_summary,needs_improvement";
+  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,leads,attachments,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,card_summary,performance_summary,needs_improvement";
 
 type AnalysisRow = {
   id: string;
@@ -1024,6 +1025,7 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     createdAt: row.created_at,
     audioInsightsStatus: normalizeAudioInsightsStatus(row.audio_insights_status),
     cardSummary: row.card_summary?.trim() || null,
+    performanceSummary: row.performance_summary?.trim() || null,
     needsImprovement: row.needs_improvement?.trim() || null,
   };
 }

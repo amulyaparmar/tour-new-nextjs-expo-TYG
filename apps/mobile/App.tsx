@@ -272,6 +272,7 @@ function localSessionToSummary(local: LocalSessionMeta): SessionSummary {
     createdAt: local.createdAt,
     audioInsightsStatus: "pending",
     cardSummary: null,
+    performanceSummary: null,
     needsImprovement: null,
   };
 }
@@ -1330,7 +1331,7 @@ function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrar
                     <Text style={homeSt.tourMeta} numberOfLines={1}>{session.prospectName ?? session.agentName ?? "Guest ready for tour"}</Text>
                   </View>
                   {formatSessionCardDescription(session) ? (
-                    <Text style={homeSt.tourMeta} numberOfLines={2}>{formatSessionCardDescription(session)}</Text>
+                    <Text style={homeSt.tourMeta} numberOfLines={3}>{formatSessionCardDescription(session)}</Text>
                   ) : null}
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
@@ -1479,7 +1480,7 @@ function SessionRow({ session, onPress, isLast }: { session: SessionSummary; onP
         <Text style={st.sessionTitle} numberOfLines={1}>{session.title}</Text>
         <Text style={st.sessionMeta} numberOfLines={1}>{formatSessionCardMeta(session)}</Text>
         {formatSessionCardDescription(session) ? (
-          <Text style={st.sessionMeta} numberOfLines={2}>{formatSessionCardDescription(session)}</Text>
+          <Text style={st.sessionMeta} numberOfLines={3}>{formatSessionCardDescription(session)}</Text>
         ) : null}
       </View>
       <TourStatusBadge label={label} bg={colors.bg} color={colors.text} />
@@ -1606,7 +1607,7 @@ function SessionListSwipeRow({
             {checkedInSummary || formatSessionCardMeta(session)}
           </Text>
           {formatSessionCardDescription(session) ? (
-            <Text style={slst.sessionDescription} numberOfLines={2}>
+            <Text style={slst.sessionDescription} numberOfLines={3}>
               {formatSessionCardDescription(session)}
             </Text>
           ) : null}
@@ -2269,7 +2270,7 @@ function CalendarScreen({
                     <Text style={homeSt.tourMeta} numberOfLines={1}>{session.prospectName ?? "Prospect details pending"}</Text>
                   </View>
                   {formatSessionCardDescription(session) ? (
-                    <Text style={homeSt.tourMeta} numberOfLines={2}>{formatSessionCardDescription(session)}</Text>
+                    <Text style={homeSt.tourMeta} numberOfLines={3}>{formatSessionCardDescription(session)}</Text>
                   ) : null}
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={C.textMuted} />

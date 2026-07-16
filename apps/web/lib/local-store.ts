@@ -115,6 +115,7 @@ export async function createLocalSession(input: {
     createdAt: new Date().toISOString(),
     audioInsightsStatus: "pending",
     cardSummary: null,
+    performanceSummary: null,
     needsImprovement: null,
     notes: input.notes ?? null,
     videoUrl: null,
@@ -329,6 +330,7 @@ export async function saveLocalAnalysisRun(
     session.status = "analysis_ready";
     session.overallScore = analysis.overallScore;
     session.cardSummary = analysis.cardSummary || null;
+    session.performanceSummary = analysis.performanceSummary || null;
     session.needsImprovement = analysis.needsImprovement || null;
   }
 

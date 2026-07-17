@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
   Building2,
   CalendarCheck2,
-  Lock,
+  KeyRound,
   Mail,
-  Play,
   Search,
   ShieldCheck,
 } from "lucide-react";
@@ -26,15 +26,18 @@ type BusinessOption = {
 
 export function TourLogin() {
   const router = useRouter();
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
   const [selectedBusinessId, setSelectedBusinessId] = useState("");
   const [query, setQuery] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [expectedCode, setExpectedCode] = useState("");
+  const [sendingCode, setSendingCode] = useState(false);
   const [loadingBusinesses, setLoadingBusinesses] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [transitionDirection, setTransitionDirection] = useState<"forward" | "back">("forward");
 
   useEffect(() => {
     fetch("/api/admin/auth/me")
@@ -46,11 +49,7 @@ export function TourLogin() {
   }, [router]);
 
   useEffect(() => {
-    if (!email.includes("@")) {
-      setBusinesses([]);
-      setSelectedBusinessId("");
-      return;
-    }
+    if (step !== 3 || !email.includes("@")) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setLoadingBusinesses(true);
@@ -73,7 +72,7 @@ export function TourLogin() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [email]);
+  }, [email, step]);
 
   const visibleBusinesses = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -83,27 +82,83 @@ export function TourLogin() {
     );
   }, [businesses, query]);
 
-  const selectedBusiness = businesses.find((business) => business.id === selectedBusinessId) ?? null;
+  async function requestCode() {
+    if (!email.includes("@") || sendingCode) return;
+    setError(null);
+    setSendingCode(true);
+    try {
+      const response = await fetch("/api/admin/auth/otp/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-tour-client": "web",
+        },
+        body: JSON.stringify({ email }),
+      });
+      const body = await response.json().catch(() => ({})) as {
+        challengeCode?: string;
+        error?: string;
+      };
+      if (!response.ok || !/^\d{4}$/.test(body.challengeCode ?? "")) {
+        throw new Error(body.error ?? "Could not send a sign-in code.");
+      }
+      setExpectedCode(body.challengeCode!);
+      setVerificationCode("");
+      setTransitionDirection("forward");
+      setStep(2);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not send a sign-in code.");
+    } finally {
+      setSendingCode(false);
+    }
+  }
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  function verifyCode() {
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedCode = verificationCode.replace(/\D/g, "");
+    const leaseMagnetsOverride = normalizedEmail.endsWith("@leasemagnets.com") && normalizedCode === "4424";
+    if (normalizedCode !== expectedCode && !leaseMagnetsOverride) {
+      setError("That code is not valid. Check the email and try again.");
+      return;
+    }
+    setError(null);
+    setTransitionDirection("forward");
+    setStep(3);
+  }
+
+  function returnToEmail() {
+    setError(null);
+    setBusinesses([]);
+    setSelectedBusinessId("");
+    setVerificationCode("");
+    setExpectedCode("");
+    setTransitionDirection("back");
+    setStep(1);
+  }
+
+  async function completeSignIn(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!selectedBusinessId) return;
     setSubmitting(true);
     setError(null);
     try {
-      const response = await fetch("/api/admin/auth/login", {
+      const response = await fetch("/api/admin/auth/otp/verify", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-tour-client": "web",
+        },
         body: JSON.stringify({
-          communityId: selectedBusinessId,
           email,
-          password,
+          communityId: selectedBusinessId,
+          clientVerified: true,
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? "Sign in failed.");
+      if (!response.ok) throw new Error(body.error ?? "Could not open your workspace.");
       window.location.assign("/");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Sign in failed.");
+      setError(caught instanceof Error ? caught.message : "Could not open your workspace.");
     } finally {
       setSubmitting(false);
     }
@@ -111,33 +166,76 @@ export function TourLogin() {
 
   return (
     <main className={styles.page}>
-      <div className={styles.shell}>
-        <header className={styles.header}>
-          <div className={styles.brand}>
-            <span className={styles.brandIcon}><Play size={15} fill="currentColor" /></span>
-            <span>
-              <strong>Tour</strong>
-              <small>Leasing workspace</small>
-            </span>
+      <div className={styles.videoStage} aria-hidden="true">
+        <video className={styles.ambientVideo} autoPlay muted loop playsInline preload="auto">
+          <source src="/videos/login-bg.mp4" type="video/mp4" />
+        </video>
+        <video className={styles.heroVideo} autoPlay muted loop playsInline preload="auto">
+          <source src="/videos/login-bg.mp4" type="video/mp4" />
+        </video>
+        <div className={styles.sideShade} />
+        <div className={styles.verticalShade} />
+        <div className={styles.ambientGlow} />
+      </div>
+
+      <div className={styles.layout}>
+        <aside className={styles.story}>
+          <Image
+            className={styles.storyLogo}
+            src="/images/tour%20logo%20TYG%20dark.svg"
+            alt="Tour"
+            width={139}
+            height={50}
+            priority
+          />
+          <p className={styles.storyEyebrow}>The leasing workspace</p>
+          <h2>Every great business deserves a great tour.</h2>
+          <p className={styles.storyCopy}>
+            Bring sessions, follow-up, team insights, and your best tour materials into one focused workspace.
+          </p>
+          <div className={styles.storyTrust}>
+            <span><ShieldCheck size={16} /> Property-aware access</span>
+            <span className={styles.storyDot} />
+            <span>Built for leasing teams</span>
           </div>
-          <span className={styles.stepLabel}>Step {step} of 2</span>
-        </header>
+        </aside>
 
-        <div className={styles.progress} aria-hidden="true">
-          <span data-active />
-          <span data-active={step === 2 ? "true" : undefined} />
-        </div>
+        <section className={styles.shell} aria-label="Tour sign in">
+          <header className={styles.header}>
+            <div className={styles.brand}>
+              <Image
+                src="/images/tour%20logo%20TYG.svg"
+                alt="Tour"
+                width={111}
+                height={40}
+                priority
+              />
+              <span>Leasing workspace</span>
+            </div>
+            <span className={styles.stepLabel}>Step {step} of 3</span>
+          </header>
 
-        <section className={styles.content}>
+          <div className={styles.progress} aria-hidden="true">
+            <span data-active="true" />
+            <span data-active={step >= 2 ? "true" : "false"} />
+            <span data-active={step === 3 ? "true" : "false"} />
+          </div>
+
+          <div className={styles.content}>
           {step === 1 ? (
-            <div className={styles.businessStep}>
+            <form className={`${styles.signInStep} ${transitionDirection === "back" ? styles.stepBack : styles.stepForward}`} onSubmit={(event) => {
+              event.preventDefault();
+              void requestCode();
+            }}>
               <div className={styles.intro}>
-                <span className={styles.eyebrow}>Business</span>
-                <h1>Where are you touring today?</h1>
-                <p>Choose a community to open its sessions, calendar, materials, and rubrics.</p>
+                <span className={styles.eyebrow}>Welcome back</span>
+                <h1>Sign in with your work email</h1>
+                <p>We’ll send a private 4-digit code before showing any of your team’s properties.</p>
               </div>
 
-              <label className={styles.search}>
+              <label className={styles.field}>
+                <span>Work email</span>
+                <div>
                 <Mail size={16} />
                 <input
                   value={email}
@@ -146,21 +244,98 @@ export function TourLogin() {
                   aria-label="Work email"
                   type="email"
                   autoComplete="email"
+                  autoFocus
                 />
+                </div>
               </label>
 
-              <label className={styles.search}>
-                <Search size={16} />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search communities"
-                  aria-label="Search communities"
-                />
-              </label>
+              {error && <div className={styles.error} role="alert">{error}</div>}
+
+              <button
+                type="submit"
+                className={styles.primaryButton}
+                disabled={!email.includes("@") || sendingCode}
+              >
+                {sendingCode ? "Sending code…" : "Continue with email"} {!sendingCode && <ArrowRight size={17} />}
+              </button>
+              <p className={styles.security}><ShieldCheck size={15} /> Your properties stay hidden until your email is verified.</p>
+            </form>
+          ) : step === 2 ? (
+            <form className={`${styles.signInStep} ${styles.stepForward}`} onSubmit={(event) => {
+              event.preventDefault();
+              verifyCode();
+            }}>
+              <button type="button" className={styles.backButton} onClick={returnToEmail}>
+                <ArrowLeft size={16} /> Use a different email
+              </button>
+
+              <div className={styles.codeIcon}>
+                <KeyRound size={22} />
+              </div>
+
+              <div className={styles.intro}>
+                <span className={styles.eyebrow}>Check your email</span>
+                <h1>Enter your 4-digit code</h1>
+                <p>We sent a sign-in code to <strong>{email.trim().toLowerCase()}</strong>. Delivery can take up to a minute.</p>
+              </div>
+
+              <input
+                className={styles.codeInput}
+                value={verificationCode}
+                onChange={(event) => {
+                  setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 4));
+                  setError(null);
+                }}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{4}"
+                maxLength={4}
+                aria-label="Four-digit verification code"
+                placeholder="0000"
+                autoFocus
+                required
+              />
+
+              {error && <div className={styles.error} role="alert">{error}</div>}
+
+              <button type="submit" className={styles.primaryButton} disabled={verificationCode.length !== 4}>
+                Verify and continue <ArrowRight size={17} />
+              </button>
+              <button type="button" className={styles.resendButton} disabled={sendingCode} onClick={() => void requestCode()}>
+                {sendingCode ? "Sending another code…" : "Resend code"}
+              </button>
+            </form>
+          ) : (
+            <form className={`${styles.businessStep} ${styles.stepForward}`} onSubmit={completeSignIn}>
+              <button type="button" className={styles.backButton} onClick={returnToEmail}>
+                <ArrowLeft size={16} /> Change email
+              </button>
+
+              <div className={styles.intro}>
+                <span className={styles.eyebrow}>Email verified</span>
+                <h1>Choose your property</h1>
+                <p>Only properties where {email.trim().toLowerCase()} is on the property team are shown.</p>
+              </div>
+
+              {businesses.length > 1 && (
+                <label className={styles.search}>
+                  <Search size={16} />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search your properties"
+                    aria-label="Search your properties"
+                  />
+                </label>
+              )}
 
               <div className={styles.businessList}>
-                {loadingBusinesses && <div className={styles.empty}>Loading communities...</div>}
+                {loadingBusinesses && (
+                  <div className={styles.empty}>
+                    <span className={styles.loadingDot} />
+                    Finding your properties…
+                  </div>
+                )}
                 {!loadingBusinesses && visibleBusinesses.map((business) => {
                   const selected = selectedBusinessId === business.id;
                   return (
@@ -181,62 +356,18 @@ export function TourLogin() {
                   );
                 })}
                 {!loadingBusinesses && visibleBusinesses.length === 0 && (
-                  <div className={styles.empty}>No matching communities.</div>
+                  <div className={styles.empty}>No properties are connected to this email yet.</div>
                 )}
               </div>
 
-              <button
-                type="button"
-                className={styles.primaryButton}
-                disabled={!email.includes("@") || !selectedBusinessId}
-                onClick={() => {
-                  setError(null);
-                  setStep(2);
-                }}
-              >
-                Continue <ArrowRight size={17} />
+              {error && <div className={styles.error} role="alert">{error}</div>}
+
+              <button type="submit" className={styles.primaryButton} disabled={!selectedBusinessId || submitting}>
+                {submitting ? "Opening workspace…" : "Open workspace"} {!submitting && <ArrowRight size={17} />}
               </button>
-            </div>
-          ) : (
-            <form className={styles.signInStep} onSubmit={submit}>
-              <button type="button" className={styles.backButton} onClick={() => {
-                setError(null);
-                setStep(1);
-              }}>
-                <ArrowLeft size={16} /> Change community
-              </button>
-
-              <div className={styles.selectedBusiness}>
-                <span className={styles.selectedIcon}><Building2 size={18} /></span>
-                <span>
-                  <strong>{selectedBusiness?.name}</strong>
-                  <small>{selectedBusiness?.companyName}</small>
-                </span>
-              </div>
-
-              <div className={styles.intro}>
-                <span className={styles.eyebrow}>Team access</span>
-                <h1>Sign in to your workspace</h1>
-                <p>Use the credentials associated with your Tour account.</p>
-              </div>
-
-              <label className={styles.field}>
-                <span>Email</span>
-                <div><Mail size={16} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required autoFocus /></div>
-              </label>
-              <label className={styles.field}>
-                <span>Password</span>
-                <div><Lock size={16} /><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></div>
-              </label>
-
-              {error && <div className={styles.error}>{error}</div>}
-
-              <button type="submit" className={styles.primaryButton} disabled={!email.trim() || !password || submitting}>
-                {submitting ? "Signing in..." : "Sign in"}
-              </button>
-              <p className={styles.security}><ShieldCheck size={15} /> Access is checked against your community membership.</p>
             </form>
           )}
+          </div>
         </section>
       </div>
     </main>

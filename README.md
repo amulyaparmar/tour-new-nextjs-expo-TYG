@@ -1,4 +1,4 @@
-# Tour Hub
+# Tour Hub TYG
 
 Tour Hub is a shared workspace for leasing and sales teams to manage everything around property tours. The web dashboard is meant for managers and operators who need a central place for tour knowledge, sales materials, media, recordings, AI notes, objections, questions, and follow-up tasks. The mobile app is meant for leasing agents in the field so they can prepare for tours, record conversations, review AI-generated recaps, and send the right materials after each visit.
 
@@ -100,3 +100,5 @@ Use the checked-in example files as templates:
 - `apps/mobile/.env.example`
 
 The web app can use server-side secrets in local or deployment env vars. The mobile app must only use public Supabase values, such as `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
+
+TYG

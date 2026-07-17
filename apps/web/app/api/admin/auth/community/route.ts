@@ -8,6 +8,7 @@ import {
   adminCookieOptions,
   authAccessCookieMaxAge,
   createSupabaseAnonClient,
+  createMobileWorkspacePayload,
   propertySessionKeys,
   readAdminCookie,
   requireAdminContext,
@@ -33,7 +34,11 @@ export async function POST(request: Request) {
       workspace.community.propertyTygId,
       propertySessionKeys(workspace.community)
     );
-    const response = NextResponse.json({ workspace });
+    const response = NextResponse.json({
+      workspace: request.headers.get("x-tour-client") === "mobile"
+        ? createMobileWorkspacePayload(workspace)
+        : workspace,
+    });
     response.cookies.set(
       ADMIN_COMMUNITY_COOKIE,
       workspace.community.id,

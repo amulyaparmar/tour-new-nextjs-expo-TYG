@@ -281,6 +281,21 @@ function buildWorkspaceForAccess(
   };
 }
 
+export function createMobileWorkspacePayload(workspace: AdminWorkspace, limit = 25): AdminWorkspace {
+  const selectedId = workspace.community.id;
+  const summaries = workspace.communities.map((community) => ({
+    ...community,
+    teamMembers: [],
+  }));
+  const selected =
+    workspace.community;
+  const remaining = summaries.filter((community) => !communityMatches(community, selectedId));
+  return {
+    ...workspace,
+    communities: [selected, ...remaining].slice(0, Math.max(1, limit)),
+  };
+}
+
 export async function listAccessibleBusinessOptionsForEmail(input: {
   email: string;
   query?: string;

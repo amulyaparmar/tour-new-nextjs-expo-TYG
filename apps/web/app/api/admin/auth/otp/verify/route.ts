@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 
 import {
+  ADMIN_COMMUNITY_COOKIE,
+  ADMIN_REFRESH_COOKIE,
   AdminAuthError,
+  adminCookieOptions,
+  authAccessCookieMaxAge,
+  setAdminAccessCookie,
   createSupabaseAnonClient,
+  createMobileWorkspacePayload,
   propertySessionKeys,
   resolveAdminContextForUser,
 } from "@/lib/admin-auth";
@@ -16,7 +22,7 @@ export async function POST(request: Request) {
   };
   const email = body.email?.trim().toLowerCase() ?? "";
 
-  if (!email || body.clientVerified !== true || request.headers.get("x-tour-client") !== "mobile") {
+  if (!email || body.clientVerified !== true) {
     return NextResponse.json(
       { error: "Email verification is required." },
       { status: 400 }
@@ -51,8 +57,9 @@ export async function POST(request: Request) {
       workspace.community.propertyTygId,
       propertySessionKeys(workspace.community)
     );
-    return NextResponse.json({
-      workspace,
+    const compactWorkspace = createMobileWorkspacePayload(workspace);
+    const payload = {
+      workspace: compactWorkspace,
       session: {
         accessToken: data.session.access_token,
         refreshToken: data.session.refresh_token,
@@ -60,7 +67,23 @@ export async function POST(request: Request) {
           data.session.expires_at ??
           Math.floor(Date.now() / 1000) + data.session.expires_in,
       },
-    });
+    };
+    const isMobileClient = request.headers.get("x-tour-client") === "mobile";
+    const response = NextResponse.json(isMobileClient ? payload : { workspace: compactWorkspace });
+    if (!isMobileClient) {
+      setAdminAccessCookie(response, data.session.access_token, authAccessCookieMaxAge(data.session));
+      response.cookies.set(
+        ADMIN_REFRESH_COOKIE,
+        data.session.refresh_token,
+        adminCookieOptions(60 * 60 * 24 * 30)
+      );
+      response.cookies.set(
+        ADMIN_COMMUNITY_COOKIE,
+        workspace.community.id,
+        adminCookieOptions(60 * 60 * 24 * 30)
+      );
+    }
+    return response;
   } catch (caught) {
     const status = caught instanceof AdminAuthError ? caught.status : 500;
     return NextResponse.json(

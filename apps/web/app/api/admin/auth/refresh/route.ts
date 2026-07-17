@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
   AdminAuthError,
   createSupabaseAnonClient,
+  createMobileWorkspacePayload,
   resolveAdminContextForUser,
 } from "@/lib/admin-auth";
 
@@ -28,8 +29,11 @@ export async function POST(request: Request) {
     }
 
     const workspace = await resolveAdminContextForUser(data.user, body.communityId);
+    const responseWorkspace = request.headers.get("x-tour-client") === "mobile"
+      ? createMobileWorkspacePayload(workspace)
+      : workspace;
     return NextResponse.json({
-      workspace,
+      workspace: responseWorkspace,
       session: {
         accessToken: data.session.access_token,
         refreshToken: data.session.refresh_token,

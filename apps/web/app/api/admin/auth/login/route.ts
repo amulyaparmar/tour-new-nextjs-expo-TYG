@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
 import {
-  ADMIN_ACCESS_COOKIE,
   ADMIN_COMMUNITY_COOKIE,
   ADMIN_REFRESH_COOKIE,
   AdminAuthError,
   adminCookieOptions,
+  authAccessCookieMaxAge,
+  setAdminAccessCookie,
   createSupabaseAnonClient,
   propertySessionKeys,
   resolveAdminContextForUser,
@@ -71,11 +72,7 @@ export async function POST(request: Request) {
           }
         : {}),
     });
-    response.cookies.set(
-      ADMIN_ACCESS_COOKIE,
-      data.session.access_token,
-      adminCookieOptions(Math.max(60, data.session.expires_in))
-    );
+    setAdminAccessCookie(response, data.session.access_token, authAccessCookieMaxAge(data.session));
     response.cookies.set(
       ADMIN_REFRESH_COOKIE,
       data.session.refresh_token,

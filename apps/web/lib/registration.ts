@@ -4,11 +4,12 @@ import type { Session, User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 import {
-  ADMIN_ACCESS_COOKIE,
   ADMIN_COMMUNITY_COOKIE,
   ADMIN_REFRESH_COOKIE,
   adminCookieOptions,
+  authAccessCookieMaxAge,
   resolveAdminContextForUser,
+  setAdminAccessCookie,
 } from "./admin-auth";
 import { getSupabaseServiceClient } from "./supabase";
 
@@ -34,11 +35,7 @@ export function registrationSessionResponse(
   session: Session
 ) {
   const response = NextResponse.json({ workspace, verified: true });
-  response.cookies.set(
-    ADMIN_ACCESS_COOKIE,
-    session.access_token,
-    adminCookieOptions(Math.max(60, session.expires_in))
-  );
+  setAdminAccessCookie(response, session.access_token, authAccessCookieMaxAge(session));
   response.cookies.set(
     ADMIN_REFRESH_COOKIE,
     session.refresh_token,

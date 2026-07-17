@@ -27,6 +27,7 @@
     "@smithy/eventstream-codec": "^4.4.6",
     "@smithy/util-utf8": "^4.2.0",
     "@supabase/supabase-js": "^2.108.1",
+    "@tanstack/react-query": "^5.101.2",
     "@tour/shared": "*",
     "ai": "^7.0.14",
     "expo-server-sdk": "^6.1.0",

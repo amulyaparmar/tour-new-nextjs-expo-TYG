@@ -1,13 +1,11 @@
 import "server-only";
 
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 import {
-  ADMIN_COMMUNITY_COOKIE,
   AdminAuthError,
-  readAdminCookie,
   requireAdminContext,
-  resolveFallbackAdminContext,
 } from "./admin-auth";
 
 export async function requireTourWorkspace() {
@@ -19,8 +17,23 @@ export async function requireTourWorkspace() {
     return await requireAdminContext(request);
   } catch (caught) {
     if (caught instanceof AdminAuthError) {
-      return resolveFallbackAdminContext(readAdminCookie(request, ADMIN_COMMUNITY_COOKIE));
+      if (caught.status === 401) {
+        redirect(`/api/admin/auth/refresh-web?next=${encodeURIComponent(currentPath(requestHeaders))}`);
+      }
+      redirect("/login");
     }
     throw caught;
   }
+}
+
+function currentPath(requestHeaders: Headers) {
+  const forwardedPath =
+    requestHeaders.get("x-tour-pathname") ??
+    requestHeaders.get("x-next-url") ??
+    requestHeaders.get("next-url") ??
+    requestHeaders.get("x-matched-path");
+  if (forwardedPath?.startsWith("/") && !forwardedPath.startsWith("//")) {
+    return forwardedPath;
+  }
+  return "/";
 }

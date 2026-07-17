@@ -361,8 +361,7 @@ export function LoginScreen({
 function shouldShowTestCode(email: string, emailSent: boolean, expectedCode: string) {
   if (!/^\d{4}$/.test(expectedCode)) return false;
   if (__DEV__) return true;
-  if (!emailSent) return true;
-  return email.trim().toLowerCase().endsWith("@leasemagnets.com");
+  return false;
 }
 
 function LoginHeader({

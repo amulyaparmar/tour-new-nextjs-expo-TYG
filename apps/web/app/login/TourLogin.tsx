@@ -556,8 +556,10 @@ function stepLabel(step: LoginStep) {
 function shouldShowTestCode(email: string, emailSent: boolean, expectedCode: string) {
   if (!/^\d{4}$/.test(expectedCode)) return false;
   if (process.env.NODE_ENV !== "production") return true;
-  if (!emailSent) return true;
-  return email.trim().toLowerCase().endsWith("@leasemagnets.com");
+  if (typeof window !== "undefined") {
+    return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+  }
+  return false;
 }
 
 function postLoginPath() {

@@ -9,6 +9,15 @@ export const ADMIN_ACCESS_COOKIE = "tour_admin_access_token";
 export const ADMIN_REFRESH_COOKIE = "tour_admin_refresh_token";
 export const ADMIN_COMMUNITY_COOKIE = "tour_admin_community";
 const DEFAULT_TOUR_COMMUNITY_ID = "community:548";
+const COOKIE_CHUNK_SIZE = 3500;
+const MAX_ACCESS_COOKIE_CHUNKS = 6;
+
+type CookieResponse = {
+  cookies: {
+    set(name: string, value: string, options?: ReturnType<typeof adminCookieOptions>): unknown;
+    delete(name: string): unknown;
+  };
+};
 
 export type AdminRole = "admin" | "manager" | "member";
 
@@ -57,6 +66,15 @@ export type AdminWorkspace = {
   };
   community: AdminCommunity;
   communities: AdminCommunity[];
+};
+
+export type AdminBusinessOption = {
+  id: string;
+  name: string;
+  companyName: string;
+  gmbId: string | null;
+  alias: string | null;
+  calendarConnected: boolean;
 };
 
 /** Canonical storage key first, followed by any legacy session key still in use. */
@@ -139,7 +157,7 @@ export function createSupabaseAnonClient() {
 }
 
 export async function requireAdminContext(request: Request): Promise<AdminWorkspace> {
-  const token = readBearerToken(request) ?? readCookie(request, ADMIN_ACCESS_COOKIE);
+  const token = readBearerToken(request) ?? readChunkedCookie(request, ADMIN_ACCESS_COOKIE);
   if (!token) throw new AdminAuthError("Sign in is required.");
 
   const supabase = getSupabaseServiceClient();
@@ -154,11 +172,15 @@ export async function requireAdminContext(request: Request): Promise<AdminWorksp
 }
 
 export function hasAdminSession(request: Request) {
-  return Boolean(readBearerToken(request) ?? readAdminCookie(request, ADMIN_ACCESS_COOKIE));
+  return Boolean(readBearerToken(request) ?? readChunkedCookie(request, ADMIN_ACCESS_COOKIE));
 }
 
 export function readAdminCookie(request: Request, name: string) {
   return readCookie(request, name);
+}
+
+export function readAdminAccessCookie(request: Request) {
+  return readChunkedCookie(request, ADMIN_ACCESS_COOKIE);
 }
 
 export async function resolveAdminContextForUser(
@@ -167,10 +189,19 @@ export async function resolveAdminContextForUser(
 ): Promise<AdminWorkspace> {
   const email = normalizeEmail(user.email);
   if (!email) throw new AdminAuthError("A work email is required.", 403);
+  const requestedPropertyId = cleanString(requestedCommunityId);
 
-  const teamProperties = await listPropertyTeamRows();
+  if (requestedPropertyId && !requestedPropertyId.startsWith("community:")) {
+    const requestedAccess = await resolvePropertyAccessById(requestedPropertyId, email);
+    if (!requestedAccess) {
+      throw new AdminAuthError("You do not have access to the selected business.", 403);
+    }
+    return buildWorkspaceForAccess(user, email, [requestedAccess], requestedAccess);
+  }
+
+  const teamProperties = await listPropertyTeamRows({ email });
   const preliminary = teamProperties
-    .map((row) => resolvePropertyAccess(row, email, user, new Map()))
+    .map((row) => resolvePropertyAccess(row, email, new Map()))
     .filter((entry): entry is ResolvedPropertyAccess => Boolean(entry));
 
   const placeIdsNeedingLegacy = preliminary
@@ -202,6 +233,15 @@ export async function resolveAdminContextForUser(
   const selected = accessible.find((entry) => communityMatches(entry.community, requestedCommunityId)) ?? accessible[0];
   if (!selected) throw new AdminAuthError("No available property was found.", 403);
 
+  return buildWorkspaceForAccess(user, email, accessible, selected);
+}
+
+function buildWorkspaceForAccess(
+  user: User,
+  email: string,
+  accessible: ResolvedPropertyAccess[],
+  selected: ResolvedPropertyAccess
+): AdminWorkspace {
   // Stamp auth user id onto the active property-team member when missing (do not block auth).
   if (!selected.teamMember.userId || selected.teamMember.userId !== user.id) {
     selected.teamMember = { ...selected.teamMember, userId: user.id };
@@ -239,6 +279,41 @@ export async function resolveAdminContextForUser(
       teamMembers: [],
     })),
   };
+}
+
+export async function listAccessibleBusinessOptionsForEmail(input: {
+  email: string;
+  query?: string;
+  limit?: number;
+}): Promise<AdminBusinessOption[]> {
+  const email = normalizeEmail(input.email);
+  if (!email) return [];
+  const query = cleanString(input.query).toLowerCase();
+  const limit = Math.max(1, Math.min(input.limit ?? 50, 1000));
+  const rows = await listPropertyTeamRows({ query, stopAfterMatches: limit, email });
+  const businesses: AdminBusinessOption[] = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    if (seen.has(row.id)) continue;
+    const access = resolvePropertyAccess(row, email, new Map());
+    if (!access) continue;
+    if (query && !businessMatchesQuery(access.community, query)) continue;
+    seen.add(row.id);
+    businesses.push({
+      id: access.community.id,
+      name: access.community.name,
+      companyName: access.community.companyName ?? emailDomain(email) ?? "Property team",
+      gmbId: access.community.gmbId,
+      alias: access.community.alias,
+      calendarConnected: false,
+    });
+    if (businesses.length >= limit) break;
+  }
+
+  return businesses.sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+  );
 }
 
 async function listLegacyTourCommunities(placeIds: Array<string | null>) {
@@ -291,31 +366,77 @@ type ResolvedPropertyAccess = {
   organizationId: string;
 };
 
-async function listPropertyTeamRows(): Promise<PropertyTeamRow[]> {
+async function listPropertyTeamRows(options: {
+  query?: string;
+  stopAfterMatches?: number;
+  email?: string;
+} = {}): Promise<PropertyTeamRow[]> {
   const supabase = getSupabaseServiceClient();
   const rows: PropertyTeamRow[] = [];
   const pageSize = 1000;
+  const query = cleanString(options.query).toLowerCase();
+  const email = normalizeEmail(options.email);
+  const stopAfterMatches = options.stopAfterMatches ?? 0;
+  let matches = 0;
 
   for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabase
+    let request = supabase
       .from("propertiesTYG")
       .select("id,name,alias,place_id,tour_video_id,property_manager,metadata")
       .not("metadata->property_team", "is", null)
-      .order("id", { ascending: true })
-      .range(from, from + pageSize - 1);
+      .order("name", { ascending: true });
+    if (email) {
+      request = request.filter("metadata->property_team", "cs", JSON.stringify([{ email }]));
+    }
+    if (query) {
+      const pattern = `*${escapePostgrestPattern(query)}*`;
+      request = request.or([
+        `name.ilike.${pattern}`,
+        `alias.ilike.${pattern}`,
+        `property_manager.ilike.${pattern}`,
+        `id.ilike.${pattern}`,
+      ].join(","));
+    }
+    const { data, error } = await request.range(from, from + pageSize - 1);
     if (error) throw new Error(error.message);
     const batch = (data ?? []) as PropertyTeamRow[];
     rows.push(...batch);
+    if (stopAfterMatches > 0 && email) {
+      matches += batch.filter((row) => propertyTeamHasEmail(row.metadata, email)).length;
+      if (matches >= stopAfterMatches) break;
+    }
     if (batch.length < pageSize) break;
   }
 
   return rows;
 }
 
+async function resolvePropertyAccessById(
+  propertyId: string,
+  email: string
+): Promise<ResolvedPropertyAccess | null> {
+  const row = await loadPropertyTeamRowById(propertyId);
+  if (!row) return null;
+
+  const placeId = cleanString(row.place_id);
+  const legacyTourCommunities = await listLegacyTourCommunities([placeId || null]);
+  return resolvePropertyAccess(row, email, legacyTourCommunities);
+}
+
+async function loadPropertyTeamRowById(propertyId: string): Promise<PropertyTeamRow | null> {
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("propertiesTYG")
+    .select("id,name,alias,place_id,tour_video_id,property_manager,metadata")
+    .eq("id", propertyId)
+    .maybeSingle<PropertyTeamRow>();
+  if (error) throw new Error(error.message);
+  return data ?? null;
+}
+
 function resolvePropertyAccess(
   row: PropertyTeamRow,
   email: string,
-  user: User,
   legacyTourCommunities: Map<string, LegacyTourCommunityRow>
 ): ResolvedPropertyAccess | null {
   const team = normalizePropertyTeam(row.metadata);
@@ -350,6 +471,20 @@ function resolvePropertyAccess(
       teamMembers: visibleTeam,
     },
   };
+}
+
+function businessMatchesQuery(community: AdminCommunity, query: string) {
+  if (!query) return true;
+  return [
+    community.name,
+    community.alias,
+    community.companyName,
+    community.propertyTygId,
+  ].some((value) => cleanString(value).toLowerCase().includes(query));
+}
+
+function propertyTeamHasEmail(metadata: unknown, email: string) {
+  return normalizePropertyTeam(metadata).some((member) => member.email === email);
 }
 
 function normalizeLegacyGmbId(value: unknown) {
@@ -455,6 +590,10 @@ function emailDomain(value: unknown) {
 
 function cleanString(value: unknown) {
   return typeof value === "string" ? value.trim() : value === null || value === undefined ? "" : String(value).trim();
+}
+
+function escapePostgrestPattern(value: string) {
+  return value.replace(/[%*_\\]/g, (char) => `\\${char}`).replace(/,/g, "\\,");
 }
 
 function slugify(value: string) {
@@ -605,6 +744,43 @@ export function adminCookieOptions(maxAge: number) {
   };
 }
 
+export function setAdminAccessCookie(
+  response: CookieResponse,
+  token: string,
+  maxAge: number
+) {
+  deleteAdminAccessCookies(response);
+  const options = adminCookieOptions(maxAge);
+  if (token.length <= COOKIE_CHUNK_SIZE) {
+    response.cookies.set(ADMIN_ACCESS_COOKIE, token, options);
+    return;
+  }
+  const chunks = token.match(new RegExp(`.{1,${COOKIE_CHUNK_SIZE}}`, "g")) ?? [];
+  chunks.forEach((chunk, index) => {
+    response.cookies.set(`${ADMIN_ACCESS_COOKIE}.${index}`, chunk, options);
+  });
+}
+
+export function deleteAdminAccessCookies(response: CookieResponse) {
+  response.cookies.delete(ADMIN_ACCESS_COOKIE);
+  for (let index = 0; index < MAX_ACCESS_COOKIE_CHUNKS; index += 1) {
+    response.cookies.delete(`${ADMIN_ACCESS_COOKIE}.${index}`);
+  }
+}
+
+export function authAccessCookieMaxAge(session: {
+  expires_at?: number | null;
+  expires_in?: number | null;
+}) {
+  if (typeof session.expires_at === "number" && Number.isFinite(session.expires_at)) {
+    return Math.max(60, session.expires_at - Math.floor(Date.now() / 1000));
+  }
+  if (typeof session.expires_in === "number" && Number.isFinite(session.expires_in)) {
+    return Math.max(60, session.expires_in);
+  }
+  return 60 * 60;
+}
+
 function readCookie(request: Request, name: string) {
   const cookieHeader = request.headers.get("cookie");
   if (!cookieHeader) return null;
@@ -616,6 +792,19 @@ function readCookie(request: Request, name: string) {
     }
   }
   return null;
+}
+
+function readChunkedCookie(request: Request, name: string) {
+  const direct = readCookie(request, name);
+  if (direct) return direct;
+
+  const chunks: string[] = [];
+  for (let index = 0; index < MAX_ACCESS_COOKIE_CHUNKS; index += 1) {
+    const chunk = readCookie(request, `${name}.${index}`);
+    if (!chunk) break;
+    chunks.push(chunk);
+  }
+  return chunks.length > 0 ? chunks.join("") : null;
 }
 
 function companyForCommunity(row: CommunityRow) {
@@ -638,14 +827,22 @@ function communityDisplayInput(
 async function listFallbackCommunities(): Promise<CommunityRow[]> {
   try {
     const supabase = getSupabaseServiceClient();
-    const { data, error } = await supabase
-      .from("propertiesTYG")
-      .select("id,name,tour_video_id,place_id,alias,property_manager")
-      .order("name", { ascending: true })
-      .limit(100);
+    const data: unknown[] = [];
+    const pageSize = 1000;
 
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []).map((row) => {
+    for (let from = 0; ; from += pageSize) {
+      const { data: batch, error } = await supabase
+        .from("propertiesTYG")
+        .select("id,name,tour_video_id,place_id,alias,property_manager")
+        .order("name", { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (error) throw new Error(error.message);
+      data.push(...(batch ?? []));
+      if ((batch ?? []).length < pageSize) break;
+    }
+
+    const rows = data.map((row) => {
       const property = row as {
         id: string;
         name: string | null;

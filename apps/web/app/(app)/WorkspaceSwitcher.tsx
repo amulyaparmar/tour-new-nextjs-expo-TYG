@@ -2,11 +2,18 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Building2, Check, ChevronDown, IdCard, LogIn, Plus, Search, Video } from "lucide-react";
 
 type CommunityOption = {
+  id: string;
+  name: string;
+  alias: string | null;
+};
+
+type BusinessOption = {
   id: string;
   name: string;
   alias: string | null;
@@ -35,8 +42,29 @@ export function WorkspaceSwitcher({
   const [selectedUser, setSelectedUser] = useState<UserOption | null>(null);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState("");
+  const [propertySearch, setPropertySearch] = useState("");
 
   const users = useMemo(() => buildUserOptions(user), [user]);
+  const linkedPropertiesQuery = useQuery({
+    queryKey: ["admin-auth", "linked-properties", user.email],
+    queryFn: fetchLinkedProperties,
+    enabled: Boolean(user.email),
+    placeholderData: communities,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+  const linkedProperties = linkedPropertiesQuery.data ?? communities;
+  const visibleProperties = useMemo(() => {
+    const query = propertySearch.trim().toLowerCase();
+    if (!query) return linkedProperties;
+    return linkedProperties.filter((community) =>
+      `${community.name} ${community.alias ?? ""}`.toLowerCase().includes(query)
+    );
+  }, [linkedProperties, propertySearch]);
+  const propertyLoading = linkedPropertiesQuery.isFetching && !linkedPropertiesQuery.dataUpdatedAt;
+  const propertyError = linkedPropertiesQuery.error instanceof Error
+    ? linkedPropertiesQuery.error.message
+    : null;
   const visibleUsers = useMemo(() => {
     const query = userSearch.trim().toLowerCase();
     if (!query) return users;
@@ -59,6 +87,7 @@ export function WorkspaceSwitcher({
         setOpenMenu(null);
         setProfileView("users");
         setUserSearch("");
+        setPropertySearch("");
       }
     }
     document.addEventListener("mousedown", closeOnOutsideClick);
@@ -69,6 +98,7 @@ export function WorkspaceSwitcher({
     if (communityId === currentCommunity.id || switchingId) {
       setOpenMenu(null);
       setProfileView("users");
+      setPropertySearch("");
       return;
     }
 
@@ -82,6 +112,7 @@ export function WorkspaceSwitcher({
       if (!response.ok) throw new Error("Could not switch property.");
       setOpenMenu(null);
       setProfileView("users");
+      setPropertySearch("");
       router.refresh();
     } finally {
       setSwitchingId(null);
@@ -92,6 +123,7 @@ export function WorkspaceSwitcher({
     setOpenMenu((open) => open === "profile" ? null : "profile");
     setProfileView("users");
     setUserSearch("");
+    setPropertySearch("");
   }
 
   function selectUser(item: UserOption) {
@@ -107,6 +139,7 @@ export function WorkspaceSwitcher({
     await fetch("/api/admin/auth/logout", { method: "POST" }).catch(() => {});
     setOpenMenu(null);
     setProfileView("users");
+    setPropertySearch("");
     router.push("/login");
   }
 
@@ -129,9 +162,13 @@ export function WorkspaceSwitcher({
           <div className="top-popover top-popover-property" role="menu">
             <div className="top-popover-heading">Switch property</div>
             <PropertyList
-              communities={communities}
+              communities={visibleProperties}
               currentCommunityId={currentCommunity.id}
               switchingId={switchingId}
+              search={propertySearch}
+              loading={propertyLoading}
+              error={propertyError}
+              onSearch={setPropertySearch}
               onSelect={switchCommunity}
             />
           </div>
@@ -223,9 +260,13 @@ export function WorkspaceSwitcher({
                   Properties for {selectedUser?.name ?? "user"}
                 </div>
                 <PropertyList
-                  communities={communities}
+                  communities={visibleProperties}
                   currentCommunityId={currentCommunity.id}
                   switchingId={switchingId}
+                  search={propertySearch}
+                  loading={propertyLoading}
+                  error={propertyError}
+                  onSearch={setPropertySearch}
                   onSelect={switchCommunity}
                 />
               </>
@@ -237,39 +278,83 @@ export function WorkspaceSwitcher({
   );
 }
 
+async function fetchLinkedProperties(): Promise<CommunityOption[]> {
+  const params = new URLSearchParams({
+    limit: "1000",
+  });
+  const response = await fetch(`/api/admin/auth/businesses?${params.toString()}`, {
+    cache: "no-store",
+    credentials: "same-origin",
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !Array.isArray(body.businesses)) {
+    throw new Error(body.error ?? "Could not load properties.");
+  }
+  return body.businesses.map((business: BusinessOption) => ({
+    id: business.id,
+    name: business.name,
+    alias: business.alias,
+  }));
+}
+
 function PropertyList({
   communities,
   currentCommunityId,
   switchingId,
+  search,
+  loading,
+  error,
+  onSearch,
   onSelect,
 }: {
   communities: CommunityOption[];
   currentCommunityId: string;
   switchingId: string | null;
+  search: string;
+  loading: boolean;
+  error: string | null;
+  onSearch: (value: string) => void;
   onSelect: (communityId: string) => void;
 }) {
   return (
-    <div className="top-property-list">
-      {communities.map((community) => {
-        const active = community.id === currentCommunityId;
-        return (
-          <button
-            type="button"
-            key={community.id}
-            className={`top-property-option ${active ? "top-property-option-active" : ""}`}
-            disabled={switchingId === community.id}
-            onClick={() => onSelect(community.id)}
-          >
-            <span className="top-property-icon"><Building2 size={14} aria-hidden="true" /></span>
-            <span>
-              <strong>{community.name}</strong>
-              {community.alias && <small>{community.alias}</small>}
-            </span>
-            {active && <Check size={15} aria-hidden="true" />}
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <label className="top-property-search">
+        <Search size={14} aria-hidden="true" />
+        <input
+          value={search}
+          onChange={(event) => onSearch(event.target.value)}
+          placeholder="Search properties"
+          aria-label="Search properties"
+        />
+      </label>
+      <div className="top-property-count">
+        {loading ? "Searching properties…" : `${communities.length} matching properties`}
+      </div>
+      <div className="top-property-list">
+        {communities.map((community) => {
+          const active = community.id === currentCommunityId;
+          return (
+            <button
+              type="button"
+              key={community.id}
+              className={`top-property-option ${active ? "top-property-option-active" : ""}`}
+              disabled={switchingId === community.id}
+              onClick={() => onSelect(community.id)}
+            >
+              <span className="top-property-icon"><Building2 size={14} aria-hidden="true" /></span>
+              <span>
+                <strong>{community.name}</strong>
+                {community.alias && <small>{community.alias}</small>}
+              </span>
+              {active && <Check size={15} aria-hidden="true" />}
+            </button>
+          );
+        })}
+        {communities.length === 0 && (
+          <div className="top-empty-state">{error ?? "No matching properties"}</div>
+        )}
+      </div>
+    </>
   );
 }
 

@@ -83,6 +83,7 @@ export async function POST(request: Request) {
         adminCookieOptions(60 * 60 * 24 * 30)
       );
     }
+    response.headers.set("Cache-Control", "private, no-store");
     return response;
   } catch (caught) {
     const status = caught instanceof AdminAuthError ? caught.status : 500;

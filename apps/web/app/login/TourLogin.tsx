@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -8,7 +9,6 @@ import {
   Building2,
   Mail,
   MapPin,
-  Play,
   Search,
   ShieldCheck,
   Sparkles,
@@ -79,6 +79,7 @@ export function TourLogin() {
   const [searchingClaim, setSearchingClaim] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [transitionDirection, setTransitionDirection] = useState<"forward" | "back">("forward");
 
   useEffect(() => {
     fetch("/api/admin/auth/me", { credentials: "same-origin" })
@@ -140,8 +141,9 @@ export function TourLogin() {
     return () => window.clearTimeout(timer);
   }, [propertyQuery, step, workspace]);
 
-  function go(next: LoginStep) {
+  function go(next: LoginStep, direction: "forward" | "back" = "forward") {
     setError(null);
+    setTransitionDirection(direction);
     setStep(next);
   }
 
@@ -315,27 +317,64 @@ export function TourLogin() {
 
   return (
     <main className={styles.page}>
-      <div className={styles.shell}>
-        <header className={styles.header}>
-          <div className={styles.brand}>
-            <span className={styles.brandIcon}><Play size={15} fill="currentColor" /></span>
-            <span>
-              <strong>Tour</strong>
-              <small>Property-team workspace</small>
-            </span>
+      <div className={styles.videoStage} aria-hidden="true">
+        <video className={styles.ambientVideo} autoPlay muted loop playsInline preload="auto">
+          <source src="/videos/login-bg.mp4" type="video/mp4" />
+        </video>
+        <video className={styles.heroVideo} autoPlay muted loop playsInline preload="auto">
+          <source src="/videos/login-bg.mp4" type="video/mp4" />
+        </video>
+        <div className={styles.sideShade} />
+        <div className={styles.verticalShade} />
+        <div className={styles.ambientGlow} />
+      </div>
+
+      <div className={styles.layout}>
+        <aside className={styles.story}>
+          <Image
+            className={styles.storyLogo}
+            src="/images/tour%20logo%20TYG%20dark.svg"
+            alt="Tour"
+            width={139}
+            height={50}
+            priority
+          />
+          <p className={styles.storyEyebrow}>The leasing workspace</p>
+          <h2>Every great business deserves a great tour.</h2>
+          <p className={styles.storyCopy}>
+            Bring sessions, follow-up, team insights, and your best tour materials into one focused workspace.
+          </p>
+          <div className={styles.storyTrust}>
+            <span><ShieldCheck size={16} /> Property-aware access</span>
+            <span className={styles.storyDot} />
+            <span>Built for leasing teams</span>
           </div>
-          <span className={styles.stepLabel}>{stepLabel(step)}</span>
-        </header>
+        </aside>
 
-        <div className={styles.progress} aria-hidden="true">
-          <span data-active />
-          <span data-active={step !== "email" ? "true" : undefined} />
-          <span data-active={["property", "claim", "register", "signup-code"].includes(step) ? "true" : undefined} />
-        </div>
+        <section className={styles.shell} aria-label="Tour sign in">
+          <header className={styles.header}>
+            <div className={styles.brand}>
+              <Image
+                src="/images/tour%20logo%20TYG.svg"
+                alt="Tour"
+                width={111}
+                height={40}
+                priority
+              />
+              <span>Property-team workspace</span>
+            </div>
+            <span className={styles.stepLabel}>{stepLabel(step)}</span>
+          </header>
 
-        <section className={styles.content}>
+          <div className={styles.progress} aria-hidden="true">
+            <span data-active="true" />
+            <span data-active={step !== "email" ? "true" : "false"} />
+            <span data-active={["property", "claim", "register", "signup-code"].includes(step) ? "true" : "false"} />
+          </div>
+
+          <div className={styles.content}>
           {step === "email" && (
-            <div className={styles.businessStep}>
+            <div className={`${styles.businessStep} ${transitionDirection === "back" ? styles.stepBack : styles.stepForward}`}>
               <div className={styles.intro}>
                 <span className={styles.eyebrow}>Access</span>
                 <h1>Start with your work email</h1>
@@ -383,8 +422,8 @@ export function TourLogin() {
           )}
 
           {step === "code" && (
-            <div className={styles.signInStep}>
-              <BackButton label="Use a different email" onClick={() => go("email")} />
+            <div className={`${styles.signInStep} ${styles.stepForward}`}>
+              <BackButton label="Use a different email" onClick={() => go("email", "back")} />
               <div className={styles.intro}>
                 <span className={styles.eyebrow}>Verification</span>
                 <h1>Check your email</h1>
@@ -414,8 +453,8 @@ export function TourLogin() {
           )}
 
           {step === "property" && workspace && (
-            <div className={styles.businessStep}>
-              <BackButton label="Back to email" onClick={() => go("email")} />
+            <div className={`${styles.businessStep} ${transitionDirection === "back" ? styles.stepBack : styles.stepForward}`}>
+              <BackButton label="Back to email" onClick={() => go("email", "back")} />
               <div className={styles.intro}>
                 <span className={styles.eyebrow}>Property</span>
                 <h1>Choose where you’re working today</h1>
@@ -460,8 +499,8 @@ export function TourLogin() {
           )}
 
           {step === "claim" && (
-            <div className={styles.businessStep}>
-              <BackButton label="Back to email" onClick={() => go("email")} />
+            <div className={`${styles.businessStep} ${transitionDirection === "back" ? styles.stepBack : styles.stepForward}`}>
+              <BackButton label="Back to email" onClick={() => go("email", "back")} />
               <div className={styles.intro}>
                 <span className={styles.eyebrow}>Claim property</span>
                 <h1>Find your community</h1>
@@ -491,8 +530,8 @@ export function TourLogin() {
           )}
 
           {step === "register" && selectedClaim && (
-            <div className={styles.signInStep}>
-              <BackButton label="Choose another property" onClick={() => go("claim")} />
+            <div className={`${styles.signInStep} ${transitionDirection === "back" ? styles.stepBack : styles.stepForward}`}>
+              <BackButton label="Choose another property" onClick={() => go("claim", "back")} />
               <div className={styles.selectedBusiness}>
                 <span className={styles.selectedIcon}><Building2 size={18} /></span>
                 <span>
@@ -516,8 +555,8 @@ export function TourLogin() {
           )}
 
           {step === "signup-code" && (
-            <div className={styles.signInStep}>
-              <BackButton label="Back" onClick={() => go("register")} />
+            <div className={`${styles.signInStep} ${styles.stepForward}`}>
+              <BackButton label="Back" onClick={() => go("register", "back")} />
               <div className={styles.intro}>
                 <span className={styles.eyebrow}>Final check</span>
                 <h1>Verify your account</h1>
@@ -530,6 +569,7 @@ export function TourLogin() {
               </button>
             </div>
           )}
+          </div>
         </section>
       </div>
     </main>

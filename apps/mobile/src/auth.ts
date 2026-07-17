@@ -205,12 +205,19 @@ export async function restoreSession() {
   }
 }
 
-export async function listBusinesses(query = "") {
-  const response = await fetch(
-    `${apiBaseUrl()}/api/admin/auth/businesses${query ? `?q=${encodeURIComponent(query)}` : ""}`
-  );
+export async function listBusinesses(query = "", options: { email?: string; limit?: number } = {}) {
+  const params = new URLSearchParams();
+  const normalizedQuery = query.trim();
+  if (normalizedQuery) params.set("q", normalizedQuery);
+  if (options.email?.trim()) params.set("email", options.email.trim().toLowerCase());
+  params.set("limit", String(options.limit ?? 50));
+  const path = `/api/admin/auth/businesses?${params.toString()}`;
+  const response = currentSession
+    ? await authenticatedFetch(path, { cache: "no-store" })
+    : await fetch(`${apiBaseUrl()}${path}`, { cache: "no-store" });
   const body = await response.json().catch(() => null) as {
     businesses?: BusinessOption[];
+    hasMore?: boolean;
     error?: string;
   } | null;
   if (!response.ok) throw new Error(body?.error ?? "Could not load communities.");
@@ -261,11 +268,11 @@ export async function requestSignInCode(email: string) {
     deliveryError?: string;
     error?: string;
   } | null;
-  if (response.ok && /^\d{4}$/.test(body.challengeCode ?? "")) {
+  if (response.ok && /^\d{4}$/.test(body?.challengeCode ?? "")) {
     return {
-      email: body.email ?? normalizedEmail,
-      expectedCode: body.challengeCode!,
-      emailSent: body.sent !== false,
+      email: body?.email ?? normalizedEmail,
+      expectedCode: body!.challengeCode!,
+      emailSent: body?.sent !== false,
     } satisfies MobileSignInChallenge;
   }
   if (response.status === 404 || response.status === 405) {
@@ -339,7 +346,7 @@ async function requestSignInCodeDirect(email: string) {
   if (!response.ok || !body?.success) {
     throw new Error(body?.message ?? deliveryErrorForStatus(response.status));
   }
-  return { email, expectedCode } satisfies MobileSignInChallenge;
+  return { email, expectedCode, emailSent: true } satisfies MobileSignInChallenge;
 }
 
 function encodeReportAccessValue(value: string) {

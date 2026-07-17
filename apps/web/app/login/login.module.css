@@ -74,7 +74,7 @@
 
 .progress {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-top: 26px;
 }
@@ -168,6 +168,13 @@
   overflow-y: auto;
   border-block: 1px solid #dfe3eb;
   background: white;
+}
+
+.resultCount {
+  margin-top: 10px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .businessRow {
@@ -264,6 +271,27 @@
   opacity: 0.45;
 }
 
+.secondaryButton {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid #d9deea;
+  border-radius: 6px;
+  background: white;
+  color: #344054;
+  font-size: 14px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.secondaryButton:hover {
+  background: #f7f8fb;
+}
+
 .backButton {
   display: flex;
   align-items: center;
@@ -319,6 +347,53 @@
   padding: 10px 12px;
   color: #b42318;
   font-size: 13px;
+}
+
+.statusCard,
+.testCodeCard {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #eff6ff;
+  padding: 12px;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.statusCard svg,
+.testCodeCard svg {
+  flex: 0 0 auto;
+}
+
+.testCodeCard {
+  flex-direction: column;
+  align-items: flex-start;
+  border-color: #d9deea;
+  background: white;
+  color: #172033;
+  cursor: pointer;
+}
+
+.testCodeCard span {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.testCodeCard strong {
+  font-size: 28px;
+  letter-spacing: 0;
+}
+
+.testCodeCard small {
+  color: #667085;
+  font-size: 12px;
 }
 
 .security {

@@ -8,6 +8,7 @@ import {
   authAccessCookieMaxAge,
   setAdminAccessCookie,
   createSupabaseAnonClient,
+  createMobileWorkspacePayload,
   propertySessionKeys,
   resolveAdminContextForUser,
 } from "@/lib/admin-auth";
@@ -60,8 +61,9 @@ export async function POST(request: Request) {
     );
 
     const isMobileClient = request.headers.get("x-tour-client") === "mobile";
+    const responseWorkspace = isMobileClient ? createMobileWorkspacePayload(workspace) : workspace;
     const response = NextResponse.json({
-      workspace,
+      workspace: responseWorkspace,
       ...(isMobileClient
         ? {
             session: {

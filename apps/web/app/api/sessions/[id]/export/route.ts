@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 
+import { AdminAuthError, requireAdminContext } from "@/lib/admin-auth";
 import { getAnalysisRun, getSessionById, getTranscript } from "@/lib/sessions";
 import { buildSessionReportPdf } from "@/lib/session-report-pdf";
 import { enrichSessionWithAgentName } from "@/lib/session-participants";
-import { requireTourWorkspace } from "@/lib/tour-auth";
 
 export const runtime = "nodejs";
 
@@ -15,7 +15,7 @@ export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
 
   try {
-    const workspace = await requireTourWorkspace();
+    const workspace = await requireAdminContext(request);
     const rawSession = await getSessionById(id);
     if (!rawSession || rawSession.propertyId !== workspace.community.id) {
       return NextResponse.json({ error: "Session not found." }, { status: 404 });
@@ -59,6 +59,9 @@ export async function GET(request: Request, context: Context) {
       },
     });
   } catch (error) {
+    if (error instanceof AdminAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to export session report." },
       { status: 500 }

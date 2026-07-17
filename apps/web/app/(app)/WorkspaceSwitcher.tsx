@@ -45,15 +45,16 @@ export function WorkspaceSwitcher({
   const [propertySearch, setPropertySearch] = useState("");
 
   const users = useMemo(() => buildUserOptions(user), [user]);
+  const isFallbackWorkspace = user.id === "tour-demo-user";
   const linkedPropertiesQuery = useQuery({
     queryKey: ["admin-auth", "linked-properties", user.email],
     queryFn: fetchLinkedProperties,
-    enabled: Boolean(user.email),
+    enabled: !isFallbackWorkspace && Boolean(user.email),
     placeholderData: communities,
     staleTime: 10 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
   });
-  const linkedProperties = linkedPropertiesQuery.data ?? communities;
+  const linkedProperties = isFallbackWorkspace ? communities : linkedPropertiesQuery.data ?? communities;
   const visibleProperties = useMemo(() => {
     const query = propertySearch.trim().toLowerCase();
     if (!query) return linkedProperties;
@@ -80,6 +81,25 @@ export function WorkspaceSwitcher({
       : null;
     if (savedUser) setSelectedUser(savedUser);
   }, [users]);
+
+  useEffect(() => {
+    if (!isFallbackWorkspace) return;
+    let cancelled = false;
+    fetch("/api/admin/auth/me", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json().catch(() => null);
+      })
+      .then((body) => {
+        if (!cancelled && body?.workspace?.user?.id && body.workspace.user.id !== "tour-demo-user") {
+          router.refresh();
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isFallbackWorkspace, router]);
 
   useEffect(() => {
     function closeOnOutsideClick(event: MouseEvent) {
@@ -161,16 +181,16 @@ export function WorkspaceSwitcher({
         {openMenu === "property" && (
           <div className="top-popover top-popover-property" role="menu">
             <div className="top-popover-heading">Switch property</div>
-            <PropertyList
-              communities={visibleProperties}
-              currentCommunityId={currentCommunity.id}
-              switchingId={switchingId}
-              search={propertySearch}
-              loading={propertyLoading}
-              error={propertyError}
-              onSearch={setPropertySearch}
-              onSelect={switchCommunity}
-            />
+        <PropertyList
+          communities={visibleProperties}
+          currentCommunityId={currentCommunity.id}
+          switchingId={switchingId}
+          search={propertySearch}
+          loading={propertyLoading}
+          error={propertyError}
+          onSearch={setPropertySearch}
+          onSelect={switchCommunity}
+        />
           </div>
         )}
       </div>

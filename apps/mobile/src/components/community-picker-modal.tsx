@@ -16,9 +16,11 @@ import {
 import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import {
   authorizedCommunitiesForSession,
+  listBusinesses,
   listCommunityEnrichment,
   onboardProperty,
   searchPropertiesForOnboarding,
+  type BusinessOption,
   type CommunityEnrichment,
   type MobileAuthSession,
   type PropertyOnboardingCandidate,
@@ -31,6 +33,7 @@ const ROW_HEIGHT = 59;
 const SKELETON_ROWS = 9;
 
 type Community = MobileAuthSession["workspace"]["communities"][number];
+type AssignedProperty = BusinessOption | Community;
 
 type CommunityPickerModalProps = {
   visible: boolean;
@@ -64,6 +67,7 @@ export function CommunityPickerModal({
   const { height: windowHeight } = useWindowDimensions();
   const [listReady, setListReady] = useState(false);
   const [mode, setMode] = useState<"assigned" | "add">("assigned");
+  const [debouncedAssignedSearch, setDebouncedAssignedSearch] = useState("");
   const [addSearch, setAddSearch] = useState("");
   const [debouncedAddSearch, setDebouncedAddSearch] = useState("");
   const [selectedCandidate, setSelectedCandidate] = useState<PropertyOnboardingCandidate | null>(null);
@@ -94,14 +98,28 @@ export function CommunityPickerModal({
     () => authorizedCommunitiesForSession(session),
     [session]
   );
-  const filteredCommunities = useMemo(() => {
-    const value = query.trim().toLowerCase();
-    return value
-      ? authorizedCommunities.filter((community) =>
-          `${community.name} ${community.alias ?? ""}`.toLowerCase().includes(value)
-        )
-      : authorizedCommunities;
-  }, [authorizedCommunities, query]);
+  const initialAssignedProperties = useMemo<AssignedProperty[]>(
+    () => authorizedCommunities.map((community) => ({
+      id: community.id,
+      name: community.name,
+      companyName: community.companyName ?? "Property team",
+      gmbId: community.gmbId,
+      alias: community.alias,
+      calendarConnected: false,
+    })),
+    [authorizedCommunities]
+  );
+  const assignedSearchQuery = useQuery({
+    queryKey: ["assigned-property-search", session.workspace.user.email, debouncedAssignedSearch],
+    queryFn: () => listBusinesses(debouncedAssignedSearch, {
+      email: session.workspace.user.email,
+      limit: 50,
+    }),
+    enabled: visible && mode === "assigned",
+    initialData: debouncedAssignedSearch ? undefined : initialAssignedProperties,
+    staleTime: 30_000,
+    retry: 1,
+  });
   const activeCommunityId = session.workspace.community.id;
   const switchLocked = Boolean(switchingId);
   const interactionLocked = switchLocked || Boolean(joiningPlaceId) || dismissDisabled;
@@ -110,6 +128,7 @@ export function CommunityPickerModal({
     if (!visible) {
       setListReady(false);
       setMode("assigned");
+      setDebouncedAssignedSearch("");
       setAddSearch("");
       setDebouncedAddSearch("");
       setSelectedCandidate(null);
@@ -120,6 +139,12 @@ export function CommunityPickerModal({
     const frame = requestAnimationFrame(() => setListReady(true));
     return () => cancelAnimationFrame(frame);
   }, [visible]);
+
+  useEffect(() => {
+    if (mode !== "assigned") return;
+    const timer = setTimeout(() => setDebouncedAssignedSearch(query.trim()), query.trim() ? 280 : 0);
+    return () => clearTimeout(timer);
+  }, [mode, query]);
 
   useEffect(() => {
     if (mode !== "add") return;
@@ -150,7 +175,7 @@ export function CommunityPickerModal({
   }, [joiningPlaceId, onPropertyAdded]);
 
   const renderCommunity = useCallback(
-    ({ item }: { item: Community }) => {
+    ({ item }: { item: AssignedProperty }) => {
       const active = item.id === activeCommunityId;
       const loading = switchingId === item.id;
       const enrichment = enrichmentByCommunity.get(item.id);
@@ -178,6 +203,11 @@ export function CommunityPickerModal({
                 {item.alias ? (
                   <Text style={styles.rowAlias} numberOfLines={1}>
                     {item.alias}
+                  </Text>
+                ) : null}
+                {item.companyName ? (
+                  <Text style={styles.rowAlias} numberOfLines={1}>
+                    {item.companyName}
                   </Text>
                 ) : null}
                 {enrichment ? <EnrichmentBadge enrichment={enrichment} /> : null}
@@ -415,7 +445,23 @@ export function CommunityPickerModal({
               </View>
             ))}
           </View>
-        ) : filteredCommunities.length === 0 ? (
+        ) : assignedSearchQuery.isLoading ? (
+          <View style={styles.loadingSearch}>
+            <ActivityIndicator color={tourColors.brand} />
+            <Text style={styles.loadingSearchText}>Searching your assigned properties…</Text>
+          </View>
+        ) : assignedSearchQuery.error ? (
+          <View style={styles.empty}>
+            <Ionicons name="cloud-offline-outline" size={28} color={tourColors.textMuted} />
+            <Text style={styles.emptyTitle}>Couldn’t search properties</Text>
+            <Text style={styles.emptySub}>
+              {assignedSearchQuery.error instanceof Error ? assignedSearchQuery.error.message : "Try again."}
+            </Text>
+            <Pressable onPress={() => void assignedSearchQuery.refetch()} style={styles.retryButton}>
+              <Text style={styles.retryText}>Try again</Text>
+            </Pressable>
+          </View>
+        ) : (assignedSearchQuery.data?.length ?? 0) === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="business-outline" size={28} color={tourColors.textMuted} />
             <Text style={styles.emptyTitle}>No assigned properties found</Text>
@@ -423,7 +469,7 @@ export function CommunityPickerModal({
           </View>
         ) : (
           <FlatList
-            data={filteredCommunities}
+            data={assignedSearchQuery.data ?? []}
             renderItem={renderCommunity}
             keyExtractor={(item) => item.id}
             style={styles.list}

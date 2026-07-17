@@ -9,7 +9,7 @@ This repo is a Turborepo workspace with a Next.js web app and an Expo mobile app
 - `apps/web` - Next.js dashboard for the main Tour Hub workspace.
 - `apps/mobile` - Expo app for mobile tour prep, recording, recaps, and follow-ups.
 - `packages/shared` - shared constants and domain primitives.
-- `packages/config` - shared TypeScript configuration.
+- `packages/config` - shared TypeScript configuration. TYG!
  
 ## Setup
 

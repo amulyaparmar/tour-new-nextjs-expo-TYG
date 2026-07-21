@@ -3952,6 +3952,28 @@ button { border: 0; font: inherit; cursor: pointer; }
   transition: width .3s ease;
 }
 
+.single-upload-progress {
+  padding: 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: 8px;
+  background: var(--slate-50);
+}
+
+.single-upload-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--slate-600);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.single-upload-progress-header strong {
+  color: var(--slate-900);
+  font-size: 12px;
+}
+
 /* ── Processing status ────────────────────────────────── */
 .process-steps { display: flex; flex-direction: column; gap: 8px; }
 

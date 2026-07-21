@@ -59,6 +59,8 @@ export function NewSessionFlow() {
   const [bulkItems, setBulkItems] = useState<BulkUploadItem[]>([]);
   const [bulkProcessing, setBulkProcessing] = useState(false);
   const [uploaderIsAgent, setUploaderIsAgent] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStage, setUploadStage] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -146,6 +148,9 @@ export function NewSessionFlow() {
   function handleFileSelect(file: File, draft: DraftType = "session") {
     setDraftType(draft);
     setRecordedBlob(file);
+    setUploadProgress(0);
+    setUploadStage(null);
+    setErrorMsg(null);
     setPhase("details");
   }
 
@@ -256,6 +261,8 @@ export function NewSessionFlow() {
 
     setPhase("saving");
     setErrorMsg(null);
+    setUploadProgress(0);
+    setUploadStage("Preparing upload");
 
     const fd = new FormData(e.currentTarget);
     const now = new Date();
@@ -266,6 +273,7 @@ export function NewSessionFlow() {
       if (draftType === "content") {
         const ext = guessExtension(recordedBlob.type);
         const file = new File([recordedBlob], `content-${Date.now()}.${ext}`, { type: recordedBlob.type });
+        setUploadStage("Uploading file");
         await uploadFileWithPresign({
           presignUrl: "/api/materials/upload/presign",
           completeUrl: "/api/materials/upload/complete",
@@ -283,12 +291,19 @@ export function NewSessionFlow() {
             ].filter(Boolean).join("\n\n"),
             type: "other",
           }),
+          onProgress: (progress) => {
+            setUploadProgress(Math.max(0, Math.min(100, progress)));
+            setUploadStage("Uploading file");
+          },
         });
+        setUploadProgress(100);
+        setUploadStage("Finalizing");
 
         router.push("/materials");
         return;
       }
 
+      setUploadStage("Creating session");
       const createRes = await fetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -309,6 +324,7 @@ export function NewSessionFlow() {
 
       const ext = guessExtension(recordedBlob.type);
       const file = new File([recordedBlob], `recording-${sessionId}.${ext}`, { type: recordedBlob.type });
+      setUploadStage("Uploading recording");
       await uploadFileWithPresign({
         presignUrl: `/api/sessions/${sessionId}/upload/presign`,
         completeUrl: `/api/sessions/${sessionId}/upload/complete`,
@@ -318,13 +334,21 @@ export function NewSessionFlow() {
           fileName: file.name,
           contentType: file.type || "application/octet-stream",
         },
+        onProgress: (progress) => {
+          setUploadProgress(Math.max(0, Math.min(100, progress)));
+          setUploadStage("Uploading recording");
+        },
       });
+      setUploadProgress(100);
+      setUploadStage("Starting analysis");
 
       fetch(`/api/sessions/${sessionId}/process`, { method: "POST" });
 
       router.push(`/sessions/${sessionId}`);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Something went wrong");
+      setUploadStage(null);
+      setUploadProgress(0);
       setPhase("details");
     }
   }, [draftType, recordedBlob, router]);
@@ -744,6 +768,18 @@ export function NewSessionFlow() {
             </div>
 
             {errorMsg && <p style={{ color: "var(--red-700)", fontSize: 13 }}>{errorMsg}</p>}
+
+            {phase === "saving" && (
+              <div className="single-upload-progress" aria-live="polite">
+                <div className="single-upload-progress-header">
+                  <span>{uploadStage ?? "Uploading"}</span>
+                  <strong>{uploadProgress}%</strong>
+                </div>
+                <div className="upload-progress-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadProgress}>
+                  <span className="upload-progress-fill" style={{ width: `${uploadProgress}%` }} />
+                </div>
+              </div>
+            )}
 
             <button type="submit" className="btn btn-primary btn-block" disabled={phase === "saving"}>
               {phase === "saving" ? (

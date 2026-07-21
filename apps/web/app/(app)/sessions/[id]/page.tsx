@@ -5,8 +5,9 @@ import { SESSION_STATUS_LABELS } from "@tour/shared";
 import { getTranscriptForSession } from "@/lib/evidence";
 import { listVisibleMaterials } from "@/lib/materials";
 import { getRubricForSession } from "@/lib/rubrics";
+import { isSampleSourceProperty, SAMPLE_SESSION_SET } from "@/lib/sample-sessions";
 import { enrichSessionWithAgentName, sessionParticipants } from "@/lib/session-participants";
-import { getAnalysisRun, getAudioInsights, getConversationPhases, getSessionById, listAnalysisRuns } from "@/lib/sessions";
+import { getAnalysisRun, getAudioInsights, getConversationPhases, getSessionById, listAnalysisRuns, listSessionsPaginated } from "@/lib/sessions";
 import { getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
 import { AnalysisVersionSelector } from "./AnalysisVersionSelector";
 import { DeleteSessionButton } from "./DeleteSessionButton";
@@ -18,19 +19,30 @@ import { SessionScoreSummary } from "./SessionScoreSummary";
 import styles from "./session-detail.module.css";
 import { UploadAndProcess, type NoteAsset, type SessionDetailDefaults } from "./UploadAndProcess";
 import { requireTourWorkspace } from "@/lib/tour-auth";
+import { propertySessionKeys } from "@/lib/admin-auth";
 
 type Props = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ version?: string }>;
+  searchParams: Promise<{ version?: string; sample?: string }>;
 };
 
 export default async function SessionDetailPage({ params, searchParams }: Props) {
   const workspace = await requireTourWorkspace();
   const { id } = await params;
-  const { version: versionParam } = await searchParams;
+  const { version: versionParam, sample: sampleParam } = await searchParams;
   const rawSession = await getSessionById(id);
+  const isOwnSession = Boolean(rawSession && propertySessionKeys(workspace.community).includes(rawSession.propertyId ?? ""));
+  const isSampleCandidate = Boolean(
+    sampleParam === "1" &&
+    rawSession &&
+    SAMPLE_SESSION_SET.has(id) &&
+    isSampleSourceProperty(rawSession.propertyId)
+  );
+  const isSampleSession = isSampleCandidate
+    ? await activePropertyHasNoRecordedSessions(workspace.community)
+    : false;
 
-  if (!rawSession || rawSession.propertyId !== workspace.community.id) {
+  if (!rawSession || (!isOwnSession && !isSampleSession)) {
     return (
       <>
         <Link href="/sessions" className="back-link">&larr; Sessions</Link>
@@ -39,7 +51,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
     );
   }
 
-  const session = await enrichSessionWithAgentName(rawSession, workspace);
+  const session = isSampleSession ? rawSession : await enrichSessionWithAgentName(rawSession, workspace);
   const participants = sessionParticipants(session.agentName, session.prospectName);
 
   const analysisRun = await getAnalysisRun(id, versionParam ?? null);
@@ -80,6 +92,12 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
     <div className={hasAnalysis ? `${styles.page} ${styles.pageExperience}` : styles.page}>
       <Link href="/sessions" className="back-link">&larr; Back to Sessions</Link>
 
+      {isSampleSession && (
+        <p className={styles.analysisVersionBanner}>
+          Viewing a read-only sample because this property does not have recorded tours yet.
+        </p>
+      )}
+
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1 className={styles.title}>{session.title}</h1>
@@ -93,11 +111,13 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
           </p>
         </div>
         <div className={styles.headerRight}>
-          <EditSessionParticipants
-            sessionId={id}
-            agentName={session.agentName}
-            prospectName={session.prospectName}
-          />
+          {!isSampleSession && (
+            <EditSessionParticipants
+              sessionId={id}
+              agentName={session.agentName}
+              prospectName={session.prospectName}
+            />
+          )}
           {hasAnalysis && analysisRuns.length > 0 && (
             <AnalysisVersionSelector
               sessionId={id}
@@ -106,13 +126,13 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
             />
           )}
           <span className={`badge badge-${session.status}`}>{SESSION_STATUS_LABELS[session.status]}</span>
-          {hasAnalysis && (
+          {hasAnalysis && !isSampleSession && (
             <ExportSessionButton
               href={`/api/sessions/${encodeURIComponent(id)}/export${analysisRun && !analysisRun.isCurrent ? `?version=${analysisRun.version}` : ""}`}
               sessionTitle={session.title}
             />
           )}
-          <DeleteSessionButton sessionId={id} />
+          {!isSampleSession && <DeleteSessionButton sessionId={id} />}
         </div>
       </div>
 
@@ -201,6 +221,17 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
       )}
     </div>
   );
+}
+
+async function activePropertyHasNoRecordedSessions(
+  community: Parameters<typeof propertySessionKeys>[0]
+) {
+  const ownSessions = await listSessionsPaginated({
+    limit: 1,
+    propertyIds: propertySessionKeys(community),
+    excludeScheduled: true,
+  });
+  return ownSessions.total === 0;
 }
 
 async function getNoteAssets(propertyId: string | null | undefined): Promise<NoteAsset[]> {

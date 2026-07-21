@@ -231,6 +231,13 @@ type RecordingUploadFile = {
   size?: number;
   durationSec?: number;
 };
+type BulkRecordingUploadItem = RecordingUploadFile & {
+  id: string;
+  status: "queued" | "creating" | "uploading" | "processing" | "done" | "error";
+  progress: number;
+  sessionId: string | null;
+  error?: string | null;
+};
 type PendingRecordingUpload = {
   sessionId: string;
   uri: string;
@@ -422,6 +429,17 @@ function initialUploadStats(total?: number | null): UploadStats {
     bytesPerSecond: null,
     etaSeconds: null,
   };
+}
+
+function bulkMobileStatusLabel(status: BulkRecordingUploadItem["status"]) {
+  switch (status) {
+    case "queued": return "Ready";
+    case "creating": return "Creating session";
+    case "uploading": return "Uploading";
+    case "processing": return "Processing started";
+    case "done": return "Workflow started";
+    case "error": return "Needs attention";
+  }
 }
 
 function fmtDate(d: string | null) {
@@ -2835,7 +2853,7 @@ function CreateSessionScreen({
 }) {
   const rec = useRecording();
 
-  const [phase, setPhase] = useState<"choose" | "uploading" | "details">(pendingUpload ? "uploading" : "choose");
+  const [phase, setPhase] = useState<"choose" | "uploading" | "details" | "bulkUploading">(pendingUpload ? "uploading" : "choose");
   const [uploadStats, setUploadStats] = useState<UploadStats>(initialUploadStats());
   const [sessionId, setSessionId] = useState<string | null>(pendingUpload?.sessionId ?? null);
   const [fileName, setFileName] = useState(pendingUpload?.name ?? "");
@@ -2855,6 +2873,8 @@ function CreateSessionScreen({
   const [rubricOpen, setRubricOpen] = useState(false);
   const [assets, setAssets] = useState<Material[]>([]);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>(pendingUpload?.draft.selectedAssetIds ?? []);
+  const [bulkItems, setBulkItems] = useState<BulkRecordingUploadItem[]>([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -3112,12 +3132,75 @@ function CreateSessionScreen({
     }
   }
 
-  useEffect(() => {
-    if (!createOptionsReady || phase !== "choose" || recorderOpenedRef.current) return;
-    recorderOpenedRef.current = true;
-    const frame = requestAnimationFrame(() => startRecordingRef.current());
-    return () => cancelAnimationFrame(frame);
-  }, [createOptionsReady, phase]);
+  async function pickBulkFiles() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["video/*", "audio/*"],
+        copyToCacheDirectory: true,
+        multiple: true,
+      } as DocumentPicker.DocumentPickerOptions);
+      if (result.canceled || !result.assets?.length) return;
+      const nextItems = result.assets.map((file, index) => ({
+        id: `${file.uri}-${file.name ?? "recording"}-${index}`,
+        uri: file.uri,
+        mimeType: file.mimeType ?? "video/mp4",
+        name: file.name ?? `recording-${index + 1}.mp4`,
+        size: file.size ?? undefined,
+        status: "queued" as const,
+        progress: 0,
+        sessionId: null,
+        error: null,
+      }));
+      setBulkItems(nextItems);
+      setBulkUploading(false);
+      setPhase("bulkUploading");
+      void Haptics.selectionAsync();
+    } catch {
+      showToast("Could not select files", "error");
+    }
+  }
+
+  function updateBulkItem(id: string, patch: Partial<BulkRecordingUploadItem>) {
+    setBulkItems((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
+  }
+
+  async function processBulkFiles() {
+    if (bulkUploading || bulkItems.length === 0) return;
+    setBulkUploading(true);
+    for (const item of bulkItems) {
+      try {
+        updateBulkItem(item.id, { status: "creating", error: null, progress: 0 });
+        const defaultTitle = item.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ").trim() || "Uploaded tour";
+        const sessionData = await createSession({
+          title: defaultTitle,
+          scheduledAt: new Date().toISOString(),
+          agentName: agentName?.trim() || null,
+          rubricId,
+        });
+        const sid = sessionData.session.id;
+        updateBulkItem(item.id, { status: "uploading", sessionId: sid });
+        await uploadRecording(sid, item.uri, item.mimeType, item.name, item.durationSec, (next) => {
+          updateBulkItem(item.id, {
+            progress: Math.max(0, Math.min(100, next.percent)),
+          });
+        });
+        updateBulkItem(item.id, { status: "processing", progress: 100 });
+        const processRes = await authenticatedFetch(`/api/sessions/${sid}/process`, { method: "POST" });
+        if (!processRes.ok) {
+          const body = await processRes.json().catch(() => null) as { error?: string } | null;
+          throw new Error(body?.error ?? "Could not start processing");
+        }
+        updateBulkItem(item.id, { status: "done" });
+      } catch (caught) {
+        updateBulkItem(item.id, {
+          status: "error",
+          error: caught instanceof Error ? caught.message : "Upload failed",
+        });
+      }
+    }
+    setBulkUploading(false);
+    showToast("Bulk upload started", "success");
+  }
 
   async function submitAndProcess() {
     if (!sessionId) return;
@@ -3146,10 +3229,74 @@ function CreateSessionScreen({
   // ── Choose: Record or Upload ──
   if (phase === "choose") {
     return (
-      <View style={[st.flex1, st.center]}>
-        <ActivityIndicator color={C.brand} />
-        <Text style={{ marginTop: 10, color: C.textSec, fontSize: 13, fontWeight: "700" }}>Preparing recorder…</Text>
-      </View>
+      <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
+        <View style={st.page}>
+          <BackBtn label="Sessions" onPress={onBack} />
+          <Text style={st.pageTitle}>New Session</Text>
+          <View style={[st.card, { padding: 20, gap: 14 }]}>
+            <View style={{ alignItems: "center", gap: 8 }}>
+              <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.brand + "10", alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name="cloud-upload-outline" size={28} color={C.brand} />
+              </View>
+              <Text style={st.formTitle}>Add tour recordings</Text>
+              <Text style={[st.pageSub, { textAlign: "center" }]}>Record a live tour, upload one file, or select multiple recordings to process as separate sessions.</Text>
+            </View>
+            <PrimaryBtn label="Record Audio" onPress={startRecording} icon="mic-outline" disabled={!createOptionsReady} />
+            <Pressable onPress={pickFile} disabled={!createOptionsReady} style={({ pressed }) => [st.outlineBtn, pressed && st.pressed]}>
+              <Ionicons name="document-attach-outline" size={18} color={C.textSec} />
+              <Text style={st.outlineBtnText}>Upload One File</Text>
+            </Pressable>
+            <Pressable onPress={pickBulkFiles} disabled={!createOptionsReady} style={({ pressed }) => [st.outlineBtn, pressed && st.pressed]}>
+              <Ionicons name="copy-outline" size={18} color={C.textSec} />
+              <Text style={st.outlineBtnText}>Bulk Upload Files</Text>
+            </Pressable>
+          </View>
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (phase === "bulkUploading") {
+    const doneCount = bulkItems.filter((item) => item.status === "done").length;
+    const failedCount = bulkItems.filter((item) => item.status === "error").length;
+    return (
+      <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
+        <View style={st.page}>
+          <BackBtn label="New Session" onPress={() => { if (!bulkUploading) setPhase("choose"); }} />
+          <Text style={st.pageTitle}>Bulk Upload</Text>
+          <Text style={st.pageSub}>{doneCount} of {bulkItems.length} started{failedCount ? ` · ${failedCount} failed` : ""}</Text>
+          <View style={[st.card, { padding: 14, gap: 10 }]}>
+            {bulkItems.map((item) => (
+              <View key={item.id} style={{ flexDirection: "row", gap: 10, alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" }}>
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: item.status === "error" ? C.redBg : C.brand + "12", alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons
+                    name={item.status === "done" ? "checkmark" : item.status === "error" ? "alert" : "cloud-upload-outline"}
+                    size={18}
+                    color={item.status === "error" ? C.red : item.status === "done" ? C.green : C.brand}
+                  />
+                </View>
+                <View style={st.flex1}>
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: C.text }} numberOfLines={1}>{item.name}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: C.textMuted }} numberOfLines={1}>
+                    {formatBytes(item.size)} · {bulkMobileStatusLabel(item.status)}
+                  </Text>
+                  {item.status === "uploading" && (
+                    <View style={[st.progressTrack, { marginTop: 6 }]}><AnimatedProgressFill percent={item.progress} /></View>
+                  )}
+                  {item.error ? <Text style={{ marginTop: 4, color: C.red, fontSize: 11, fontWeight: "700" }}>{item.error}</Text> : null}
+                </View>
+              </View>
+            ))}
+          </View>
+          <PrimaryBtn
+            label={bulkUploading ? "Uploading..." : "Create & Process All"}
+            onPress={() => void processBulkFiles()}
+            icon="cloud-upload-outline"
+            disabled={bulkUploading || bulkItems.length === 0}
+          />
+          {doneCount > 0 && <PrimaryBtn label="View Sessions" onPress={onBack} icon="list-outline" />}
+        </View>
+      </ScrollView>
     );
   }
 
@@ -4098,7 +4245,7 @@ function SessionReviewExperience({
                     </View>
                   </Pressable>
                   {(() => {
-                    const groups: Array<{ kind: TranscriptAnnotation["kind"]; items: TranscriptAnnotation[] }> = [
+                    const allGroups: Array<{ kind: TranscriptAnnotation["kind"]; items: TranscriptAnnotation[] }> = [
                       {
                         kind: "ai_note",
                         items: moments.map((moment) => ({
@@ -4134,9 +4281,10 @@ function SessionReviewExperience({
                             title: "Key moment",
                             body: comment.body,
                             timestampSec: comment.timestampSec,
-                          })),
+                        })),
                       },
-                    ].filter((group) => group.items.length > 0);
+                    ];
+                    const groups = allGroups.filter((group) => group.items.length > 0);
                     if (groups.length === 0) return null;
                     return (
                       <View style={[reviewSt.annotationRow, { marginLeft: 36 }]}>

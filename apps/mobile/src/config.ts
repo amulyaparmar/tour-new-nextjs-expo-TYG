@@ -13,7 +13,7 @@ function isMutableLanHost(hostname: string) {
   if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
     return false;
   }
-  const [a, b] = parts;
+  const [a = 0, b = 0] = parts;
   return (
     a === 10 ||
     a === 127 ||

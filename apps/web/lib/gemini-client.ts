@@ -1,5 +1,7 @@
 import "server-only";
 
+import { DEFAULT_GEMINI_AUDIO_MODEL } from "@tour/shared";
+
 const GEMINI_BASE = "https://generativelanguage.googleapis.com";
 const GEMINI_UPLOAD_BASE = "https://generativelanguage.googleapis.com/upload";
 
@@ -8,6 +10,52 @@ const GEMINI_RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const GEMINI_MAX_ATTEMPTS = 6;
 const GEMINI_BASE_DELAY_MS = 3_000;
 const GEMINI_MAX_DELAY_MS = 90_000;
+const GEMINI_DEFAULT_TIMEOUT_MS = 60_000;
+const GEMINI_GENERATE_TIMEOUT_MS = 30_000;
+const GEMINI_UPLOAD_TIMEOUT_MS = 180_000;
+const GEMINI_FILE_GET_TIMEOUT_MS = 30_000;
+
+function readPositiveIntEnv(name: string): number | null {
+  const value = process.env[name]?.trim();
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+}
+
+function geminiRequestTimeoutMs(label: string): number {
+  const globalTimeout = readPositiveIntEnv("GEMINI_REQUEST_TIMEOUT_MS");
+  const normalized = label.toLowerCase();
+
+  if (normalized.includes("generatecontent") || normalized.includes("audio chat")) {
+    return (
+      readPositiveIntEnv("GEMINI_GENERATE_TIMEOUT_MS")
+      ?? globalTimeout
+      ?? GEMINI_GENERATE_TIMEOUT_MS
+    );
+  }
+
+  if (normalized.includes("upload finalize")) {
+    return (
+      readPositiveIntEnv("GEMINI_UPLOAD_TIMEOUT_MS")
+      ?? globalTimeout
+      ?? GEMINI_UPLOAD_TIMEOUT_MS
+    );
+  }
+
+  if (normalized.includes("file get") || normalized.includes("upload start")) {
+    return (
+      readPositiveIntEnv("GEMINI_FILE_GET_TIMEOUT_MS")
+      ?? globalTimeout
+      ?? GEMINI_FILE_GET_TIMEOUT_MS
+    );
+  }
+
+  return globalTimeout ?? GEMINI_DEFAULT_TIMEOUT_MS;
+}
+
+function geminiTimeoutError(label: string, timeoutMs: number): Error {
+  return new Error(`${label} timed out after ${timeoutMs}ms`);
+}
 
 function geminiRetryDelayMs(attempt: number): number {
   const exponential = GEMINI_BASE_DELAY_MS * 2 ** (attempt - 1);
@@ -31,8 +79,14 @@ async function fetchWithGeminiRetry(
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS; attempt++) {
+    const timeoutMs = geminiRequestTimeoutMs(label);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort(geminiTimeoutError(label, timeoutMs));
+    }, timeoutMs);
+
     try {
-      const response = await fetch(url, init);
+      const response = await fetch(url, { ...init, signal: controller.signal });
       if (response.ok) return response;
 
       const errText = await response.text();
@@ -61,6 +115,8 @@ async function fetchWithGeminiRetry(
         lastError.message
       );
       await sleep(delayMs);
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -76,7 +132,7 @@ export type GeminiUploadedFile = {
 export function getGeminiConfig() {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
-  const model = process.env.GEMINI_AUDIO_MODEL?.trim() || "gemini-3.5-flash";
+  const model = process.env.GEMINI_AUDIO_MODEL?.trim() || DEFAULT_GEMINI_AUDIO_MODEL;
   return { apiKey, model };
 }
 
@@ -281,6 +337,7 @@ export async function geminiGenerateJson<T>(params: {
   fileName?: string;
   model?: string;
   uploadedFile?: GeminiUploadedFile;
+  useResponseSchema?: boolean;
 }): Promise<T> {
   const { apiKey, model: defaultModel } = getGeminiConfig();
   const model = params.model ?? defaultModel;
@@ -293,6 +350,13 @@ export async function geminiGenerateJson<T>(params: {
       params.fileName ?? "recording"
     );
 
+  const generationConfig: Record<string, unknown> = {
+    responseMimeType: "application/json",
+  };
+  if (params.useResponseSchema !== false) {
+    generationConfig.responseSchema = params.schema;
+  }
+
   const body = {
     contents: [
       {
@@ -302,10 +366,7 @@ export async function geminiGenerateJson<T>(params: {
         ],
       },
     ],
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: params.schema,
-    },
+    generationConfig,
   };
 
   const response = await fetchWithGeminiRetry(

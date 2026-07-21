@@ -9,20 +9,13 @@ import {
   listFollowUpActions,
   listSessionsPaginated,
 } from "@/lib/sessions";
-
-const SAMPLE_PROPERTY_ID = "community:548";
-
-// Curated, analyzed 40Fifty Lofts examples. Keep this list explicit so new
-// sessions never become visible as samples merely because of their property.
-const SAMPLE_SESSION_IDS = [
-  "717f4772-ec00-4676-bcf4-1eaf924c3786", // Laura × Amulya — 8 exact moments
-  "772c294c-130e-45b6-866a-5e374d7b9d29", // Laura × Amulya — long transcript
-  "34a29aea-1810-4ec9-97b8-af3bd95fd8c8", // Vic Village — 392 transcript turns
-  "2e47d28a-acf1-4590-a75a-8260c895e40a", // The George
-  "7e9e24de-b723-4a52-a363-4ad2bee2e015", // Six11
-] as const;
-
-const SAMPLE_SESSION_SET = new Set<string>(SAMPLE_SESSION_IDS);
+import {
+  isSampleSourceProperty,
+  SAMPLE_SESSION_IDS,
+  SAMPLE_SESSION_SET,
+  SAMPLE_SOURCE_PROPERTY_IDS,
+  SAMPLE_SOURCE_PROPERTY_NAME,
+} from "@/lib/sample-sessions";
 
 export async function GET(request: NextRequest) {
   try {
@@ -54,13 +47,13 @@ export async function GET(request: NextRequest) {
         listFollowUpActions(sampleId),
       ]);
 
-      if (!session || session.propertyId !== SAMPLE_PROPERTY_ID || !analysis) {
+      if (!session || !isSampleSourceProperty(session.propertyId) || !analysis) {
         return NextResponse.json({ error: "Sample session is unavailable." }, { status: 404 });
       }
 
       return NextResponse.json({
         sample: true,
-        propertyName: "40Fifty Lofts",
+        propertyName: SAMPLE_SOURCE_PROPERTY_NAME,
         session,
         analysis,
         phases,
@@ -71,7 +64,7 @@ export async function GET(request: NextRequest) {
 
     const source = await listSessionsPaginated({
       limit: 100,
-      propertyId: SAMPLE_PROPERTY_ID,
+      propertyIds: [...SAMPLE_SOURCE_PROPERTY_IDS],
       excludeScheduled: true,
       sort: "newest",
     });
@@ -83,7 +76,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       sample: true,
-      propertyName: "40Fifty Lofts",
+      propertyName: SAMPLE_SOURCE_PROPERTY_NAME,
       sessions,
     });
   } catch (error) {

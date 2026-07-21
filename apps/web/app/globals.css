@@ -1112,6 +1112,7 @@ button { border: 0; font: inherit; cursor: pointer; }
   gap: 5px;
 }
 .badge-source-qr { background: var(--indigo-50); color: var(--indigo-600); }
+.badge-source-sample { background: var(--slate-100); color: var(--slate-600); }
 
 .live-dot {
   width: 8px;
@@ -1186,6 +1187,17 @@ button { border: 0; font: inherit; cursor: pointer; }
 
 .session-row:last-child { border-bottom: 0; }
 .session-row:hover { background: var(--slate-50); }
+
+.sl-sample-note {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: 8px;
+  background: var(--slate-50);
+  color: var(--slate-600);
+  font-size: 12px;
+  font-weight: 500;
+}
 
 .session-row-time {
   font-size: 11px;
@@ -3446,6 +3458,78 @@ button { border: 0; font: inherit; cursor: pointer; }
 .create-primary-action.content:hover {
   border-color: var(--green-400);
   background: var(--green-50);
+}
+
+.bulk-upload-list {
+  display: grid;
+  gap: 0;
+}
+
+.bulk-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--slate-100);
+}
+
+.bulk-upload-row:last-child {
+  border-bottom: 0;
+}
+
+.bulk-upload-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--indigo-50);
+  color: var(--indigo-600);
+  flex-shrink: 0;
+}
+
+.bulk-upload-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.bulk-upload-title {
+  color: var(--slate-900);
+  font-size: 13px;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bulk-upload-meta {
+  margin-top: 2px;
+  color: var(--slate-500);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bulk-upload-progress {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--slate-100);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.bulk-upload-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--indigo-500);
+  transition: width 180ms ease;
+}
+
+.bulk-upload-error {
+  margin-top: 6px;
+  color: var(--red-700);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .create-action-icon {

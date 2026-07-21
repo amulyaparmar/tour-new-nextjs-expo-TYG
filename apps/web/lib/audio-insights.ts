@@ -229,6 +229,8 @@ function buildAudioInsightsPrompt(transcript?: TranscriptSegment[]): string {
     "   - patienceSeconds: average pause after the prospect finishes before the rep starts (lower = more interruptive)",
     "   - talkSpeedWordsPerMinute: rep/agent words per minute",
     "   - interactivityNotes: 1-2 sentences on engagement quality",
+    "Return complete structured JSON matching the provided schema. Use empty strings or empty arrays when unknown/not present.",
+    "Use MM:SS timestamps. interactivityTotal must be 5.",
   ];
 
   if (transcript?.length) {

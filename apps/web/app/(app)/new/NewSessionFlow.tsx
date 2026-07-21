@@ -22,10 +22,19 @@ import { SmartSessionForm } from "../SmartSessionForm";
 import { RubricSelector } from "../RubricSelector";
 import { uploadFileWithPresign } from "@/lib/client-upload";
 
-type Phase = "choose" | "lead" | "recording" | "details" | "saving";
+type Phase = "choose" | "lead" | "recording" | "details" | "saving" | "bulk";
 type CreateTab = "session" | "content";
 type RecordingMode = "audio" | "video";
 type DraftType = "session" | "content";
+type BulkUploadStatus = "queued" | "creating" | "uploading" | "processing" | "done" | "error";
+type BulkUploadItem = {
+  id: string;
+  file: File;
+  status: BulkUploadStatus;
+  progress: number;
+  sessionId: string | null;
+  error: string | null;
+};
 
 export function NewSessionFlow() {
   const router = useRouter();
@@ -47,6 +56,8 @@ export function NewSessionFlow() {
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [contentUploading, setContentUploading] = useState(false);
+  const [bulkItems, setBulkItems] = useState<BulkUploadItem[]>([]);
+  const [bulkProcessing, setBulkProcessing] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -135,6 +146,83 @@ export function NewSessionFlow() {
     setDraftType(draft);
     setRecordedBlob(file);
     setPhase("details");
+  }
+
+  function handleBulkFileSelect(files: FileList | File[]) {
+    const selected = Array.from(files).filter((file) => file.type.startsWith("audio/") || file.type.startsWith("video/"));
+    if (selected.length === 0) return;
+    setBulkItems(selected.map((file, index) => ({
+      id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
+      file,
+      status: "queued",
+      progress: 0,
+      sessionId: null,
+      error: null,
+    })));
+    setBulkProcessing(false);
+    setErrorMsg(null);
+    setPhase("bulk");
+  }
+
+  function updateBulkItem(id: string, patch: Partial<BulkUploadItem>) {
+    setBulkItems((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
+  }
+
+  async function processBulkUploads() {
+    if (bulkProcessing || bulkItems.length === 0) return;
+    setBulkProcessing(true);
+    setErrorMsg(null);
+
+    for (const item of bulkItems) {
+      try {
+        updateBulkItem(item.id, { status: "creating", error: null, progress: 0 });
+        const title = item.file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ").trim() || "Uploaded tour";
+        const createRes = await fetch("/api/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title,
+            scheduledAt: new Date().toISOString(),
+          }),
+        });
+        const createBody = await createRes.json().catch(() => null) as { session?: { id: string }; error?: string } | null;
+        if (!createRes.ok || !createBody?.session?.id) {
+          throw new Error(createBody?.error ?? "Failed to create session");
+        }
+
+        const sessionId = createBody.session.id;
+        updateBulkItem(item.id, { status: "uploading", sessionId });
+        await uploadFileWithPresign({
+          presignUrl: `/api/sessions/${sessionId}/upload/presign`,
+          completeUrl: `/api/sessions/${sessionId}/upload/complete`,
+          file: item.file,
+          contentType: item.file.type || "application/octet-stream",
+          presignBody: {
+            fileName: item.file.name,
+            contentType: item.file.type || "application/octet-stream",
+          },
+          onProgress: (progress) => updateBulkItem(item.id, {
+            progress: Math.max(0, Math.min(100, progress)),
+          }),
+        });
+
+        updateBulkItem(item.id, { status: "processing", progress: 100 });
+        const processRes = await fetch(`/api/sessions/${sessionId}/process`, { method: "POST" });
+        const processBody = await processRes.json().catch(() => null) as { error?: string } | null;
+        if (!processRes.ok) {
+          throw new Error(processBody?.error ?? "Failed to start processing");
+        }
+        updateBulkItem(item.id, { status: "done" });
+      } catch (err) {
+        updateBulkItem(item.id, {
+          status: "error",
+          error: err instanceof Error ? err.message : "Upload failed",
+        });
+      }
+    }
+
+    setBulkProcessing(false);
+    router.refresh();
   }
 
   async function handleRubricTemplateSelect(file: File) {
@@ -292,7 +380,7 @@ export function NewSessionFlow() {
               </span>
               <span>
                 <span className="create-action-title">Upload a Recording</span>
-                <span className="create-action-copy">Add Fireflies audio, Zoom video, or a saved file.</span>
+                <span className="create-action-copy">Add one or many Fireflies, Zoom, audio, or video files.</span>
               </span>
             </button>
 
@@ -407,8 +495,15 @@ export function NewSessionFlow() {
           ref={inputRef}
           type="file"
           accept="video/*,audio/*"
+          multiple
           style={{ display: "none" }}
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f, "session"); }}
+          onChange={(e) => {
+            const files = e.target.files;
+            if (!files?.length) return;
+            if (files.length === 1) handleFileSelect(files[0]!, "session");
+            else handleBulkFileSelect(files);
+            e.target.value = "";
+          }}
         />
         <input
           ref={contentInputRef}
@@ -460,6 +555,83 @@ export function NewSessionFlow() {
             }}
           />
         </div>
+      </>
+    );
+  }
+
+  if (phase === "bulk") {
+    const doneCount = bulkItems.filter((item) => item.status === "done").length;
+    const errorCount = bulkItems.filter((item) => item.status === "error").length;
+    return (
+      <>
+        <button type="button" className="back-link" onClick={() => { setPhase("choose"); setBulkItems([]); }}>
+          <ArrowLeft size={14} style={{ marginRight: 4 }} /> Back
+        </button>
+        <div className="page-header">
+          <h1>Bulk upload sessions</h1>
+          <p>
+            {bulkProcessing
+              ? `${doneCount} of ${bulkItems.length} started${errorCount ? `, ${errorCount} needs attention` : ""}`
+              : `${bulkItems.length} recording${bulkItems.length === 1 ? "" : "s"} ready to create and process`}
+          </p>
+        </div>
+
+        <div className="card">
+          <div className="card-body bulk-upload-list">
+            {bulkItems.map((item) => (
+              <div key={item.id} className="bulk-upload-row">
+                <div className="bulk-upload-icon"><Upload size={18} /></div>
+                <div className="bulk-upload-main">
+                  <div className="bulk-upload-title">{item.file.name}</div>
+                  <div className="bulk-upload-meta">
+                    {(item.file.size / 1024 / 1024).toFixed(1)} MB · {bulkStatusLabel(item.status)}
+                    {item.sessionId ? ` · ${item.sessionId.slice(0, 8)}` : ""}
+                  </div>
+                  {item.status === "uploading" && (
+                    <div className="bulk-upload-progress">
+                      <span style={{ width: `${item.progress}%` }} />
+                    </div>
+                  )}
+                  {item.error && <div className="bulk-upload-error">{item.error}</div>}
+                </div>
+                {item.status === "done" && <span className="badge badge-reviewed">Started</span>}
+                {item.status === "error" && <span className="badge badge-failed">Failed</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+          <button type="button" className="btn btn-primary" disabled={bulkProcessing || bulkItems.length === 0} onClick={() => void processBulkUploads()}>
+            {bulkProcessing ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <Loader2 size={16} className="spin" /> Uploading...
+              </span>
+            ) : "Create & Process All"}
+          </button>
+          <button type="button" className="btn btn-secondary" disabled={bulkProcessing} onClick={() => inputRef.current?.click()}>
+            Choose Different Files
+          </button>
+          {doneCount > 0 && (
+            <button type="button" className="btn btn-secondary" onClick={() => router.push("/sessions")}>
+              View Sessions
+            </button>
+          )}
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="video/*,audio/*"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const files = e.target.files;
+            if (!files?.length) return;
+            if (files.length === 1) handleFileSelect(files[0]!, "session");
+            else handleBulkFileSelect(files);
+            e.target.value = "";
+          }}
+        />
       </>
     );
   }
@@ -565,4 +737,15 @@ export function NewSessionFlow() {
       </div>
     </>
   );
+}
+
+function bulkStatusLabel(status: BulkUploadStatus) {
+  switch (status) {
+    case "queued": return "Ready";
+    case "creating": return "Creating session";
+    case "uploading": return "Uploading";
+    case "processing": return "Processing started";
+    case "done": return "Workflow started";
+    case "error": return "Needs attention";
+  }
 }

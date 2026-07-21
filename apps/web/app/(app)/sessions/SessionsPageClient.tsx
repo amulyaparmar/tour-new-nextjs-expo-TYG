@@ -18,6 +18,7 @@ type PropertyOption = {
   name: string;
 };
 type AgentScope = "team" | "agent";
+type DisplaySession = SessionSummary & { isSample?: boolean };
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "newest", label: "Newest" },
@@ -38,12 +39,14 @@ export function SessionsPageClient({
   properties: PropertyOption[];
 }) {
   const router = useRouter();
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessions, setSessions] = useState<DisplaySession[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [showingSamples, setShowingSamples] = useState(false);
+  const [samplePropertyName, setSamplePropertyName] = useState<string | null>(null);
 
   const [scope, setScope] = useState<AgentScope>("team");
   const [selectedAgentId, setSelectedAgentId] = useState(currentAgentId ?? agents[0]?.id ?? "");
@@ -68,8 +71,8 @@ export function SessionsPageClient({
   );
   const showPropertyInRows = properties.length > 1;
 
-  const prefetchSession = useCallback((sessionId: string) => {
-    router.prefetch(`/sessions/${sessionId}`);
+  const prefetchSession = useCallback((sessionId: string, isSample?: boolean) => {
+    router.prefetch(`/sessions/${sessionId}${isSample ? "?sample=1" : ""}`);
   }, [router]);
 
   const openYouMenu = () => {
@@ -108,10 +111,33 @@ export function SessionsPageClient({
         hasMore: boolean;
       };
 
-      setSessions((prev) => replace ? data.sessions : [...prev, ...data.sessions]);
+      let nextSessions: DisplaySession[] = data.sessions;
+      let nextHasMore = data.hasMore;
+      let nextShowingSamples = false;
+      let nextSamplePropertyName: string | null = null;
+
+      if (replace && p === 1 && scope === "team" && data.total === 0 && data.sessions.length === 0) {
+        const sampleRes = await fetch("/api/sessions/samples");
+        if (sampleRes.ok) {
+          const sampleData = await sampleRes.json() as {
+            propertyName?: string;
+            sessions?: SessionSummary[];
+          };
+          if (sampleData.sessions?.length) {
+            nextSessions = sampleData.sessions.map((session) => ({ ...session, isSample: true }));
+            nextHasMore = false;
+            nextShowingSamples = true;
+            nextSamplePropertyName = sampleData.propertyName ?? null;
+          }
+        }
+      }
+
+      setSessions((prev) => replace ? nextSessions : [...prev, ...nextSessions]);
       setTotal(data.total);
-      setHasMore(data.hasMore);
+      setHasMore(nextHasMore);
       setPage(p);
+      setShowingSamples(nextShowingSamples);
+      setSamplePropertyName(nextSamplePropertyName);
     } catch {
       // keep existing data on error
     } finally {
@@ -150,7 +176,13 @@ export function SessionsPageClient({
     <>
       <div className="page-header">
         <h1>Sessions</h1>
-        <p>{loading ? "Loading..." : `${total} session${total !== 1 ? "s" : ""}`}</p>
+        <p>
+          {loading
+            ? "Loading..."
+            : showingSamples
+              ? `Sample tours${samplePropertyName ? ` from ${samplePropertyName}` : ""}`
+              : `${total} session${total !== 1 ? "s" : ""}`}
+        </p>
       </div>
 
       <div className="sl-toolbar sl-toolbar-row">
@@ -229,6 +261,12 @@ export function SessionsPageClient({
         </div>
       </div>
 
+      {showingSamples && (
+        <div className="sl-sample-note">
+          This property does not have recorded tours yet, so these read-only sample sessions are shown for reference.
+        </div>
+      )}
+
       <div className="card">
         {loading ? (
           <div className="sl-skeleton-list">
@@ -248,10 +286,10 @@ export function SessionsPageClient({
             {sessions.map((s) => (
               <Link
                 key={s.id}
-                href={`/sessions/${s.id}`}
+                href={`/sessions/${s.id}${s.isSample ? "?sample=1" : ""}`}
                 className="session-row"
-                onFocus={() => prefetchSession(s.id)}
-                onPointerEnter={() => prefetchSession(s.id)}
+                onFocus={() => prefetchSession(s.id, s.isSample)}
+                onPointerEnter={() => prefetchSession(s.id, s.isSample)}
               >
                 <div className="session-row-info">
                   <SessionCardCopy
@@ -261,6 +299,7 @@ export function SessionsPageClient({
                     }
                   />
                 </div>
+                {s.isSample && <span className="badge badge-source-sample">Sample</span>}
                 {s.source === "qr" && <span className="badge badge-source-qr">QR</span>}
                 <span className={`badge badge-${s.status}`}>
                   {s.status === "in_progress" && <span className="live-dot live-dot-sm" aria-hidden="true" />}

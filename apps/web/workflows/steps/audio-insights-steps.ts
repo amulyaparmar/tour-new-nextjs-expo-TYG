@@ -1,6 +1,7 @@
 import { FatalError } from "workflow";
 
 import { generateAudioInsights } from "@/lib/audio-insights";
+import { isGeminiConfigured } from "@/lib/gemini-client";
 import {
   getTranscript,
   getSessionById,
@@ -9,6 +10,18 @@ import {
   updateSession,
 } from "@/lib/sessions";
 import { fetchRecordingFile } from "@/lib/storage";
+
+export async function prepareAudioInsightsAfterAnalysisStep(sessionId: string) {
+  "use step";
+
+  if (!isGeminiConfigured()) {
+    await setAudioInsightsStatus(sessionId, "unavailable");
+    return { run: false, skipped: true, reason: "gemini_not_configured" };
+  }
+
+  await setAudioInsightsStatus(sessionId, "processing");
+  return { run: true, skipped: false };
+}
 
 export async function analyzeAudioInsightsStep(sessionId: string) {
   "use step";
@@ -46,6 +59,7 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
     sentiment: insights.overallSentiment,
   };
 }
+analyzeAudioInsightsStep.maxRetries = 3;
 
 export async function markAudioInsightsFailedStep(sessionId: string) {
   "use step";

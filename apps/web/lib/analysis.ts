@@ -7,6 +7,15 @@ import type { TranscriptSegment } from "./transcribe";
 import { type ClaudeTool } from "./bedrock";
 import { invokeAnalysisTool } from "./analysis-model-invoke";
 
+export type AnalysisParticipantNames = {
+  agentName: string | null;
+  prospectName: string | null;
+};
+
+export type AnalysisWithParticipantNames = AnalysisResult & {
+  participantNames?: AnalysisParticipantNames;
+};
+
 export async function generateAnalysis(params: {
   title: string;
   prospectName: string | null;
@@ -17,7 +26,7 @@ export async function generateAnalysis(params: {
   analysisModel?: AnalysisModelId | null;
   analysisPrompt?: string | null;
   sessionType?: string | null;
-}): Promise<AnalysisResult> {
+}): Promise<AnalysisWithParticipantNames> {
   const transcriptText = params.transcript && params.transcript.length > 0
     ? params.transcript
         .map((s) => `[${formatTime(s.startTime)}] ${s.speaker}: ${s.text}`)
@@ -35,6 +44,11 @@ export async function generateAnalysis(params: {
     `Prospect: ${params.prospectName ?? "Unknown"}`,
     `Location: ${params.location ?? "Unknown"}`,
     `Agent Notes: ${params.notes ?? "None provided"}`,
+    "",
+    "Also identify participant names from the transcript before scoring:",
+    "- identifiedAgentName: the leasing agent or staff member conducting the tour/call; null if unknown",
+    "- identifiedProspectName: the prospect, customer, visitor, or shopper; null if unknown",
+    "- Prefer spoken introductions and direct address. Do not infer names from schema text.",
     "",
     "=== TRANSCRIPT ===",
     transcriptText
@@ -73,6 +87,14 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
       needsImprovement: {
         type: "string",
         description: "One short sentence: the single most important coaching improvement for list cards",
+      },
+      identifiedAgentName: {
+        type: ["string", "null"],
+        description: "Leasing agent or staff member name from transcript evidence; null if unknown",
+      },
+      identifiedProspectName: {
+        type: ["string", "null"],
+        description: "Prospect/customer/visitor/shopper name from transcript evidence; null if unknown",
       },
       strengths: { type: "array", items: { type: "string" } },
       opportunities: { type: "array", items: { type: "string" } },
@@ -127,6 +149,8 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
       "summary",
       "cardSummary",
       "needsImprovement",
+      "identifiedAgentName",
+      "identifiedProspectName",
       "strengths",
       "opportunities",
       "suggestedRewrite",
@@ -258,7 +282,7 @@ function formatTime(seconds: number): string {
  * schema, but this guards against missing/typed-wrong fields and fills derived
  * values (e.g. totalPointsEarned).
  */
-function safeParseAnalysis(parsed: Record<string, unknown>): AnalysisResult | null {
+function safeParseAnalysis(parsed: Record<string, unknown>): AnalysisWithParticipantNames | null {
   try {
     if (
       typeof parsed.overallScore !== "number" ||
@@ -305,6 +329,8 @@ function safeParseAnalysis(parsed: Record<string, unknown>): AnalysisResult | nu
       exactMoments: parsed.exactMoments as AnalysisResult["exactMoments"],
     });
 
+    const participantNames = normalizeAnalysisParticipantNames(parsed);
+
     return {
       overallScore: parsed.overallScore,
       totalPointsEarned: totalEarned,
@@ -318,8 +344,24 @@ function safeParseAnalysis(parsed: Record<string, unknown>): AnalysisResult | nu
       sectionScores,
       fairHousingFlags: Array.isArray(parsed.fairHousingFlags) ? parsed.fairHousingFlags as string[] : [],
       exactMoments: parsed.exactMoments as AnalysisResult["exactMoments"],
+      ...(participantNames ? { participantNames } : {}),
     };
   } catch {
     return null;
   }
+}
+
+function normalizeAnalysisParticipantNames(parsed: Record<string, unknown>): AnalysisParticipantNames | null {
+  const agentName = normalizeParticipantName(parsed.identifiedAgentName);
+  const prospectName = normalizeParticipantName(parsed.identifiedProspectName);
+  if (!agentName && !prospectName) return null;
+  return { agentName, prospectName };
+}
+
+function normalizeParticipantName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^(unknown|n\/a|na|null|none|not provided)$/i.test(trimmed)) return null;
+  return trimmed.replace(/\s+/g, " ").slice(0, 120);
 }

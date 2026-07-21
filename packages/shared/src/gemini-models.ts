@@ -1,5 +1,6 @@
 /** Stable Gemini model ids for audio understanding and chat. */
 export type GeminiAudioModelId =
+  | "gemini-3.6-flash"
   | "gemini-3.5-flash"
   | "gemini-2.5-flash"
   | "gemini-2.5-pro";
@@ -12,9 +13,14 @@ export type GeminiAudioModel = {
 
 export const GEMINI_AUDIO_MODELS: readonly GeminiAudioModel[] = [
   {
+    id: "gemini-3.6-flash",
+    label: "Gemini 3.6 Flash",
+    description: "Default — faster, newer multimodal audio analysis and structured output.",
+  },
+  {
     id: "gemini-3.5-flash",
     label: "Gemini 3.5 Flash",
-    description: "Default — fast multimodal audio analysis and chat.",
+    description: "Previous fast multimodal audio analysis and chat model.",
   },
   {
     id: "gemini-2.5-flash",
@@ -28,7 +34,7 @@ export const GEMINI_AUDIO_MODELS: readonly GeminiAudioModel[] = [
   },
 ] as const;
 
-export const DEFAULT_GEMINI_AUDIO_MODEL: GeminiAudioModelId = "gemini-3.5-flash";
+export const DEFAULT_GEMINI_AUDIO_MODEL: GeminiAudioModelId = "gemini-3.6-flash";
 
 const GEMINI_MODEL_BY_ID = new Map(GEMINI_AUDIO_MODELS.map((model) => [model.id, model]));
 

@@ -18,6 +18,7 @@ import {
 } from "@/lib/sessions";
 import { transcribeAudio } from "@/lib/transcribe";
 import { fetchRecordingFile } from "@/lib/storage";
+import { startAudioInsightsWorkflow } from "@/lib/start-audio-insights-workflow";
 
 export async function transcribeSessionStep(sessionId: string) {
   "use step";
@@ -100,6 +101,14 @@ export async function analyzeSessionStep(sessionId: string) {
     rubricId: rubric.id,
     rubricName: rubric.name,
   });
+
+  const nameUpdates: { agentName?: string; prospectName?: string } = {};
+  if (analysis.participantNames?.agentName) nameUpdates.agentName = analysis.participantNames.agentName;
+  if (analysis.participantNames?.prospectName) nameUpdates.prospectName = analysis.participantNames.prospectName;
+  if (Object.keys(nameUpdates).length > 0) {
+    await updateSession(sessionId, nameUpdates);
+  }
+
   return { overallScore: analysis.overallScore };
 }
 
@@ -150,6 +159,23 @@ export async function finalizeSessionStep(sessionId: string) {
   }
 
   return { overallScore: analysis.overallScore };
+}
+
+export async function startAudioInsightsAfterAnalysisStep(sessionId: string) {
+  "use step";
+
+  try {
+    const run = await startAudioInsightsWorkflow(sessionId);
+    return run.skipped
+      ? { skipped: true, runId: null }
+      : { skipped: false, runId: run.runId };
+  } catch (error) {
+    return {
+      skipped: true,
+      runId: null,
+      reason: error instanceof Error ? error.message : "audio_insights_start_failed",
+    };
+  }
 }
 
 export async function markSessionFailedStep(sessionId: string) {

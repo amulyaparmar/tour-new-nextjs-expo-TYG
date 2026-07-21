@@ -3,7 +3,6 @@ import { start } from "workflow/api";
 
 import {
   prepareAudioInsightsProcessing,
-  startAudioInsightsWorkflow,
 } from "@/lib/start-audio-insights-workflow";
 import { getSessionById, setSessionStatus } from "@/lib/sessions";
 import { processSessionWorkflow } from "@/workflows/process-session";
@@ -37,17 +36,12 @@ export async function POST(_request: Request, context: Context) {
     await prepareAudioInsightsProcessing(id);
 
     const run = await start(processSessionWorkflow, [id]);
-    const audioInsightsRun = await startAudioInsightsWorkflow(id).catch((error) => {
-      console.error(`[audio-insights] Failed to start workflow for session ${id}:`, error);
-      return null;
-    });
 
     return NextResponse.json(
       {
         ok: true,
         async: true,
         runId: run.runId,
-        audioInsightsRunId: audioInsightsRun?.skipped ? null : audioInsightsRun?.runId ?? null,
         message: "Processing started."
       },
       { status: 202 }

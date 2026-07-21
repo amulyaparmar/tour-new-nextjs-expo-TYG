@@ -84,6 +84,7 @@ export async function createSession(payload: {
   scheduledAt?: string | null;
   prospectName?: string | null;
   agentName?: string | null;
+  uploaderIsAgent?: boolean;
   location?: string | null;
   notes?: string | null;
   rubricId?: string | null;

@@ -103,8 +103,12 @@ export async function analyzeSessionStep(sessionId: string) {
   });
 
   const nameUpdates: { agentName?: string; prospectName?: string } = {};
-  if (analysis.participantNames?.agentName) nameUpdates.agentName = analysis.participantNames.agentName;
-  if (analysis.participantNames?.prospectName) nameUpdates.prospectName = analysis.participantNames.prospectName;
+  if (!session.agentName && analysis.participantNames?.agentName) {
+    nameUpdates.agentName = analysis.participantNames.agentName;
+  }
+  if (!session.prospectName && analysis.participantNames?.prospectName) {
+    nameUpdates.prospectName = analysis.participantNames.prospectName;
+  }
   if (Object.keys(nameUpdates).length > 0) {
     await updateSession(sessionId, nameUpdates);
   }

@@ -58,6 +58,7 @@ export function NewSessionFlow() {
   const [contentUploading, setContentUploading] = useState(false);
   const [bulkItems, setBulkItems] = useState<BulkUploadItem[]>([]);
   const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [uploaderIsAgent, setUploaderIsAgent] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -183,6 +184,7 @@ export function NewSessionFlow() {
           body: JSON.stringify({
             title,
             scheduledAt: new Date().toISOString(),
+            uploaderIsAgent,
           }),
         });
         const createBody = await createRes.json().catch(() => null) as { session?: { id: string }; error?: string } | null;
@@ -294,6 +296,7 @@ export function NewSessionFlow() {
           title,
           scheduledAt: now.toISOString(),
           prospectName: String(fd.get("prospectName") ?? "").trim() || null,
+          uploaderIsAgent: fd.get("uploaderIsAgent") === "on",
           location: String(fd.get("location") ?? "").trim() || null,
           notes: String(fd.get("notes") ?? "").trim() || null,
           rubricId: String(fd.get("rubricId") ?? "").trim() || null
@@ -578,6 +581,18 @@ export function NewSessionFlow() {
 
         <div className="card">
           <div className="card-body bulk-upload-list">
+            <label className="form-check-row bulk-upload-agent-check">
+              <input
+                type="checkbox"
+                checked={uploaderIsAgent}
+                onChange={(event) => setUploaderIsAgent(event.currentTarget.checked)}
+                disabled={bulkProcessing}
+              />
+              <span>
+                <strong>I am the leasing agent</strong>
+                <small>Use my profile name for these sessions. Leave unchecked to let AI identify the agent from audio.</small>
+              </span>
+            </label>
             {bulkItems.map((item) => (
               <div key={item.id} className="bulk-upload-row">
                 <div className="bulk-upload-icon"><Upload size={18} /></div>
@@ -710,6 +725,13 @@ export function NewSessionFlow() {
                   <input id="prospectName" name="prospectName" type="text" className="form-input" placeholder="Sarah Johnson" />
                 </div>
                 <RubricSelector />
+                <label className="form-check-row">
+                  <input name="uploaderIsAgent" type="checkbox" />
+                  <span>
+                    <strong>I am the leasing agent</strong>
+                    <small>Use my profile name for this session. Leave unchecked to let AI identify the agent from audio.</small>
+                  </span>
+                </label>
               </>
             )}
             <div className="form-group">

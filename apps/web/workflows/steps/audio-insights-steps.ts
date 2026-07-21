@@ -47,8 +47,12 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
   });
   await saveAudioInsights(sessionId, insights);
   const nameUpdates: { agentName?: string; prospectName?: string } = {};
-  if (insights.participants?.agentName) nameUpdates.agentName = insights.participants.agentName;
-  if (insights.participants?.prospectName) nameUpdates.prospectName = insights.participants.prospectName;
+  if (!session.agentName && insights.participants?.agentName) {
+    nameUpdates.agentName = insights.participants.agentName;
+  }
+  if (!session.prospectName && insights.participants?.prospectName) {
+    nameUpdates.prospectName = insights.participants.prospectName;
+  }
   if (Object.keys(nameUpdates).length > 0) {
     await updateSession(sessionId, nameUpdates);
   }

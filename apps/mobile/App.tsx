@@ -2875,6 +2875,7 @@ function CreateSessionScreen({
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>(pendingUpload?.draft.selectedAssetIds ?? []);
   const [bulkItems, setBulkItems] = useState<BulkRecordingUploadItem[]>([]);
   const [bulkUploading, setBulkUploading] = useState(false);
+  const [uploaderIsAgent, setUploaderIsAgent] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -2955,6 +2956,7 @@ function CreateSessionScreen({
         const sessionData = await createSession({
           title: title.trim() || defaultTitle,
           prospectName: nextProspect.trim() || null,
+          uploaderIsAgent,
           location: nextLocation.trim() || null,
           notes: nextNotes.trim() || null,
           rubricId: nextRubricId,
@@ -3051,7 +3053,7 @@ function CreateSessionScreen({
         title: title.trim() || "Tour conversation",
         prospectName: prospect.trim() || null,
         propertyName: location.trim() || null,
-        agentName: agentName?.trim() || null,
+        agentName: uploaderIsAgent ? agentName?.trim() || null : null,
         source: "create-session",
       },
       draft: {
@@ -3174,7 +3176,7 @@ function CreateSessionScreen({
         const sessionData = await createSession({
           title: defaultTitle,
           scheduledAt: new Date().toISOString(),
-          agentName: agentName?.trim() || null,
+          uploaderIsAgent,
           rubricId,
         });
         const sid = sessionData.session.id;
@@ -3241,6 +3243,14 @@ function CreateSessionScreen({
               <Text style={st.formTitle}>Add tour recordings</Text>
               <Text style={[st.pageSub, { textAlign: "center" }]}>Record a live tour, upload one file, or select multiple recordings to process as separate sessions.</Text>
             </View>
+            <AgentIdentityToggle
+              selected={uploaderIsAgent}
+              agentName={agentName}
+              onToggle={() => {
+                setUploaderIsAgent((value) => !value);
+                void Haptics.selectionAsync();
+              }}
+            />
             <PrimaryBtn label="Record Audio" onPress={startRecording} icon="mic-outline" disabled={!createOptionsReady} />
             <Pressable onPress={pickFile} disabled={!createOptionsReady} style={({ pressed }) => [st.outlineBtn, pressed && st.pressed]}>
               <Ionicons name="document-attach-outline" size={18} color={C.textSec} />
@@ -3265,6 +3275,16 @@ function CreateSessionScreen({
           <BackBtn label="New Session" onPress={() => { if (!bulkUploading) setPhase("choose"); }} />
           <Text style={st.pageTitle}>Bulk Upload</Text>
           <Text style={st.pageSub}>{doneCount} of {bulkItems.length} started{failedCount ? ` · ${failedCount} failed` : ""}</Text>
+          <AgentIdentityToggle
+            selected={uploaderIsAgent}
+            agentName={agentName}
+            disabled={bulkUploading}
+            onToggle={() => {
+              if (bulkUploading) return;
+              setUploaderIsAgent((value) => !value);
+              void Haptics.selectionAsync();
+            }}
+          />
           <View style={[st.card, { padding: 14, gap: 10 }]}>
             {bulkItems.map((item) => (
               <View key={item.id} style={{ flexDirection: "row", gap: 10, alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" }}>
@@ -3336,6 +3356,14 @@ function CreateSessionScreen({
           <View style={{ padding: 18, gap: 14 }}>
             <Text style={st.formTitle}>Session Details</Text>
             <Text style={{ fontSize: 13, fontWeight: "600", color: C.textSec, marginTop: -8 }}>Add context to improve your analysis</Text>
+            <AgentIdentityToggle
+              selected={uploaderIsAgent}
+              agentName={agentName}
+              onToggle={() => {
+                setUploaderIsAgent((value) => !value);
+                void Haptics.selectionAsync();
+              }}
+            />
             <Input placeholder="Session title" value={title} onChangeText={setTitle} icon="text-outline" />
             <Input placeholder="Prospect name" value={prospect} onChangeText={setProspect} icon="person-outline" />
             <Input placeholder="Location / unit" value={location} onChangeText={setLocation} icon="location-outline" />
@@ -3373,6 +3401,43 @@ function CreateSessionScreen({
         </View>
       </View>
     </ScrollView>
+  );
+}
+
+function AgentIdentityToggle({
+  selected,
+  agentName,
+  disabled,
+  onToggle,
+}: {
+  selected: boolean;
+  agentName?: string | null;
+  disabled?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onToggle}
+      disabled={disabled}
+      style={({ pressed }) => [
+        st.agentToggle,
+        selected && st.agentToggleSelected,
+        pressed && st.pressed,
+        disabled && { opacity: 0.6 },
+      ]}
+    >
+      <View style={[st.agentToggleCheck, selected && st.agentToggleCheckSelected]}>
+        {selected ? <Ionicons name="checkmark" size={14} color="white" /> : null}
+      </View>
+      <View style={st.flex1}>
+        <Text style={st.agentToggleTitle}>I am the leasing agent</Text>
+        <Text style={st.agentToggleCopy}>
+          {selected
+            ? `Use ${agentName?.trim() || "my profile name"} for this session.`
+            : "Leave unchecked to let AI identify the agent from audio."}
+        </Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -6991,6 +7056,12 @@ const st = StyleSheet.create({
   outlineBtnText: { color: C.textSec, fontSize: 15, fontWeight: "800" },
   darkBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: C.text, borderRadius: 8, minHeight: 52, paddingHorizontal: 16 },
   darkBtnText: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  agentToggle: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: "#f8fafc", padding: 12 },
+  agentToggleSelected: { borderColor: C.brand, backgroundColor: C.brand + "10" },
+  agentToggleCheck: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, borderColor: C.border, backgroundColor: C.card, alignItems: "center", justifyContent: "center" },
+  agentToggleCheckSelected: { borderColor: C.brand, backgroundColor: C.brand },
+  agentToggleTitle: { color: C.text, fontSize: 13, fontWeight: "900" },
+  agentToggleCopy: { color: C.textSec, fontSize: 12, fontWeight: "600", lineHeight: 17, marginTop: 2 },
 
   // Form
   formTitle: { color: C.text, fontSize: 23, fontWeight: "900", lineHeight: 29 },

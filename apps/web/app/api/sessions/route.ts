@@ -108,6 +108,7 @@ export async function POST(request: Request) {
       location?: string | null;
       prospectName?: string | null;
       agentName?: string | null;
+      uploaderIsAgent?: boolean;
       notes?: string | null;
       rubricId?: string | null;
       agentId?: string | null;
@@ -115,7 +116,7 @@ export async function POST(request: Request) {
       unitLabel?: string | null;
     };
 
-    if (!body.title?.trim() && !body.prospectName?.trim() && !body.agentName?.trim() && !workspace.user.fullName) {
+    if (!body.title?.trim() && !body.prospectName?.trim() && !body.agentName?.trim()) {
       return NextResponse.json({ error: "title is required." }, { status: 400 });
     }
 
@@ -124,7 +125,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "That property is not available to this team member." }, { status: 403 });
     }
 
-    const agentName = body.agentName ?? workspace.user.fullName ?? null;
+    const agentName = body.agentName ?? (body.uploaderIsAgent ? workspace.user.fullName : null);
     const prospectName = body.prospectName ?? null;
     const session = await createSession({
       title: buildSessionTourTitle({

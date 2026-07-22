@@ -94,11 +94,13 @@ export function ProfileEditorScreen({
   onBack,
   onSaved,
   onStartTour,
+  presentation = "screen",
 }: {
   session: MobileAuthSession;
   onBack: () => void;
   onSaved: (next: MobileAuthSession) => void;
   onStartTour: () => void;
+  presentation?: "screen" | "tab";
 }) {
   const profileQuery = useProfileQuery();
   const updateProfileMutation = useUpdateProfileMutation();
@@ -159,21 +161,24 @@ export function ProfileEditorScreen({
 
   const loadingProfile = profileQuery.isLoading && !profile;
   const saving = updateProfileMutation.isPending;
+  const isTab = presentation === "tab";
 
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={styles.scroll}
+      contentContainerStyle={[styles.scroll, isTab && styles.tabScroll]}
     >
       <View style={styles.page}>
-        <Pressable onPress={onBack} style={({ pressed }) => [styles.backRow, pressed && { opacity: 0.7 }]}>
-          <Ionicons name="chevron-back" size={20} color={C.brand} />
-          <Text style={styles.backText}>Home</Text>
-        </Pressable>
+        {!isTab && (
+          <Pressable onPress={onBack} style={({ pressed }) => [styles.backRow, pressed && { opacity: 0.7 }]}>
+            <Ionicons name="chevron-back" size={20} color={C.brand} />
+            <Text style={styles.backText}>Home</Text>
+          </Pressable>
+        )}
 
-        <Text style={styles.pageTitle}>Your profile</Text>
+        <Text style={styles.pageTitle}>{isTab ? "My card" : "Your profile"}</Text>
         <Text style={styles.pageSub}>Update how you appear on your contact card and check-in experience.</Text>
 
         {loadingProfile ? (
@@ -291,6 +296,7 @@ function Field({
 
 const styles = StyleSheet.create({
   scroll: { paddingBottom: 40 },
+  tabScroll: { paddingBottom: 120 },
   page: { paddingHorizontal: 18, paddingTop: 8, gap: 14 },
   backRow: { flexDirection: "row", alignItems: "center", gap: 2, alignSelf: "flex-start" },
   backText: { color: C.brand, fontSize: 16, fontWeight: "700" },

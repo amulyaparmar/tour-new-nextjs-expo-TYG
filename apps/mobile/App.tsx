@@ -200,7 +200,7 @@ import { Button } from "@/components/ui/button";
 const loginBackground = require("./assets/videos/login-bg.mp4");
 
 type ProspectData = { name: string; email: string; phone: string; moveIn: string; bedrooms: string; budget: string };
-type MainTab = "home" | "sessions" | "calendar" | "materials" | "settings";
+type MainTab = "home" | "sessions" | "calendar" | "card" | "settings";
 type Screen =
   | { type: "main"; tab: MainTab }
   | { type: "session-detail"; sessionId: string; sample?: boolean; autoStartRecording?: boolean }
@@ -210,7 +210,6 @@ type Screen =
   | { type: "create-session" }
   | { type: "audio-test" }
   | { type: "rubrics" }
-  | { type: "profile" }
   | { type: "tour" };
 
 type TourStep = "contact" | "preferences" | "ready";
@@ -610,7 +609,6 @@ function screenRank(screen: Screen) {
     const index = TAB_ITEMS.findIndex((tab) => tab.id === screen.tab);
     return Math.max(0, index);
   }
-  if (screen.type === "profile") return 10;
   if (screen.type === "tour") return 11;
   if (screen.type === "create-session") return 12;
   if (screen.type === "rubrics") return 12;
@@ -879,7 +877,7 @@ export default function App() {
                     setTourStep("contact");
                     nav({ type: "tour" });
                   }}
-                  onProfile={() => nav({ type: "profile" })}
+                  onProfile={() => nav({ type: "main", tab: "card" })}
                   onRubrics={() => nav({ type: "rubrics" })}
                   onSignOut={() => {
                     void clearSession().then(() => {
@@ -950,17 +948,9 @@ export default function App() {
               )}
               {screen.type === "audio-test" && <AudioTestScreen onBack={() => nav({ type: "main", tab: "home" })} />}
               {screen.type === "rubrics" && <RubricsScreen session={authSession} onBack={() => nav({ type: "main", tab: "settings" })} onSession={(id) => nav({ type: "session-detail", sessionId: id })} />}
-              {screen.type === "profile" && (
-                <ProfileEditorScreen
-                  session={authSession}
-                  onBack={() => nav({ type: "main", tab: "home" })}
-                  onSaved={setAuthSession}
-                  onStartTour={() => { setTourStep("contact"); nav({ type: "tour" }); }}
-                />
-              )}
               {screen.type === "tour" && (
                 <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-                  <TourStepper session={authSession} idx={tourIdx} prospect={prospect} step={tourStep} onBack={() => nav({ type: "profile" })} onChange={(k, v) => setProspect((c) => ({ ...c, [k]: v }))} onStep={setTourStep} />
+                  <TourStepper session={authSession} idx={tourIdx} prospect={prospect} step={tourStep} onBack={() => nav({ type: "main", tab: "card" })} onChange={(k, v) => setProspect((c) => ({ ...c, [k]: v }))} onStep={setTourStep} />
                 </ScrollView>
               )}
             </ScreenTransition>
@@ -1011,7 +1001,7 @@ const TAB_ITEMS: Array<{ id: MainTab; label: string; icon: keyof typeof Ionicons
   { id: "home", label: "Home", icon: "home-outline", iconActive: "home" },
   { id: "sessions", label: "Sessions", icon: "list-outline", iconActive: "list" },
   { id: "calendar", label: "Calendar", icon: "calendar-outline", iconActive: "calendar" },
-  { id: "materials", label: "Assets", icon: "folder-outline", iconActive: "folder" },
+  { id: "card", label: "My card", icon: "person-circle-outline", iconActive: "person-circle" },
   { id: "settings", label: "Settings", icon: "settings-outline", iconActive: "settings" },
 ];
 
@@ -1056,6 +1046,7 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
   const [switchingCommunityId, setSwitchingCommunityId] = useState<string | null>(null);
   const [tabTransitionDirection, setTabTransitionDirection] = useState<SlideDirection>("forward");
   const [checkInOpen, setCheckInOpen] = useState(false);
+  const [materialsOpen, setMaterialsOpen] = useState(false);
   const tabIndicatorX = useSharedValue(
     (tabBarWidth / TAB_ITEMS.length) * Math.max(0, TAB_ITEMS.findIndex((item) => item.id === tab)),
   );
@@ -1110,7 +1101,7 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
     }
   }, [authSession.workspace.community.id, onAuthSession, queryClient, resetCommunityPicker]);
 
-  const showScrollView = tab !== "sessions";
+  const showScrollView = tab !== "sessions" && tab !== "card";
   const handleTabPress = useCallback((nextTab: MainTab) => {
     const currentIndex = TAB_ITEMS.findIndex((item) => item.id === tab);
     const nextIndex = TAB_ITEMS.findIndex((item) => item.id === nextTab);
@@ -1118,10 +1109,20 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
     onTab(nextTab);
   }, [onTab, tab]);
 
+  const openMaterials = useCallback(() => {
+    setTabTransitionDirection("forward");
+    setMaterialsOpen(true);
+  }, []);
+
+  const closeMaterials = useCallback(() => {
+    setTabTransitionDirection("back");
+    setMaterialsOpen(false);
+  }, []);
+
   return (
     <View style={st.flex1}>
       {showScrollView && (
-        <ScreenTransition transitionKey={`tab:${tab}`} direction={tabTransitionDirection}>
+        <ScreenTransition transitionKey={materialsOpen ? "page:materials" : `tab:${tab}`} direction={tabTransitionDirection}>
           <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.mainScroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}>
             {error && (
               <ErrorBanner
@@ -1129,7 +1130,18 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
                 onRetry={() => void onRefresh()}
               />
             )}
-            {tab === "home" && (
+            {materialsOpen ? (
+              <MaterialsScreen
+                materials={materials}
+                tourLibrary={tourLibrary}
+                loading={materialsLoading}
+                onCreate={onCreate}
+                onReload={async () => { await materialsQuery.refetch(); }}
+                onBack={closeMaterials}
+                onCommunityPress={() => setCommunityPickerOpen(true)}
+                property={property}
+              />
+            ) : tab === "home" && (
               <DashboardScreen
                 sessions={sessions}
                 upcomingSessions={upcomingSessions}
@@ -1141,7 +1153,7 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
                 onCheckIn={() => setCheckInOpen(true)}
                 onCreate={onCreate}
                 onAudioTest={onAudioTest}
-                onAssets={() => handleTabPress("materials")}
+                onAssets={openMaterials}
                 onCommunityPress={() => setCommunityPickerOpen(true)}
                 agentName={agentName}
                 userTitle={profile?.title ?? authSession.workspace.user.title ?? "Leasing Consultant"}
@@ -1151,9 +1163,8 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
                 property={property}
               />
             )}
-            {tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={async () => { await calendarQuery.refetch(); }} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
-            {tab === "materials" && <MaterialsScreen materials={materials} tourLibrary={tourLibrary} loading={materialsLoading} onCreate={onCreate} onReload={async () => { await materialsQuery.refetch(); }} onBack={() => handleTabPress("home")} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
-            {tab === "settings" && (
+            {!materialsOpen && tab === "calendar" && <CalendarScreen sessions={sessions} upcomingSessions={upcomingSessions} entrataEvents={calendarEvents} onSession={onSession} onReload={async () => { await calendarQuery.refetch(); }} onCommunityPress={() => setCommunityPickerOpen(true)} property={property} />}
+            {!materialsOpen && tab === "settings" && (
               <SettingsScreen
                 session={authSession}
                 onSessionChange={onAuthSession}
@@ -1163,6 +1174,18 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
               />
             )}
           </ScrollView>
+        </ScreenTransition>
+      )}
+
+      {tab === "card" && (
+        <ScreenTransition transitionKey="tab:card" direction={tabTransitionDirection}>
+          <ProfileEditorScreen
+            presentation="tab"
+            session={authSession}
+            onBack={() => handleTabPress("home")}
+            onSaved={onAuthSession}
+            onStartTour={onGuestRegistration}
+          />
         </ScreenTransition>
       )}
 
@@ -1181,7 +1204,15 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
             key={t.id}
             accessibilityRole="tab"
             accessibilityState={{ selected: tab === t.id }}
-            onPress={() => { selectionHaptic(); handleTabPress(t.id); }}
+            onPress={() => {
+              selectionHaptic();
+              if (materialsOpen && t.id === "home") {
+                closeMaterials();
+                return;
+              }
+              setMaterialsOpen(false);
+              handleTabPress(t.id);
+            }}
             style={st.tabBarItem}
           >
             <Ionicons name={tab === t.id ? t.iconActive : t.icon} size={22} color={tab === t.id ? C.brand : C.textMuted} />

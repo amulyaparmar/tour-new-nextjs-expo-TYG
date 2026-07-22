@@ -25,7 +25,7 @@ export default async function ProfilePage() {
   return (
     <>
       <div className="page-header">
-        <h1>Profile</h1>
+        <h1>My Card</h1>
         <p>Manage your contact card, public aliases, and active property</p>
       </div>
 

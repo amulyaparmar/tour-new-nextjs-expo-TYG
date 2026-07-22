@@ -195,10 +195,8 @@ export function CheckInCard({
     };
   }, []);
 
-  const accent = rep.cardAccent?.trim() || "#111";
-
   return (
-    <main className={styles.page} style={{ ["--card-accent" as string]: accent }}>
+    <main className={styles.page}>
       <div className={styles.stage}>
         <section className={styles.card}>
           <div className={styles.header}>

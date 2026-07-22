@@ -28,7 +28,7 @@
   align-items: flex-start;
   justify-content: center;
   padding-top: 26px;
-  background: #1f2937;
+  background: #17335f;
 }
 
 .headerVideo,
@@ -45,7 +45,7 @@
 }
 
 .headerOverlay {
-  background: rgba(17, 24, 39, 0.62);
+  background: rgba(11, 27, 53, 0.62);
 }
 
 .brand {
@@ -67,7 +67,7 @@
   height: 84px;
   border-radius: 9999px;
   border: 4px solid #fff;
-  background: var(--card-accent, #111827);
+  background: #4d8ae5;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -128,11 +128,11 @@
   width: 34px;
   height: 34px;
   border-radius: 9999px;
-  background: #f3f4f6;
+  background: #eef5ff;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #111;
+  color: #326fc9;
 }
 
 .fieldLabel {
@@ -146,7 +146,7 @@
   width: 100%;
   border: none;
   cursor: pointer;
-  background: var(--card-accent, #111);
+  background: #4d8ae5;
   color: #fff;
   font-weight: 700;
   font-size: 15px;
@@ -167,6 +167,7 @@
 
 .primaryBtn:not(:disabled):hover {
   transform: translateY(-1px);
+  background: #326fc9;
 }
 
 .saveSlot {
@@ -218,7 +219,7 @@
   font-size: 19px;
   font-weight: 800;
   line-height: 1.2;
-  box-shadow: 0 14px 30px rgba(15, 15, 15, 0.22);
+  box-shadow: 0 14px 30px rgba(50, 111, 201, 0.3);
   pointer-events: auto;
 }
 
@@ -370,7 +371,7 @@
   width: 38px;
   height: 38px;
   border-radius: 9999px;
-  background: #111827;
+  background: #4d8ae5;
   color: #fff;
   display: flex;
   align-items: center;
@@ -426,9 +427,9 @@
 .floatingInput:focus,
 .selectInput:focus {
   outline: none;
-  border: 2px solid #000;
+  border: 2px solid #4d8ae5;
   padding: 15px 17px;
-  box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.08);
+  box-shadow: 0 0 0 3px rgba(77, 138, 229, 0.14);
 }
 
 .floatingLabel {
@@ -531,7 +532,7 @@
   width: 18px;
   height: 18px;
   border-radius: 9999px;
-  background: #ec4899;
+  background: #4d8ae5;
   color: #fff;
   display: inline-flex;
   align-items: center;

@@ -751,7 +751,7 @@ export function RecordingExperience({
       try {
         if (!(await isOnline())) return null;
         const created = await createSession({
-          title: title?.trim() || "Tour conversation",
+          title: title?.trim() || null,
           prospectName: prospectName ?? null,
           agentName: agentName ?? null,
           location: propertyName ?? null,

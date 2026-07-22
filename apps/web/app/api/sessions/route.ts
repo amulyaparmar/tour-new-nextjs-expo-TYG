@@ -11,7 +11,6 @@ import {
 } from "@/lib/admin-auth";
 import { listTeamAgents } from "@/lib/agents";
 import { createSession, listSessionsPaginated } from "@/lib/sessions";
-import { buildSessionTourTitle } from "@tour/shared";
 
 const VALID_STATUSES: SessionStatus[] = [
   "scheduled", "in_progress", "uploaded", "transcribing", "segmenting",
@@ -104,6 +103,7 @@ export async function POST(request: Request) {
       : await resolveFallbackAdminContext(readAdminCookie(request, ADMIN_COMMUNITY_COOKIE));
     const body = (await request.json()) as {
       title?: string;
+      sourceFileName?: string | null;
       scheduledAt?: string | null;
       location?: string | null;
       prospectName?: string | null;
@@ -116,8 +116,8 @@ export async function POST(request: Request) {
       unitLabel?: string | null;
     };
 
-    if (!body.title?.trim() && !body.prospectName?.trim() && !body.agentName?.trim()) {
-      return NextResponse.json({ error: "title is required." }, { status: 400 });
+    if (!body.title?.trim() && !body.sourceFileName?.trim() && !body.prospectName?.trim() && !body.agentName?.trim() && !body.uploaderIsAgent) {
+      return NextResponse.json({ error: "title, sourceFileName, prospectName, or agentName is required." }, { status: 400 });
     }
 
     const requestedPropertyId = body.propertyId?.trim() || workspace.community.propertyTygId;
@@ -128,11 +128,8 @@ export async function POST(request: Request) {
     const agentName = body.agentName ?? (body.uploaderIsAgent ? workspace.user.fullName : null);
     const prospectName = body.prospectName ?? null;
     const session = await createSession({
-      title: buildSessionTourTitle({
-        title: body.title,
-        agentName,
-        prospectName,
-      }),
+      title: body.title ?? null,
+      sourceFileName: body.sourceFileName ?? null,
       scheduledAt: body.scheduledAt ?? null,
       location: body.location ?? null,
       prospectName,

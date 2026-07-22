@@ -69,7 +69,7 @@ export function isGenericSessionTitle(title: string | null | undefined): boolean
 }
 
 /**
- * Default future session name: `Laura x Amulya Tour`
+ * Default future session name: `Amulya x Laura Tour` (prospect x agent).
  * Used when callers don't provide a custom title.
  */
 export function buildSessionTourTitle(input: {
@@ -83,7 +83,7 @@ export function buildSessionTourTitle(input: {
   const prospect = firstName(input.prospectName);
   const peopleTitle =
     agent && prospect
-      ? `${agent} x ${prospect} Tour`
+      ? `${prospect} x ${agent} Tour`
       : prospect
         ? `${prospect} Tour`
         : agent

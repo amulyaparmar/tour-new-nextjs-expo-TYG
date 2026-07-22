@@ -2949,7 +2949,6 @@ function CreateSessionScreen({
     }
 
     try {
-      const defaultTitle = name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
       if (!sid) {
         if (!(await isOnline())) {
           showToast("Saved on device — will upload when online", "info");
@@ -2959,7 +2958,8 @@ function CreateSessionScreen({
           return;
         }
         const sessionData = await createSession({
-          title: title.trim() || defaultTitle,
+          title: title.trim() || null,
+          sourceFileName: name,
           prospectName: nextProspect.trim() || null,
           uploaderIsAgent: nextUploaderIsAgent,
           location: nextLocation.trim() || null,
@@ -2970,7 +2970,7 @@ function CreateSessionScreen({
         setSessionId(sid);
         if (localId) updateLocalSession(localId, { remoteSessionId: sid });
       }
-      if (!title.trim()) setTitle(defaultTitle);
+      if (!title.trim()) setTitle(name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "));
       if (draftOverrides?.notes !== undefined) setNotes(draftOverrides.notes);
       if (draftOverrides?.prospect !== undefined) setProspect(draftOverrides.prospect);
       if (draftOverrides?.location !== undefined) setLocation(draftOverrides.location);
@@ -3181,9 +3181,8 @@ function CreateSessionScreen({
     for (const item of bulkItems) {
       try {
         updateBulkItem(item.id, { status: "creating", error: null, progress: 0 });
-        const defaultTitle = item.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ").trim() || "Uploaded tour";
         const sessionData = await createSession({
-          title: defaultTitle,
+          sourceFileName: item.name,
           scheduledAt: new Date().toISOString(),
           uploaderIsAgent,
           rubricId,

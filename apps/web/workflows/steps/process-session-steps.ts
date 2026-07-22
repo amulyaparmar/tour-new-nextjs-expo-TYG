@@ -19,6 +19,7 @@ import {
 import { transcribeAudio } from "@/lib/transcribe";
 import { fetchRecordingFile } from "@/lib/storage";
 import { startAudioInsightsWorkflow } from "@/lib/start-audio-insights-workflow";
+import { deriveSessionTitleFromParticipants } from "@/lib/session-naming";
 
 export async function transcribeSessionStep(sessionId: string) {
   "use step";
@@ -102,13 +103,19 @@ export async function analyzeSessionStep(sessionId: string) {
     rubricName: rubric.name,
   });
 
-  const nameUpdates: { agentName?: string; prospectName?: string } = {};
+  const nameUpdates: { agentName?: string; prospectName?: string; title?: string } = {};
   if (!session.agentName && analysis.participantNames?.agentName) {
     nameUpdates.agentName = analysis.participantNames.agentName;
   }
   if (!session.prospectName && analysis.participantNames?.prospectName) {
     nameUpdates.prospectName = analysis.participantNames.prospectName;
   }
+  const derivedTitle = deriveSessionTitleFromParticipants({
+    currentTitle: session.title,
+    agentName: nameUpdates.agentName ?? session.agentName,
+    prospectName: nameUpdates.prospectName ?? session.prospectName,
+  });
+  if (derivedTitle) nameUpdates.title = derivedTitle;
   if (Object.keys(nameUpdates).length > 0) {
     await updateSession(sessionId, nameUpdates);
   }

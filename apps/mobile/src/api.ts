@@ -80,7 +80,8 @@ export async function fetchSampleSession(sessionId: string): Promise<SampleSessi
 }
 
 export async function createSession(payload: {
-  title: string;
+  title?: string | null;
+  sourceFileName?: string | null;
   scheduledAt?: string | null;
   prospectName?: string | null;
   agentName?: string | null;

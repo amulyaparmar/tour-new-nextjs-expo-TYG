@@ -10,6 +10,7 @@ import {
   setAudioInsightsStatus,
   updateSession,
 } from "@/lib/sessions";
+import { deriveSessionTitleFromParticipants } from "@/lib/session-naming";
 import { fetchRecordingFile } from "@/lib/storage";
 
 export async function prepareAudioInsightsAfterAnalysisStep(sessionId: string) {
@@ -67,13 +68,19 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
     transcript,
   });
   await saveAudioInsights(sessionId, insights);
-  const nameUpdates: { agentName?: string; prospectName?: string } = {};
+  const nameUpdates: { agentName?: string; prospectName?: string; title?: string } = {};
   if (!session.agentName && insights.participants?.agentName) {
     nameUpdates.agentName = insights.participants.agentName;
   }
   if (!session.prospectName && insights.participants?.prospectName) {
     nameUpdates.prospectName = insights.participants.prospectName;
   }
+  const derivedTitle = deriveSessionTitleFromParticipants({
+    currentTitle: session.title,
+    agentName: nameUpdates.agentName ?? session.agentName,
+    prospectName: nameUpdates.prospectName ?? session.prospectName,
+  });
+  if (derivedTitle) nameUpdates.title = derivedTitle;
   if (Object.keys(nameUpdates).length > 0) {
     await updateSession(sessionId, nameUpdates);
   }

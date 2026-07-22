@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   CalendarDays,
   Camera,
+  CirclePlus,
   ClipboardList,
   FolderPlus,
   Globe2,
@@ -36,12 +37,30 @@ type BulkUploadItem = {
   error: string | null;
 };
 
-export function NewSessionFlow() {
+function cleanDateTourTitle(date: Date) {
+  const day = date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s+/g, " ");
+  return `${day} ${time} Tour`;
+}
+
+function initialsForName(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "ME";
+}
+
+export function NewSessionFlow({ propertyLocation, profileName }: { propertyLocation: string; profileName: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
+  const addMoreInputRef = useRef<HTMLInputElement>(null);
   const contentInputRef = useRef<HTMLInputElement>(null);
   const rubricInputRef = useRef<HTMLInputElement>(null);
+  const sessionDetailsFormRef = useRef<HTMLFormElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -61,6 +80,8 @@ export function NewSessionFlow() {
   const [uploaderIsAgent, setUploaderIsAgent] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStage, setUploadStage] = useState<string | null>(null);
+  const defaultSessionTitle = cleanDateTourTitle(new Date());
+  const profileInitials = initialsForName(profileName);
 
   useEffect(() => {
     return () => {
@@ -92,6 +113,19 @@ export function NewSessionFlow() {
     if (mimeType.includes("pdf")) return "pdf";
     return "webm";
   };
+
+  function fileFromCurrentRecording(): File | null {
+    if (!recordedBlob) return null;
+    if (recordedBlob instanceof File) return recordedBlob;
+    const ext = guessExtension(recordedBlob.type);
+    return new File([recordedBlob], `recording-${Date.now()}.${ext}`, { type: recordedBlob.type });
+  }
+
+  function handleAddMoreSessions(files: FileList | File[]) {
+    const current = fileFromCurrentRecording();
+    const next = Array.from(files);
+    handleBulkFileSelect(current ? [current, ...next] : next);
+  }
 
   async function startRecording(mode: RecordingMode = "audio", draft: DraftType = "session") {
     try {
@@ -174,12 +208,15 @@ export function NewSessionFlow() {
     setBulkItems((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
   }
 
-  async function processBulkUploads() {
+  async function processBulkUploads(itemIds?: string[]) {
     if (bulkProcessing || bulkItems.length === 0) return;
     setBulkProcessing(true);
     setErrorMsg(null);
+    const itemsToProcess = itemIds?.length
+      ? bulkItems.filter((item) => itemIds.includes(item.id))
+      : bulkItems.filter((item) => item.status === "queued" || item.status === "error");
 
-    for (const item of bulkItems) {
+    for (const item of itemsToProcess) {
       try {
         updateBulkItem(item.id, { status: "creating", error: null, progress: 0 });
         const title = item.file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ").trim() || "Uploaded tour";
@@ -266,7 +303,8 @@ export function NewSessionFlow() {
 
     const fd = new FormData(e.currentTarget);
     const now = new Date();
-    const title = String(fd.get("title") ?? "").trim()
+    const rawTitle = String(fd.get("title") ?? "").trim();
+    const contentTitle = rawTitle
       || `Tour ${now.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 
     try {
@@ -284,7 +322,7 @@ export function NewSessionFlow() {
             contentType: file.type || "application/octet-stream",
           },
           completeBody: () => ({
-            name: title,
+            name: contentTitle,
             description: [
               String(fd.get("location") ?? "").trim(),
               String(fd.get("notes") ?? "").trim()
@@ -304,11 +342,16 @@ export function NewSessionFlow() {
       }
 
       setUploadStage("Creating session");
+      const ext = guessExtension(recordedBlob.type);
+      const sourceFileName = recordedBlob instanceof File
+        ? recordedBlob.name
+        : `recording-${Date.now()}.${ext}`;
       const createRes = await fetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title,
+          title: rawTitle || null,
+          sourceFileName,
           scheduledAt: now.toISOString(),
           prospectName: String(fd.get("prospectName") ?? "").trim() || null,
           uploaderIsAgent: fd.get("uploaderIsAgent") === "on",
@@ -322,7 +365,6 @@ export function NewSessionFlow() {
       const { session } = await createRes.json() as { session: { id: string } };
       const sessionId = session.id;
 
-      const ext = guessExtension(recordedBlob.type);
       const file = new File([recordedBlob], `recording-${sessionId}.${ext}`, { type: recordedBlob.type });
       setUploadStage("Uploading recording");
       await uploadFileWithPresign({
@@ -589,6 +631,7 @@ export function NewSessionFlow() {
   if (phase === "bulk") {
     const doneCount = bulkItems.filter((item) => item.status === "done").length;
     const errorCount = bulkItems.filter((item) => item.status === "error").length;
+    const readyCount = bulkItems.filter((item) => item.status === "queued" || item.status === "error").length;
     return (
       <>
         <button type="button" className="back-link" onClick={() => { setPhase("choose"); setBulkItems([]); }}>
@@ -598,8 +641,8 @@ export function NewSessionFlow() {
           <h1>Bulk upload sessions</h1>
           <p>
             {bulkProcessing
-              ? `${doneCount} of ${bulkItems.length} started${errorCount ? `, ${errorCount} needs attention` : ""}`
-              : `${bulkItems.length} recording${bulkItems.length === 1 ? "" : "s"} ready to create and process`}
+              ? `${doneCount} of ${bulkItems.length} processing${errorCount ? `, ${errorCount} needs attention` : ""}`
+              : `${bulkItems.length} recording${bulkItems.length === 1 ? "" : "s"} ready for review`}
           </p>
         </div>
 
@@ -624,7 +667,7 @@ export function NewSessionFlow() {
                   <div className="bulk-upload-title">{item.file.name}</div>
                   <div className="bulk-upload-meta">
                     {(item.file.size / 1024 / 1024).toFixed(1)} MB · {bulkStatusLabel(item.status)}
-                    {item.sessionId ? ` · ${item.sessionId.slice(0, 8)}` : ""}
+                    {item.sessionId ? ` · session ${item.sessionId.slice(0, 8)}` : ""}
                   </div>
                   {item.status === "uploading" && (
                     <div className="bulk-upload-progress">
@@ -633,24 +676,45 @@ export function NewSessionFlow() {
                   )}
                   {item.error && <div className="bulk-upload-error">{item.error}</div>}
                 </div>
-                {item.status === "done" && <span className="badge badge-reviewed">Started</span>}
-                {item.status === "error" && <span className="badge badge-failed">Failed</span>}
+                <div className="bulk-upload-actions">
+                  {item.status === "done" && item.sessionId && (
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => router.push(`/sessions/${item.sessionId}`)}>
+                      Open
+                    </button>
+                  )}
+                  {item.status === "error" && (
+                    <button type="button" className="btn btn-secondary btn-sm" disabled={bulkProcessing} onClick={() => void processBulkUploads([item.id])}>
+                      Retry
+                    </button>
+                  )}
+                  {(item.status === "queued" || item.status === "error") && <span className="badge badge-reviewed">Ready</span>}
+                  {(item.status === "creating" || item.status === "processing") && <span className="badge badge-processing">Started</span>}
+                  {item.status === "done" && <span className="badge badge-reviewed">Done</span>}
+                  {item.status === "error" && <span className="badge badge-failed">Failed</span>}
+                </div>
               </div>
             ))}
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-          <button type="button" className="btn btn-primary" disabled={bulkProcessing || bulkItems.length === 0} onClick={() => void processBulkUploads()}>
+          <button type="button" className="btn btn-primary" disabled={bulkProcessing || readyCount === 0} onClick={() => void processBulkUploads()}>
             {bulkProcessing ? (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                 <Loader2 size={16} className="spin" /> Uploading...
               </span>
-            ) : "Create & Process All"}
+            ) : (
+              "Create & Process Ready"
+            )}
           </button>
           <button type="button" className="btn btn-secondary" disabled={bulkProcessing} onClick={() => inputRef.current?.click()}>
             Choose Different Files
           </button>
+          {errorCount > 0 && !bulkProcessing && (
+            <button type="button" className="btn btn-secondary" onClick={() => void processBulkUploads(bulkItems.filter((item) => item.status === "error").map((item) => item.id))}>
+              Retry Failed
+            </button>
+          )}
           {doneCount > 0 && (
             <button type="button" className="btn btn-secondary" onClick={() => router.push("/sessions")}>
               View Sessions
@@ -666,15 +730,18 @@ export function NewSessionFlow() {
           onChange={(e) => {
             const files = e.target.files;
             if (!files?.length) return;
-            if (files.length === 1) handleFileSelect(files[0]!, "session");
-            else handleBulkFileSelect(files);
+            if (files.length === 1) {
+              const file = files.item(0);
+              if (file) handleFileSelect(file, "session");
+            } else {
+              handleBulkFileSelect(files);
+            }
             e.target.value = "";
           }}
         />
       </>
     );
   }
-
   // ── Full-screen recording ──
   if (phase === "recording") {
     if (recordingMode === "audio") {
@@ -722,35 +789,54 @@ export function NewSessionFlow() {
   // ── Details form + save ──
   return (
     <>
-      <button type="button" className="back-link" onClick={() => { setPhase("choose"); setRecordedBlob(null); }}>
+      <button type="button" className="back-link session-details-back-link" onClick={() => { setPhase("choose"); setRecordedBlob(null); }}>
         <ArrowLeft size={14} style={{ marginRight: 4 }} /> Back
       </button>
 
-      <div className="page-header">
-        <h1>{draftType === "content" ? "Content Details" : "Session Details"}</h1>
-        <p>
-          {recordedBlob
-            ? `${draftType === "content" ? "File" : "Recording"} ready (${(recordedBlob.size / 1024 / 1024).toFixed(1)} MB)`
-            : "Fill in details and save"}
-        </p>
+      <div className="page-header session-details-header">
+        <div>
+          <h1>{draftType === "content" ? "Content Details" : "Session Details"}</h1>
+          <p>
+            {recordedBlob
+              ? `${draftType === "content" ? "File" : "Recording"} ready (${(recordedBlob.size / 1024 / 1024).toFixed(1)} MB)`
+              : "Fill in details and save"}
+          </p>
+        </div>
+        {draftType === "session" && (
+          <button type="button" className="btn add-more-sessions-btn" disabled={phase === "saving"} onClick={() => addMoreInputRef.current?.click()}>
+            <CirclePlus size={15} />
+            Add more sessions
+          </button>
+        )}
       </div>
 
-      <div className="card">
+      <div className="card session-details-card">
         <div className="card-body">
-          <form onSubmit={handleSubmit} className="form-grid">
+          <form ref={sessionDetailsFormRef} onSubmit={handleSubmit} className="form-grid session-details-grid">
             <div className="form-group">
               <label htmlFor="title" className="form-label">{draftType === "content" ? "Content title" : "Session title"}</label>
-              <input id="title" name="title" type="text" className="form-input" placeholder={draftType === "content" ? "Model unit walkthrough" : "Downtown Unit Tour"} />
+              <input
+                id="title"
+                name="title"
+                type="text"
+                className="form-input"
+                defaultValue={draftType === "content" ? "" : defaultSessionTitle}
+                placeholder={draftType === "content" ? "Model unit walkthrough" : defaultSessionTitle}
+              />
             </div>
             {draftType === "session" && (
               <>
                 <div className="form-group">
                   <label htmlFor="prospectName" className="form-label">Prospect name</label>
-                  <input id="prospectName" name="prospectName" type="text" className="form-input" placeholder="Sarah Johnson" />
+                  <input id="prospectName" name="prospectName" type="text" className="form-input" placeholder="Leave blank for AI to infer" />
+                  <span className="form-hint">Leave blank to infer from the recording.</span>
                 </div>
-                <RubricSelector />
-                <label className="form-check-row">
+                <div className="session-rubric-field">
+                  <RubricSelector />
+                </div>
+                <label className="form-check-row agent-check-card">
                   <input name="uploaderIsAgent" type="checkbox" />
+                  <span className="agent-check-avatar" aria-hidden="true">{profileInitials}</span>
                   <span>
                     <strong>I am the leasing agent</strong>
                     <small>Use my profile name for this session. Leave unchecked to let AI identify the agent from audio.</small>
@@ -758,14 +844,50 @@ export function NewSessionFlow() {
                 </label>
               </>
             )}
-            <div className="form-group">
-              <label htmlFor="location" className="form-label">{draftType === "content" ? "Property or project" : "Location"}</label>
-              <input id="location" name="location" type="text" className="form-input" placeholder={draftType === "content" ? "The Mason content library" : "Tower A - Unit 1204"} />
-            </div>
-            <div className="form-group">
-              <label htmlFor="notes" className="form-label">Notes</label>
-              <textarea id="notes" name="notes" rows={2} className="form-textarea" placeholder={draftType === "content" ? "What this asset shows or where it should be used..." : "Key topics, focus areas..."} />
-            </div>
+            {draftType === "session" ? (
+              <div className="form-group session-notes-group">
+                <input type="hidden" name="location" value={propertyLocation} />
+                <div className="notes-label-row">
+                  <label htmlFor="notes" className="form-label">Notes</label>
+                  <div className="notes-location-pill" aria-label={`Location: ${propertyLocation}`}>
+                    <span>Location</span>
+                    <strong>{propertyLocation}</strong>
+                  </div>
+                </div>
+                <div className="notes-field-shell">
+                  <textarea
+                    id="notes"
+                    name="notes"
+                    rows={3}
+                    className="form-textarea notes-list-textarea notes-list-textarea--embedded"
+                    placeholder="Add any context, follow-up details, or units mentioned."
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="form-group">
+                  <label htmlFor="location" className="form-label">Property or project</label>
+                  <input
+                    id="location"
+                    name="location"
+                    type="text"
+                    className="form-input"
+                    placeholder={propertyLocation}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="notes" className="form-label">Notes</label>
+                  <textarea
+                    id="notes"
+                    name="notes"
+                    rows={4}
+                    className="form-textarea notes-list-textarea"
+                    placeholder="Add any context about this asset."
+                  />
+                </div>
+              </>
+            )}
 
             {errorMsg && <p style={{ color: "var(--red-700)", fontSize: 13 }}>{errorMsg}</p>}
 
@@ -781,16 +903,31 @@ export function NewSessionFlow() {
               </div>
             )}
 
-            <button type="submit" className="btn btn-primary btn-block" disabled={phase === "saving"}>
-              {phase === "saving" ? (
-                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  <Loader2 size={16} className="spin" /> Saving &amp; uploading...
-                </span>
-              ) : (
-                draftType === "content" ? "Save to Library" : "Save & Process"
-              )}
-            </button>
+            <div className="session-details-actions">
+              <button type="submit" className="btn btn-primary session-details-submit" disabled={phase === "saving"}>
+                {phase === "saving" ? (
+                  <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    <Loader2 size={16} className="spin" /> Saving &amp; uploading...
+                  </span>
+                ) : (
+                  draftType === "content" ? "Save to Library" : "Save & Process"
+                )}
+              </button>
+            </div>
           </form>
+          <input
+            ref={addMoreInputRef}
+            type="file"
+            accept="video/*,audio/*"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const files = e.target.files;
+              if (!files?.length) return;
+              handleAddMoreSessions(files);
+              e.target.value = "";
+            }}
+          />
         </div>
       </div>
     </>
@@ -803,7 +940,7 @@ function bulkStatusLabel(status: BulkUploadStatus) {
     case "creating": return "Creating session";
     case "uploading": return "Uploading";
     case "processing": return "Processing started";
-    case "done": return "Workflow started";
+    case "done": return "Processing started";
     case "error": return "Needs attention";
   }
 }

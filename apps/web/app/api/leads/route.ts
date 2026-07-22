@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import type { SessionLead } from "@tour/shared";
-import { buildSessionTourTitle } from "@tour/shared";
 import { addSessionLead, createSession, findOpenQrSession, getSessionById, updateSession } from "@/lib/sessions";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
@@ -126,11 +125,7 @@ export async function POST(request: Request) {
 
     const property = body.propertyName?.trim() || "Property";
     const session = await createSession({
-      title: buildSessionTourTitle({
-        agentName,
-        prospectName: lead.name,
-        preferPeopleTitle: true,
-      }),
+      title: null,
       status: "in_progress",
       scheduledAt: new Date().toISOString(),
       prospectName: lead.name,

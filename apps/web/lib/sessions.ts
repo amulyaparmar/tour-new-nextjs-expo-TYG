@@ -149,6 +149,17 @@ type FollowUpActionRow = {
   created_at: string;
 };
 
+function titleCandidateFromSourceFileName(fileName: string | null | undefined): string | null {
+  const withoutPath = fileName?.trim().split(/[\\/]/).pop();
+  if (!withoutPath) return null;
+  const withoutExtension = withoutPath.replace(/\.[^.]+$/, "");
+  const cleaned = withoutExtension
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || null;
+}
+
 export type ListSessionsParams = {
   page?: number;
   limit?: number;
@@ -315,7 +326,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
   );
   const agentName = normalizeParticipantName(input.agentName);
   const normalizedTitle = buildSessionTourTitle({
-    title: input.title,
+    title: input.title ?? titleCandidateFromSourceFileName(input.sourceFileName),
     agentName,
     prospectName,
   });

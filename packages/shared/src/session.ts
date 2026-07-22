@@ -78,7 +78,8 @@ export type SessionDetail = SessionSummary & {
 };
 
 export type CreateSessionInput = {
-  title: string;
+  title?: string | null;
+  sourceFileName?: string | null;
   status?: SessionStatus;
   scheduledAt?: string | null;
   location?: string | null;

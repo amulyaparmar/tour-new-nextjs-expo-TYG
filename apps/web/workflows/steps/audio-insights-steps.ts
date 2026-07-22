@@ -2,6 +2,7 @@ import { FatalError } from "workflow";
 
 import { generateAudioInsights } from "@/lib/audio-insights";
 import { isGeminiConfigured } from "@/lib/gemini-client";
+import { getRubricForSession } from "@/lib/rubrics";
 import {
   getTranscript,
   getSessionById,
@@ -13,6 +14,17 @@ import { fetchRecordingFile } from "@/lib/storage";
 
 export async function prepareAudioInsightsAfterAnalysisStep(sessionId: string) {
   "use step";
+
+  const session = await getSessionById(sessionId);
+  if (!session) {
+    throw new FatalError("Session not found for audio insights.");
+  }
+
+  const rubric = await getRubricForSession(session.rubricId, session.propertyId);
+  if (!rubric.audioUnderstandingEnabled) {
+    await setAudioInsightsStatus(sessionId, "unavailable");
+    return { run: false, skipped: true, reason: "audio_understanding_disabled" };
+  }
 
   if (!isGeminiConfigured()) {
     await setAudioInsightsStatus(sessionId, "unavailable");
@@ -31,6 +43,15 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
   const session = await getSessionById(sessionId);
   if (!session) {
     throw new FatalError("Session not found for audio insights.");
+  }
+
+  const rubric = await getRubricForSession(session.rubricId, session.propertyId);
+  if (!rubric.audioUnderstandingEnabled) {
+    await setAudioInsightsStatus(sessionId, "unavailable");
+    return {
+      skipped: true,
+      reason: "audio_understanding_disabled",
+    };
   }
 
   const file = await fetchRecordingFile(sessionId);

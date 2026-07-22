@@ -49,6 +49,7 @@ export type LiveRecordingDraft = {
   prospect: string;
   location: string;
   rubricId: string | null;
+  uploaderIsAgent?: boolean;
 };
 
 export type LiveSessionSnapshot = {
@@ -110,6 +111,7 @@ const EMPTY_DRAFT: LiveRecordingDraft = {
   prospect: "",
   location: "",
   rubricId: null,
+  uploaderIsAgent: false,
 };
 
 const EMPTY_WAVEFORM = Array.from({ length: WAVEFORM_BAR_COUNT }, () => 0.08);

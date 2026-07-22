@@ -262,6 +262,7 @@ type PendingCreateSessionUpload = {
     location: string;
     rubricId: string | null;
     selectedAssetIds: string[];
+    uploaderIsAgent?: boolean;
   };
 };
 
@@ -275,6 +276,7 @@ function emptyLiveDraft(): LocalSessionMeta["draft"] {
     prospect: "",
     location: "",
     rubricId: null,
+    uploaderIsAgent: false,
   };
 }
 
@@ -2906,6 +2908,7 @@ function CreateSessionScreen({
       prospect?: string;
       location?: string;
       rubricId?: string | null;
+      uploaderIsAgent?: boolean;
     },
     localId?: string | null,
   ) {
@@ -2918,6 +2921,7 @@ function CreateSessionScreen({
     const nextLocation = draftOverrides?.location ?? location;
     const nextNotes = draftOverrides?.notes ?? notes;
     const nextRubricId = draftOverrides?.rubricId !== undefined ? draftOverrides.rubricId : rubricId;
+    const nextUploaderIsAgent = draftOverrides?.uploaderIsAgent ?? uploaderIsAgent;
     let sid = existingSessionId ?? sessionId;
     const durableUri = localId
       ? ((await ensureDurableRecording(localId, uri)) ?? getRecordingUri(localId) ?? uri)
@@ -2937,6 +2941,7 @@ function CreateSessionScreen({
           prospect: nextProspect,
           location: nextLocation,
           rubricId: nextRubricId,
+          uploaderIsAgent: nextUploaderIsAgent,
         },
         fileName: name,
         mimeType,
@@ -2956,7 +2961,7 @@ function CreateSessionScreen({
         const sessionData = await createSession({
           title: title.trim() || defaultTitle,
           prospectName: nextProspect.trim() || null,
-          uploaderIsAgent,
+          uploaderIsAgent: nextUploaderIsAgent,
           location: nextLocation.trim() || null,
           notes: nextNotes.trim() || null,
           rubricId: nextRubricId,
@@ -2970,6 +2975,7 @@ function CreateSessionScreen({
       if (draftOverrides?.prospect !== undefined) setProspect(draftOverrides.prospect);
       if (draftOverrides?.location !== undefined) setLocation(draftOverrides.location);
       if (draftOverrides?.rubricId !== undefined && draftOverrides.rubricId) setRubricId(draftOverrides.rubricId);
+      if (draftOverrides?.uploaderIsAgent !== undefined) setUploaderIsAgent(draftOverrides.uploaderIsAgent);
 
       await uploadRecording(sid, durableUri, mimeType, name, durationSec, (next) => setUploadStats(uploadStatsFromProgress(next)));
       await clearPendingRecordingUpload(sid, localId);
@@ -2993,6 +2999,7 @@ function CreateSessionScreen({
             prospect: nextProspect,
             location: nextLocation,
             rubricId: nextRubricId,
+            uploaderIsAgent: nextUploaderIsAgent,
           },
           fileName: name,
           mimeType,
@@ -3065,6 +3072,7 @@ function CreateSessionScreen({
         prospect,
         location,
         rubricId,
+        uploaderIsAgent,
       },
       onBeforeRecordingStart: () => {
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -3115,6 +3123,7 @@ function CreateSessionScreen({
             location: draft.location,
             rubricId: draft.rubricId,
             selectedAssetIds: draft.selectedAssetIds,
+            uploaderIsAgent: draft.uploaderIsAgent,
           },
         });
       },

@@ -93,6 +93,7 @@ async function syncOne(session: LocalSessionMeta): Promise<LocalSessionMeta | nu
         title: session.title.trim() || "Tour conversation",
         prospectName: draft?.prospect?.trim() || session.prospectName,
         agentName: session.agentName,
+        uploaderIsAgent: draft?.uploaderIsAgent ?? Boolean(session.agentName),
         location: draft?.location?.trim() || session.propertyName,
         notes: draft?.notes?.trim() || null,
         rubricId: draft?.rubricId ?? null,

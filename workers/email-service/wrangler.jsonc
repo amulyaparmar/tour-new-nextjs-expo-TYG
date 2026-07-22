@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tour-email-service",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-22",
+  "account_id": "897eca458ed5541301ae936cf97c634b",
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["notifications@tour.report"]
+    }
+  ],
+  "vars": {
+    "FROM_ADDRESS": "notifications@tour.report",
+    "FROM_NAME": "Tour"
+  }
+}

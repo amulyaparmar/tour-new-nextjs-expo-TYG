@@ -46,9 +46,6 @@ export function ContactCardPanel({ id, variant = "profile", contact, property }:
     };
   }, [activeContact, qrMode]);
   const contactDownloadUrl = `data:text/vcard;charset=utf-8,${encodeURIComponent(vCardFor(activeContact))}`;
-  const contactShareUrl = `mailto:?subject=${encodeURIComponent(`${activeContact.name} contact card`)}&body=${encodeURIComponent(
-    `${activeContact.name}\n${activeContact.title}, ${activeContact.company}\n${activeContact.phoneDisplay}\n${activeContact.email}\n${activeContact.website}`
-  )}`;
 
   return (
     <section className="card" aria-labelledby={id} style={{ marginBottom: isHome ? 20 : 12 }}>
@@ -210,7 +207,9 @@ export function ContactCardPanel({ id, variant = "profile", contact, property }:
           </div>
 
           <a
-            href={isHome ? contactShareUrl : contactDownloadUrl}
+            href={isHome ? activeContact.localPath : contactDownloadUrl}
+            target={isHome ? "_blank" : undefined}
+            rel={isHome ? "noopener noreferrer" : undefined}
             download={isHome ? undefined : `${activeContact.localPath.split("/").filter(Boolean).pop() || "tour-contact"}.vcf`}
             className={`btn ${isHome ? "btn-primary" : "btn-outline"}`}
             style={{ marginTop: 15 }}

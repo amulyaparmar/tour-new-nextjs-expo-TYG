@@ -411,8 +411,8 @@ function RubricStrengthRadar({
           />
           <Radar
             dataKey="score"
-            stroke="#4f46e5"
-            fill="#4f46e5"
+            stroke="#4d8ae5"
+            fill="#4d8ae5"
             fillOpacity={0.2}
             strokeWidth={2.4}
             isAnimationActive={shouldAnimate}

@@ -3,13 +3,13 @@
   --background: #ffffff;
   --foreground: #0a0a0a;
   --card: #ffffff;
-  --primary: #4f46e5;
+  --primary: #4d8ae5;
   --primary-foreground: #ffffff;
   --secondary: #f4f4f5;
   --muted-foreground: #71717a;
   --border: #e4e4e7;
   --input-background: #f9f9fb;
-  --ring: #4f46e5;
+  --ring: #4d8ae5;
   background: #fafafa;
   color: var(--foreground);
   min-height: 100%;

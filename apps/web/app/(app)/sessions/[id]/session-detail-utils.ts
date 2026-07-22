@@ -324,6 +324,6 @@ export function initialsFor(name: string) {
 export const SPEAKER_PALETTE = [
   { color: "#0d9488", soft: "#ccfbf1" },
   { color: "#ea580c", soft: "#ffedd5" },
-  { color: "#6366f1", soft: "#eef2ff" },
+  { color: "#4d8ae5", soft: "#eef5ff" },
   { color: "#be123c", soft: "#ffe4e6" },
 ];

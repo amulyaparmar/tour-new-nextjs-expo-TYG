@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Trash2 } from "lucide-react";
 import { SESSION_STATUS_LABELS, type SessionSummary } from "@tour/shared";
 import { SessionCardCopy } from "@/app/components/SessionCardCopy";
 
@@ -52,8 +52,12 @@ export function SessionsPageClient({
   const [selectedAgentId, setSelectedAgentId] = useState(currentAgentId ?? agents[0]?.id ?? "");
   const [sort, setSort] = useState<SortOption>("newest");
   const [youMenuOpen, setYouMenuOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [selectedMenuOpen, setSelectedMenuOpen] = useState(false);
+  const [deletingSelected, setDeletingSelected] = useState(false);
 
   const youPickerRef = useRef<HTMLDivElement>(null);
+  const selectedMenuRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -168,6 +172,61 @@ export function SessionsPageClient({
 
   useEffect(() => () => clearTimeout(closeTimerRef.current), []);
 
+  useEffect(() => {
+    function closeSelectedMenu(event: MouseEvent) {
+      if (!selectedMenuRef.current?.contains(event.target as Node)) {
+        setSelectedMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", closeSelectedMenu);
+    return () => document.removeEventListener("mousedown", closeSelectedMenu);
+  }, []);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setSelectedMenuOpen(false);
+  }, [scope, selectedAgentId, sort]);
+
+  const toggleSessionSelection = (sessionId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+  };
+
+  const deleteSelectedSessions = async () => {
+    if (deletingSelected || selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    const confirmed = window.confirm(
+      `Delete ${ids.length} selected session${ids.length === 1 ? "" : "s"} and their generated analysis?`
+    );
+    if (!confirmed) return;
+
+    setDeletingSelected(true);
+    try {
+      const results = await Promise.all(ids.map(async (id) => {
+        const response = await fetch(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+        return { id, ok: response.ok };
+      }));
+      const failed = results.filter((result) => !result.ok);
+      setSelectedIds(new Set());
+      setSelectedMenuOpen(false);
+      await fetchPage(1, true);
+      router.refresh();
+      if (failed.length > 0) {
+        window.alert(
+          `${failed.length} session${failed.length === 1 ? "" : "s"} could not be deleted. Please try again.`
+        );
+      }
+    } catch {
+      window.alert("The selected sessions could not be deleted. Please try again.");
+    } finally {
+      setDeletingSelected(false);
+    }
+  };
+
   const youLabel = scope === "agent" && selectedAgent
     ? selectedAgent.name || selectedAgent.fullName
     : "You";
@@ -248,6 +307,37 @@ export function SessionsPageClient({
         </div>
 
         <div className="sl-filter-controls">
+          {selectedIds.size > 0 && (
+            <div className="sl-selected-menu-wrap" ref={selectedMenuRef}>
+              <button
+                type="button"
+                className="sl-selected-button"
+                aria-haspopup="menu"
+                aria-expanded={selectedMenuOpen}
+                onClick={() => setSelectedMenuOpen((open) => !open)}
+              >
+                <span>{selectedIds.size} selected</span>
+                <ChevronDown size={12} aria-hidden="true" />
+              </button>
+              {selectedMenuOpen && (
+                <div className="sl-selected-menu" role="menu">
+                  <div className="sl-selected-menu-heading">
+                    {selectedIds.size} session{selectedIds.size === 1 ? "" : "s"}
+                  </div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="sl-selected-delete"
+                    disabled={deletingSelected}
+                    onClick={deleteSelectedSessions}
+                  >
+                    <Trash2 size={14} aria-hidden="true" />
+                    {deletingSelected ? "Deleting…" : "Delete sessions"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortOption)}
@@ -283,33 +373,51 @@ export function SessionsPageClient({
           </div>
         ) : (
           <>
-            {sessions.map((s) => (
-              <Link
-                key={s.id}
-                href={`/sessions/${s.id}${s.isSample ? "?sample=1" : ""}`}
-                className="session-row"
-                onFocus={() => prefetchSession(s.id, s.isSample)}
-                onPointerEnter={() => prefetchSession(s.id, s.isSample)}
-              >
-                <div className="session-row-info">
-                  <SessionCardCopy
-                    session={s}
-                    propertyName={
-                      showPropertyInRows && s.propertyId ? propertyNames[s.propertyId] : null
-                    }
-                  />
+            {sessions.map((s) => {
+              const isSelected = selectedIds.has(s.id);
+              return (
+                <div
+                  key={s.id}
+                  className={`session-row session-selectable-row ${isSelected ? "session-selectable-row-active" : ""}`}
+                >
+                  <Link
+                    href={`/sessions/${s.id}${s.isSample ? "?sample=1" : ""}`}
+                    className="session-row-link"
+                    onFocus={() => prefetchSession(s.id, s.isSample)}
+                    onPointerEnter={() => prefetchSession(s.id, s.isSample)}
+                  >
+                    <div className="session-row-info">
+                      <SessionCardCopy
+                        session={s}
+                        propertyName={
+                          showPropertyInRows && s.propertyId ? propertyNames[s.propertyId] : null
+                        }
+                      />
+                    </div>
+                    {s.isSample && <span className="badge badge-source-sample">Sample</span>}
+                    {s.source === "qr" && <span className="badge badge-source-qr">QR</span>}
+                    <span className={`badge badge-${s.status}`}>
+                      {s.status === "in_progress" && <span className="live-dot live-dot-sm" aria-hidden="true" />}
+                      {SESSION_STATUS_LABELS[s.status]}
+                    </span>
+                    {s.overallScore !== null && (
+                      <span className="session-row-score">{s.overallScore}</span>
+                    )}
+                  </Link>
+                  {!s.isSample && (
+                    <button
+                      type="button"
+                      className="session-row-select"
+                      aria-label={`${isSelected ? "Deselect" : "Select"} ${s.title || "session"}`}
+                      aria-pressed={isSelected}
+                      onClick={() => toggleSessionSelection(s.id)}
+                    >
+                      <Check size={14} strokeWidth={3} aria-hidden="true" />
+                    </button>
+                  )}
                 </div>
-                {s.isSample && <span className="badge badge-source-sample">Sample</span>}
-                {s.source === "qr" && <span className="badge badge-source-qr">QR</span>}
-                <span className={`badge badge-${s.status}`}>
-                  {s.status === "in_progress" && <span className="live-dot live-dot-sm" aria-hidden="true" />}
-                  {SESSION_STATUS_LABELS[s.status]}
-                </span>
-                {s.overallScore !== null && (
-                  <span className="session-row-score">{s.overallScore}</span>
-                )}
-              </Link>
-            ))}
+              );
+            })}
 
             {hasMore && (
               <div ref={sentinelRef} className="sl-load-more">

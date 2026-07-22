@@ -636,7 +636,7 @@ function TourReviewView() {
 
             <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-4">
-                <div className="inline-flex items-center gap-2 text-base font-semibold text-[#4f46e5]">
+                <div className="inline-flex items-center gap-2 text-base font-semibold text-[#4d8ae5]">
                   <Sparkles className="h-5 w-5" />
                   AI note
                 </div>

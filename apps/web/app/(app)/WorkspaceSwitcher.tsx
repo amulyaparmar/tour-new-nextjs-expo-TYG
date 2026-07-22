@@ -133,7 +133,10 @@ export function WorkspaceSwitcher({
       setOpenMenu(null);
       setProfileView("users");
       setPropertySearch("");
-      router.refresh();
+      // Property-scoped client state can survive a soft App Router refresh.
+      // Reload so sessions, rubrics, assets, and dashboard data all hydrate
+      // against the newly selected workspace cookie.
+      window.location.reload();
     } finally {
       setSwitchingId(null);
     }

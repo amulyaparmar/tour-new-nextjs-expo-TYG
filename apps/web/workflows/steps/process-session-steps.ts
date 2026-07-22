@@ -145,24 +145,31 @@ export async function finalizeSessionStep(sessionId: string) {
   await setSessionStatus(sessionId, "analysis_ready", analysis.overallScore);
 
   const existing = await findMaterialBySessionId(sessionId);
+  let materialIndexed = Boolean(existing);
+  let materialIndexError: string | null = null;
   if (!existing) {
-    const transcript = await getTranscript(sessionId);
-    const transcriptPreview = transcript
-      .slice(0, 10)
-      .map((s) => `[${s.startTime.toFixed(1)}s] ${s.text}`)
-      .join("\n");
+    try {
+      const transcript = await getTranscript(sessionId);
+      const transcriptPreview = transcript
+        .slice(0, 10)
+        .map((s) => `[${s.startTime.toFixed(1)}s] ${s.text}`)
+        .join("\n");
 
-    await createMaterial({
-      name: session.title,
-      type: "recording",
-      description: `Recording from session "${session.title}"${session.prospectName ? ` with ${session.prospectName}` : ""}. Score: ${analysis.overallScore}/100.`,
-      sessionId,
-      propertyId: session.propertyId,
-      parsedText: transcriptPreview || undefined
-    });
+      await createMaterial({
+        name: session.title,
+        type: "recording",
+        description: `Recording from session "${session.title}"${session.prospectName ? ` with ${session.prospectName}` : ""}. Score: ${analysis.overallScore}/100.`,
+        sessionId,
+        propertyId: session.propertyId,
+        parsedText: transcriptPreview || undefined
+      });
+      materialIndexed = true;
+    } catch (error) {
+      materialIndexError = error instanceof Error ? error.message : "material_index_failed";
+    }
   }
 
-  return { overallScore: analysis.overallScore };
+  return { overallScore: analysis.overallScore, materialIndexed, materialIndexError };
 }
 
 export async function startAudioInsightsAfterAnalysisStep(sessionId: string) {

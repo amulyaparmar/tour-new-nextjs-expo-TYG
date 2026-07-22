@@ -1,4 +1,5 @@
 import os from "node:os";
+import path from "node:path";
 
 import { withWorkflow } from "workflow/next";
 import type { NextConfig } from "next";
@@ -25,6 +26,14 @@ const nextConfig: NextConfig = {
   experimental: {
     // Tour recordings can exceed the default 10MB proxy buffer (see proxy.ts on /api/*).
     proxyClientMaxBodySize: "50mb",
+  },
+  // PDFKit reads its built-in font metrics from `js/data` at runtime. Keep it
+  // external so `__dirname` still points at the package, and explicitly trace
+  // the non-JavaScript assets into the session-export server function.
+  serverExternalPackages: ["pdfkit"],
+  outputFileTracingRoot: path.resolve(process.cwd(), "../.."),
+  outputFileTracingIncludes: {
+    "/api/sessions/*/export": ["../../node_modules/pdfkit/js/data/**/*"],
   },
   images: {
     remotePatterns: [

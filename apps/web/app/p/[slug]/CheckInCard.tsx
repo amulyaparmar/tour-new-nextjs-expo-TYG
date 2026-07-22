@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useId, useRef, useState } from "react";
 import type {
   FormEvent,
@@ -194,10 +195,8 @@ export function CheckInCard({
     };
   }, []);
 
-  const accent = rep.cardAccent?.trim() || "#111";
-
   return (
-    <main className={styles.page} style={{ ["--card-accent" as string]: accent }}>
+    <main className={styles.page}>
       <div className={styles.stage}>
         <section className={styles.card}>
           <div className={styles.header}>
@@ -293,7 +292,15 @@ export function CheckInCard({
               </button>
             </div>
 
-            <p className={styles.footerBrand}>Powered by Tour</p>
+            <p className={styles.footerBrand}>
+              <span>Powered by</span>
+              <Image
+                src="/images/tour%20logo%20TYG.svg"
+                alt="Tour"
+                width={139}
+                height={50}
+              />
+            </p>
           </div>
         </section>
 

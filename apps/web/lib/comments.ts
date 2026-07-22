@@ -58,6 +58,18 @@ export async function listComments(sessionId: string): Promise<SessionComment[]>
   }
 }
 
+export async function getCommentSessionId(commentId: string): Promise<string | null> {
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("session_comments")
+    .select("session_id")
+    .eq("id", commentId)
+    .maybeSingle<{ session_id: string }>();
+
+  if (error) throw new Error(`Failed to resolve comment session: ${error.message}`);
+  return data?.session_id ?? null;
+}
+
 export async function createComment(input: {
   sessionId: string;
   authorName?: string;

@@ -126,7 +126,7 @@
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  background: linear-gradient(135deg, #4d8ae5, #285aa8);
   color: white;
   font-size: 22px;
   font-weight: 850;
@@ -307,8 +307,8 @@
   height: 100%;
   display: grid;
   place-items: center;
-  color: #4f46e5;
-  background: linear-gradient(135deg, #eef2ff, #f8fafc);
+  color: #4d8ae5;
+  background: linear-gradient(135deg, #eef5ff, #f8fafc);
 }
 
 .mediaBody {
@@ -353,8 +353,8 @@
   border-radius: 12px;
   display: grid;
   place-items: center;
-  color: #3730a3;
-  background: #eef2ff;
+  color: #285aa8;
+  background: #eef5ff;
 }
 
 .linkLabel {

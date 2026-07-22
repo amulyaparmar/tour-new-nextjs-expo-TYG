@@ -2,7 +2,8 @@ import "server-only";
 
 import { toPublicAlias } from "@tour/shared";
 
-import { DEFAULT_QUESTIONS, type RepCard } from "./reps";
+import { DEFAULT_QUESTIONS, type PropertyProfile, type RepCard } from "./reps";
+import { getPropertyHeroMedia } from "./materials";
 import { getSupabaseServiceClient } from "./supabase";
 
 type PropertyRepRow = {
@@ -14,6 +15,25 @@ type PropertyRepRow = {
   property_manager: string | null;
   metadata: unknown;
 };
+
+export async function getPropertyProfile(propertyId: string): Promise<PropertyProfile | null> {
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("propertiesTYG")
+    .select("id,name,thumbnail_url")
+    .eq("id", propertyId)
+    .maybeSingle<Pick<PropertyRepRow, "id" | "name" | "thumbnail_url">>();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+
+  const mediaUrl = cleanString(data.thumbnail_url);
+  return {
+    id: data.id,
+    name: cleanString(data.name) || "Property",
+    mediaUrl,
+    mediaKind: mediaUrl ? "image" : undefined,
+  };
+}
 
 export async function getPropertyRepCard(
   propertyIdentity: string,
@@ -86,6 +106,7 @@ export async function getPropertyRepCard(
     || memberKey;
   const cardAccent = cleanString(member.card_accent ?? member.cardAccent) || null;
   const propertyName = cleanString(property.name) || "Property";
+  const heroMedia = await getPropertyHeroMedia(property.id).catch(() => null);
   return {
     rep: {
       slug,
@@ -103,8 +124,8 @@ export async function getPropertyRepCard(
     property: {
       id: property.id,
       name: propertyName,
-      mediaUrl: property.thumbnail_url || "",
-      mediaKind: property.thumbnail_url ? "image" : undefined,
+      mediaUrl: heroMedia?.url || property.thumbnail_url || "",
+      mediaKind: heroMedia?.kind ?? (property.thumbnail_url ? "image" : undefined),
     },
     questions: DEFAULT_QUESTIONS,
   };

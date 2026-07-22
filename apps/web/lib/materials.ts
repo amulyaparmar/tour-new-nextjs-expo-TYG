@@ -38,6 +38,13 @@ export type TourLibraryLink = {
   url: string;
 };
 
+export type PropertyHeroMedia = {
+  url: string;
+  kind: "video" | "image";
+  posterUrl: string | null;
+  sourceKey: string;
+};
+
 type MaterialRow = {
   id: string;
   name: string;
@@ -176,6 +183,43 @@ export async function listVisibleMaterialsWithLink(propertyId?: string): Promise
     ],
     tourLibrary,
   };
+}
+
+export async function getPropertyHeroMedia(propertyId: string): Promise<PropertyHeroMedia | null> {
+  const link = await resolveTourLibraryLink(propertyId);
+  if (!link) return null;
+  const materials = await listTourMaterials(link, propertyId);
+  const ranked = materials
+    .filter((material) => material.media?.videoUrl || material.media?.imageUrl)
+    .sort((left, right) => heroAssetScore(right) - heroAssetScore(left));
+  const selected = ranked[0]?.media;
+  if (!selected) return null;
+  if (selected.videoUrl) {
+    return {
+      url: selected.videoUrl,
+      kind: "video",
+      posterUrl: selected.imageUrl,
+      sourceKey: selected.sourceKey,
+    };
+  }
+  if (selected.imageUrl) {
+    return {
+      url: selected.imageUrl,
+      kind: "image",
+      posterUrl: null,
+      sourceKey: selected.sourceKey,
+    };
+  }
+  return null;
+}
+
+function heroAssetScore(material: Material) {
+  const searchable = `${material.media?.sourceKey ?? ""} ${material.name}`.toLowerCase();
+  let score = material.media?.videoUrl ? 30 : 10;
+  if (/intro|welcome|overview|hero|community/.test(searchable)) score += 100;
+  if (/amenit|clubhouse|exterior|lobby/.test(searchable)) score += 30;
+  if (/floor.?plan|form|contact|thank/.test(searchable)) score -= 80;
+  return score;
 }
 
 export async function getMaterial(id: string, propertyId?: string): Promise<Material | null> {

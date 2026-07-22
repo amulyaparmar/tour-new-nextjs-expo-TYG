@@ -9,6 +9,7 @@ import {
   authAccessCookieMaxAge,
   createSupabaseAnonClient,
   createMobileWorkspacePayload,
+  isGlobalPropertyAdminEmail,
   propertySessionKeys,
   readAdminCookie,
   requireAdminContext,
@@ -16,6 +17,7 @@ import {
   setAdminAccessCookie,
 } from "@/lib/admin-auth";
 import { ensurePropertyRubric } from "@/lib/rubrics";
+import { ensurePropertyTeamMember } from "@/lib/property-team";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as { communityId?: string };
@@ -30,11 +32,31 @@ export async function POST(request: Request) {
 
   try {
     const { workspace, session } = await resolveWorkspace(scopedRequest, body.communityId);
+    const hasPropertyCard = workspace.community.teamMembers.some(
+      (member) => member.email === workspace.user.email
+    );
+    const isGlobalAdmin = isGlobalPropertyAdminEmail(workspace.user.email);
+    if (hasPropertyCard) {
+      await ensurePropertyTeamMember({
+        propertyId: workspace.community.propertyTygId,
+        userId: workspace.user.id,
+        email: workspace.user.email,
+        name: workspace.user.fullName ?? workspace.teamMember.name,
+        alias: workspace.teamMember.alias,
+        phone: workspace.user.phone ?? workspace.teamMember.phone,
+        role: workspace.teamMember.role,
+        title: workspace.user.title ?? workspace.teamMember.title,
+        cardAccent: workspace.user.cardAccent ?? workspace.teamMember.cardAccent,
+        propertyAlias: workspace.community.alias,
+        verified: true,
+      });
+    }
     await ensurePropertyRubric(
       workspace.community.propertyTygId,
       propertySessionKeys(workspace.community)
     );
     const response = NextResponse.json({
+      needsContactCard: !hasPropertyCard && !isGlobalAdmin,
       workspace: request.headers.get("x-tour-client") === "mobile"
         ? createMobileWorkspacePayload(workspace)
         : workspace,

@@ -41,6 +41,7 @@ type Props = {
   onCommentSelect: (commentId: string) => void;
   onMomentClick: (moment: SessionMoment) => void;
   chatScrollRequest?: { key: number; seconds: number } | null;
+  readOnly?: boolean;
 };
 
 type InlineCompose = {
@@ -78,6 +79,7 @@ export function SessionTranscriptStage({
   onCommentSelect,
   onMomentClick,
   chatScrollRequest,
+  readOnly = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -261,6 +263,7 @@ export function SessionTranscriptStage({
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (readOnly) return;
       if (isEditableTarget(event.target)) return;
       if (!activeSegment) return;
 
@@ -278,7 +281,7 @@ export function SessionTranscriptStage({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeSegment, openInlineCompose, openKeyMomentCompose]);
+  }, [activeSegment, openInlineCompose, openKeyMomentCompose, readOnly]);
 
   return (
     <div className={styles.stage}>
@@ -296,7 +299,7 @@ export function SessionTranscriptStage({
       </div>
 
       <div className={styles.stageBody}>
-        {activeSegment && (
+        {activeSegment && !readOnly && (
           <div className={styles.transcriptShortcuts}>
             <button
               type="button"
@@ -395,6 +398,7 @@ export function SessionTranscriptStage({
                       className={styles.transcriptRow}
                       onClick={() => seekTo(seg.startTime)}
                       onDoubleClick={(event) => {
+                        if (readOnly) return;
                         event.preventDefault();
                         openInlineCompose(seg);
                       }}
@@ -414,7 +418,7 @@ export function SessionTranscriptStage({
                       </span>
                     </button>
 
-                    {inlineCompose?.segmentId === seg.id && (
+                    {!readOnly && inlineCompose?.segmentId === seg.id && (
                       <InlineCommentComposer
                         sessionId={sessionId}
                         timestampSec={inlineCompose.timestampSec}
@@ -424,7 +428,7 @@ export function SessionTranscriptStage({
                       />
                     )}
 
-                    {keyMomentCompose?.segmentId === seg.id && (
+                    {!readOnly && keyMomentCompose?.segmentId === seg.id && (
                       <InlineKeyMomentComposer
                         sessionId={sessionId}
                         timestampSec={keyMomentCompose.timestampSec}
@@ -435,7 +439,7 @@ export function SessionTranscriptStage({
                     )}
 
                     {showComments && segComments.map((comment) =>
-                      editingCommentId === comment.id ? (
+                      !readOnly && editingCommentId === comment.id ? (
                         <InlineCommentEditor
                           key={comment.id}
                           sessionId={sessionId}
@@ -465,6 +469,7 @@ export function SessionTranscriptStage({
                             onCommentSelect(comment.id);
                           }}
                           onDoubleClick={(event) => {
+                            if (readOnly) return;
                             event.preventDefault();
                             event.stopPropagation();
                             setEditingCommentId(comment.id);
@@ -474,7 +479,7 @@ export function SessionTranscriptStage({
                             <span className={styles.floatingCommentAvatar}>{initialsFor(comment.authorName)}</span>
                             <span className={styles.floatingCommentAuthor}>{comment.authorName}</span>
                             <span className={styles.floatingCommentTime}>{relativeTime(comment.createdAt)}</span>
-                            <span
+                            {!readOnly && <span
                               className={`${styles.floatingCommentMenuWrap} ${openCommentMenuId === comment.id ? styles.commentMenuWrapOpen : ""}`}
                               onClick={(event) => event.stopPropagation()}
                               onKeyDown={(event) => event.stopPropagation()}
@@ -512,7 +517,7 @@ export function SessionTranscriptStage({
                                   </button>
                                 </span>
                               )}
-                            </span>
+                            </span>}
                           </div>
                           <p>{comment.body}</p>
                         </div>

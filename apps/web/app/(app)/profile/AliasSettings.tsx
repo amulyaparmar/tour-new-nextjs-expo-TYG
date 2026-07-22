@@ -49,7 +49,7 @@ export function AliasSettings({
   }
 
   return (
-    <div className="card" style={{ marginBottom: 12 }}>
+    <div id="public-check-in-link" className="card" style={{ marginBottom: 12, scrollMarginTop: 88 }}>
       <div className="card-header">
         <div>
           <h2>Public check-in link</h2>

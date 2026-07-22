@@ -30,7 +30,8 @@ export const contactCard = {
 
 export const propertyTour = {
   name: property.name,
-  mediaUrl: property.mediaUrl
+  mediaUrl: property.mediaUrl,
+  mediaKind: property.mediaKind ?? "video" as const,
 };
 
 export const contactVcard = buildVCard(rep);

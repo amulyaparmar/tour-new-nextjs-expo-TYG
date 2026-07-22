@@ -133,7 +133,10 @@ export function WorkspaceSwitcher({
       setOpenMenu(null);
       setProfileView("users");
       setPropertySearch("");
-      router.refresh();
+      // Property-scoped client state can survive a soft App Router refresh.
+      // Reload so sessions, rubrics, assets, and dashboard data all hydrate
+      // against the newly selected workspace cookie.
+      window.location.reload();
     } finally {
       setSwitchingId(null);
     }
@@ -222,7 +225,7 @@ export function WorkspaceSwitcher({
               <>
                 <div className="top-tool-grid" aria-label="Profile actions">
                   <TopTool href="/sessions" icon={<Video size={16} />} label="My Sessions" />
-                  <TopTool href="/profile" icon={<IdCard size={16} />} label="My Card" />
+                  <TopTool href="/profile" icon={<IdCard size={16} />} label="Profile" />
                   <TopTool href="/new" icon={<Plus size={16} />} label="Add New Lead" />
                 </div>
 

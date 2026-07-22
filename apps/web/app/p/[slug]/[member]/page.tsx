@@ -37,13 +37,17 @@ export async function generateMetadata({ params }: PropertyMemberPageProps): Pro
       title,
       description,
       type: "website",
-      ...(card.property.mediaUrl ? { images: [{ url: card.property.mediaUrl }] } : {}),
+      ...(card.property.mediaUrl && card.property.mediaKind === "image"
+        ? { images: [{ url: card.property.mediaUrl }] }
+        : {}),
     },
     twitter: {
-      card: card.property.mediaUrl ? "summary_large_image" : "summary",
+      card: card.property.mediaUrl && card.property.mediaKind === "image" ? "summary_large_image" : "summary",
       title,
       description,
-      ...(card.property.mediaUrl ? { images: [card.property.mediaUrl] } : {}),
+      ...(card.property.mediaUrl && card.property.mediaKind === "image"
+        ? { images: [card.property.mediaUrl] }
+        : {}),
     },
   };
 }

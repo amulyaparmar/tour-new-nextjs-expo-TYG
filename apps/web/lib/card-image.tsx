@@ -22,7 +22,7 @@ export function normalizeLayout(value: string | null | undefined): CardLayout {
 
 const INK = "#0f172a";
 const MUTED = "#64748b";
-const ACCENT = "#4f46e5";
+const ACCENT = "#4d8ae5";
 const BRAND = "#24205a";
 const BRAND_DARK = "#16133d";
 const PAPER = "#f8fafc";
@@ -46,7 +46,7 @@ function Avatar({ rep, size }: { rep: RepCard["rep"]; size: number }) {
         width: size,
         height: size,
         borderRadius: size,
-        background: `linear-gradient(135deg, ${ACCENT}, #7c3aed)`,
+        background: `linear-gradient(135deg, ${ACCENT}, #285aa8)`,
         color: "white",
         display: "flex",
         alignItems: "center",

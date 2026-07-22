@@ -13,6 +13,7 @@ import {
   resolveAdminContextForUser,
 } from "@/lib/admin-auth";
 import { ensurePropertyRubric } from "@/lib/rubrics";
+import { ensurePropertyTeamMember } from "@/lib/property-team";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {
@@ -54,6 +55,24 @@ export async function POST(request: Request) {
     const workspace = await resolveAdminContextForUser(data.user, body.communityId);
     if (body.communityId && workspace.community.id !== body.communityId) {
       throw new AdminAuthError("You do not have access to the selected business.", 403);
+    }
+    const hasPropertyCard = workspace.community.teamMembers.some(
+      (member) => member.email === workspace.user.email
+    );
+    if (hasPropertyCard && (body.communityId || workspace.communities.length === 1)) {
+      await ensurePropertyTeamMember({
+        propertyId: workspace.community.propertyTygId,
+        userId: workspace.user.id,
+        email: workspace.user.email,
+        name: workspace.user.fullName ?? workspace.teamMember.name,
+        alias: workspace.teamMember.alias,
+        phone: workspace.user.phone ?? workspace.teamMember.phone,
+        role: workspace.teamMember.role,
+        title: workspace.user.title ?? workspace.teamMember.title,
+        cardAccent: workspace.user.cardAccent ?? workspace.teamMember.cardAccent,
+        propertyAlias: workspace.community.alias,
+        verified: true,
+      });
     }
     await ensurePropertyRubric(
       workspace.community.propertyTygId,

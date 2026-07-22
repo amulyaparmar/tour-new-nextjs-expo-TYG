@@ -1,22 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
   Building2,
+  AtSign,
   Mail,
   MapPin,
-  Play,
+  Phone,
   Search,
   ShieldCheck,
   Sparkles,
+  UserRound,
 } from "lucide-react";
 
 import styles from "./login.module.css";
 
-type LoginStep = "email" | "code" | "property" | "claim" | "register" | "signup-code";
+type LoginStep = "email" | "code" | "property" | "profile" | "claim" | "register" | "signup-code";
 
 type WorkspaceCommunity = {
   id: string;
@@ -26,7 +29,8 @@ type WorkspaceCommunity = {
 };
 
 type Workspace = {
-  user: { email: string; fullName: string | null };
+  user: { email: string; fullName: string | null; title?: string | null; phone?: string | null };
+  teamMember?: { alias?: string | null; title?: string | null; phone?: string | null };
   community: WorkspaceCommunity;
   communities: WorkspaceCommunity[];
 };
@@ -67,6 +71,10 @@ export function TourLogin() {
   const [propertyResults, setPropertyResults] = useState<BusinessOption[] | null>(null);
   const [propertySearchLoading, setPropertySearchLoading] = useState(false);
   const [propertySearchError, setPropertySearchError] = useState<string | null>(null);
+  const [selectedPropertyName, setSelectedPropertyName] = useState("");
+  const [profilePhone, setProfilePhone] = useState("");
+  const [profileAlias, setProfileAlias] = useState("");
+  const [profileTitle, setProfileTitle] = useState("");
   const [claimQuery, setClaimQuery] = useState("");
   const [claimResults, setClaimResults] = useState<DiscoveredBusiness[]>([]);
   const [selectedClaim, setSelectedClaim] = useState<DiscoveredBusiness | null>(null);
@@ -79,6 +87,7 @@ export function TourLogin() {
   const [searchingClaim, setSearchingClaim] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [transitionDirection, setTransitionDirection] = useState<"forward" | "back">("forward");
 
   useEffect(() => {
     fetch("/api/admin/auth/me", { credentials: "same-origin" })
@@ -140,8 +149,9 @@ export function TourLogin() {
     return () => window.clearTimeout(timer);
   }, [propertyQuery, step, workspace]);
 
-  function go(next: LoginStep) {
+  function go(next: LoginStep, direction: "forward" | "back" = "forward") {
     setError(null);
+    setTransitionDirection(direction);
     setStep(next);
   }
 
@@ -222,9 +232,50 @@ export function TourLogin() {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? "Could not open this property.");
       if (body.workspace) setWorkspace(body.workspace);
+      if (body.needsContactCard) {
+        const selected = visibleWorkspaceCommunities.find((community) => community.id === communityId);
+        const nextWorkspace = body.workspace as Workspace;
+        const nextName = nextWorkspace.user.fullName?.trim() || email.split("@")[0] || "";
+        setSelectedPropertyName(selected?.name ?? nextWorkspace.community.name);
+        setFullName(nextName);
+        setProfilePhone(nextWorkspace.user.phone ?? nextWorkspace.teamMember?.phone ?? "");
+        setProfileTitle(nextWorkspace.user.title ?? nextWorkspace.teamMember?.title ?? "Leasing Agent");
+        setProfileAlias(
+          nextWorkspace.teamMember?.alias?.replace(/^@/, "")
+          || aliasFromName(nextName || email.split("@")[0] || "team-member")
+        );
+        go("profile");
+        return;
+      }
       window.location.assign(postLoginPath());
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not open this property.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function savePropertyCard() {
+    if (submitting || fullName.trim().length < 2 || profilePhone.replace(/\D/g, "").length < 7 || !profileAlias) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/admin/auth/community/profile", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: fullName.trim(),
+          phone: profilePhone.trim(),
+          alias: profileAlias,
+          title: profileTitle.trim(),
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Could not create your property card.");
+      window.location.assign(postLoginPath());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create your property card.");
     } finally {
       setSubmitting(false);
     }
@@ -315,27 +366,65 @@ export function TourLogin() {
 
   return (
     <main className={styles.page}>
-      <div className={styles.shell}>
-        <header className={styles.header}>
-          <div className={styles.brand}>
-            <span className={styles.brandIcon}><Play size={15} fill="currentColor" /></span>
-            <span>
-              <strong>Tour</strong>
-              <small>Property-team workspace</small>
-            </span>
+      <div className={styles.videoStage} aria-hidden="true">
+        <video className={styles.ambientVideo} autoPlay muted loop playsInline preload="auto">
+          <source src="/videos/login-bg.mp4" type="video/mp4" />
+        </video>
+        <video className={styles.heroVideo} autoPlay muted loop playsInline preload="auto">
+          <source src="/videos/login-bg.mp4" type="video/mp4" />
+        </video>
+        <div className={styles.sideShade} />
+        <div className={styles.verticalShade} />
+        <div className={styles.ambientGlow} />
+      </div>
+
+      <div className={styles.layout}>
+        <aside className={styles.story}>
+          <Image
+            className={styles.storyLogo}
+            src="/images/tour%20logo%20TYG%20dark.svg"
+            alt="Tour"
+            width={139}
+            height={50}
+            priority
+          />
+          <p className={styles.storyEyebrow}>The leasing workspace</p>
+          <h2>Every great business deserves a great tour.</h2>
+          <p className={styles.storyCopy}>
+            Bring sessions, follow-up, team insights, and your best tour materials into one focused workspace.
+          </p>
+          <div className={styles.storyTrust}>
+            <span><ShieldCheck size={16} /> Property-aware access</span>
+            <span className={styles.storyDot} />
+            <span>Built for leasing teams</span>
           </div>
-          <span className={styles.stepLabel}>{stepLabel(step)}</span>
-        </header>
+        </aside>
 
-        <div className={styles.progress} aria-hidden="true">
-          <span data-active />
-          <span data-active={step !== "email" ? "true" : undefined} />
-          <span data-active={["property", "claim", "register", "signup-code"].includes(step) ? "true" : undefined} />
-        </div>
+        <section className={styles.shell} aria-label="Tour sign in">
+          <header className={styles.header}>
+            <div className={styles.brand}>
+              <Image
+                src="/images/tour%20logo%20TYG.svg"
+                alt="Tour"
+                width={111}
+                height={40}
+                priority
+              />
+              <span>Property-team workspace</span>
+            </div>
+            <span className={styles.stepLabel}>{stepLabel(step)}</span>
+          </header>
 
-        <section className={styles.content}>
+          <div className={styles.progress} data-steps={step === "profile" ? "4" : "3"} aria-hidden="true">
+            <span data-active="true" />
+            <span data-active={step !== "email" ? "true" : "false"} />
+            <span data-active={["property", "profile", "claim", "register", "signup-code"].includes(step) ? "true" : "false"} />
+            {step === "profile" && <span data-active="true" />}
+          </div>
+
+          <div className={styles.content}>
           {step === "email" && (
-            <div className={styles.businessStep}>
+            <div className={`${styles.businessStep} ${transitionDirection === "back" ? styles.stepBack : styles.stepForward}`}>
               <div className={styles.intro}>
                 <span className={styles.eyebrow}>Access</span>
                 <h1>Start with your work email</h1>
@@ -383,8 +472,8 @@ export function TourLogin() {
           )}
 
           {step === "code" && (
-            <div className={styles.signInStep}>
-              <BackButton label="Use a different email" onClick={() => go("email")} />
+            <div className={`${styles.signInStep} ${styles.stepForward}`}>
+              <BackButton label="Use a different email" onClick={() => go("email", "back")} />
               <div className={styles.intro}>
                 <span className={styles.eyebrow}>Verification</span>
                 <h1>Check your email</h1>
@@ -414,8 +503,8 @@ export function TourLogin() {
           )}
 
           {step === "property" && workspace && (
-            <div className={styles.businessStep}>
-              <BackButton label="Back to email" onClick={() => go("email")} />
+            <div className={`${styles.businessStep} ${transitionDirection === "back" ? styles.stepBack : styles.stepForward}`}>
+              <BackButton label="Back to email" onClick={() => go("email", "back")} />
               <div className={styles.intro}>
                 <span className={styles.eyebrow}>Property</span>
                 <h1>Choose where you’re working today</h1>
@@ -459,9 +548,56 @@ export function TourLogin() {
             </div>
           )}
 
+          {step === "profile" && workspace && (
+            <div className={`${styles.signInStep} ${styles.stepForward}`}>
+              <BackButton label="Choose another property" onClick={() => go("property", "back")} />
+              <div className={styles.selectedBusiness}>
+                <span className={styles.selectedIcon}><Building2 size={18} /></span>
+                <span>
+                  <strong>{selectedPropertyName || workspace.community.name}</strong>
+                  <small>Your new property contact card</small>
+                </span>
+              </div>
+              <div className={styles.intro}>
+                <span className={styles.eyebrow}>Contact card</span>
+                <h1>Confirm how visitors see you</h1>
+                <p>This is saved to this property’s team and prefilled the next time you create a property card.</p>
+              </div>
+              <label className={styles.field}>
+                <span>Full name</span>
+                <div><UserRound size={16} /><input value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" autoFocus /></div>
+              </label>
+              <label className={styles.field}>
+                <span>Phone number</span>
+                <div><Phone size={16} /><input value={profilePhone} onChange={(event) => setProfilePhone(event.target.value)} autoComplete="tel" inputMode="tel" placeholder="(555) 555-0123" /></div>
+              </label>
+              <label className={styles.field}>
+                <span>Username</span>
+                <div><AtSign size={16} /><input value={profileAlias} onChange={(event) => setProfileAlias(aliasFromName(event.target.value))} autoComplete="username" /></div>
+              </label>
+              <label className={styles.field}>
+                <span>Title</span>
+                <div><Sparkles size={16} /><input value={profileTitle} onChange={(event) => setProfileTitle(event.target.value)} placeholder="Leasing Agent" /></div>
+              </label>
+              <div className={styles.statusCard}>
+                <ShieldCheck size={18} />
+                <span>{email} is verified. These details will be tied to this property only.</span>
+              </div>
+              {error && <div className={styles.error}>{error}</div>}
+              <button
+                type="button"
+                className={styles.primaryButton}
+                disabled={fullName.trim().length < 2 || profilePhone.replace(/\D/g, "").length < 7 || !profileAlias || submitting}
+                onClick={() => void savePropertyCard()}
+              >
+                {submitting ? "Creating your card…" : "Create property card"} <ArrowRight size={17} />
+              </button>
+            </div>
+          )}
+
           {step === "claim" && (
-            <div className={styles.businessStep}>
-              <BackButton label="Back to email" onClick={() => go("email")} />
+            <div className={`${styles.businessStep} ${transitionDirection === "back" ? styles.stepBack : styles.stepForward}`}>
+              <BackButton label="Back to email" onClick={() => go("email", "back")} />
               <div className={styles.intro}>
                 <span className={styles.eyebrow}>Claim property</span>
                 <h1>Find your community</h1>
@@ -491,8 +627,8 @@ export function TourLogin() {
           )}
 
           {step === "register" && selectedClaim && (
-            <div className={styles.signInStep}>
-              <BackButton label="Choose another property" onClick={() => go("claim")} />
+            <div className={`${styles.signInStep} ${transitionDirection === "back" ? styles.stepBack : styles.stepForward}`}>
+              <BackButton label="Choose another property" onClick={() => go("claim", "back")} />
               <div className={styles.selectedBusiness}>
                 <span className={styles.selectedIcon}><Building2 size={18} /></span>
                 <span>
@@ -516,8 +652,8 @@ export function TourLogin() {
           )}
 
           {step === "signup-code" && (
-            <div className={styles.signInStep}>
-              <BackButton label="Back" onClick={() => go("register")} />
+            <div className={`${styles.signInStep} ${styles.stepForward}`}>
+              <BackButton label="Back" onClick={() => go("register", "back")} />
               <div className={styles.intro}>
                 <span className={styles.eyebrow}>Final check</span>
                 <h1>Verify your account</h1>
@@ -530,6 +666,7 @@ export function TourLogin() {
               </button>
             </div>
           )}
+          </div>
         </section>
       </div>
     </main>
@@ -548,9 +685,19 @@ function stepLabel(step: LoginStep) {
   if (step === "email") return "Step 1 of 3";
   if (step === "code") return "Step 2 of 3";
   if (step === "property") return "Step 3 of 3";
+  if (step === "profile") return "Step 4 of 4";
   if (step === "claim") return "Claim access";
   if (step === "register") return "Verify property";
   return "Finish setup";
+}
+
+function aliasFromName(value: string) {
+  return value
+    .replace(/^@/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
 }
 
 function shouldShowTestCode(email: string, emailSent: boolean, expectedCode: string) {

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { AdminAuthError, requireAdminContext } from "@/lib/admin-auth";
-import { getAnalysisRun, getSessionById, getTranscript } from "@/lib/sessions";
+import { AdminAuthError, findPropertyForSessionKey } from "@/lib/admin-auth";
+import { requireSessionReadAccess } from "@/lib/session-access";
+import { getAnalysisRun, getTranscript } from "@/lib/sessions";
 import { buildSessionReportPdf } from "@/lib/session-report-pdf";
 import { enrichSessionWithAgentName } from "@/lib/session-participants";
 
@@ -15,11 +16,7 @@ export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
 
   try {
-    const workspace = await requireAdminContext(request);
-    const rawSession = await getSessionById(id);
-    if (!rawSession || rawSession.propertyId !== workspace.community.id) {
-      return NextResponse.json({ error: "Session not found." }, { status: 404 });
-    }
+    const { workspace, session: rawSession } = await requireSessionReadAccess(request, id);
 
     const requestUrl = new URL(request.url);
     const version = requestUrl.searchParams.get("version");
@@ -38,10 +35,11 @@ export async function GET(request: Request, context: Context) {
       ...enrichedSession,
       duration: enrichedSession.duration ?? (transcriptDuration > 0 ? transcriptDuration : null),
     };
+    const sessionProperty = await findPropertyForSessionKey(rawSession.propertyId).catch(() => null);
     const pdf = await buildSessionReportPdf({
       session,
       analysis: analysisRun.result,
-      propertyName: workspace.community.name,
+      propertyName: sessionProperty?.name ?? workspace.community.name,
       organizationName: workspace.organization.name,
       rubricName: analysisRun.rubricName,
       analysisVersion: analysisRun.version,

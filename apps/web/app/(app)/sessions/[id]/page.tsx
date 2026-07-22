@@ -19,7 +19,8 @@ import { SessionScoreSummary } from "./SessionScoreSummary";
 import styles from "./session-detail.module.css";
 import { UploadAndProcess, type NoteAsset, type SessionDetailDefaults } from "./UploadAndProcess";
 import { requireTourWorkspace } from "@/lib/tour-auth";
-import { propertySessionKeys } from "@/lib/admin-auth";
+import { findPropertyForSessionKey, isGlobalPropertyAdminEmail, propertySessionKeys } from "@/lib/admin-auth";
+import { SessionPropertyMismatch } from "./SessionPropertyMismatch";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -42,7 +43,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
     ? await activePropertyHasNoRecordedSessions(workspace.community)
     : false;
 
-  if (!rawSession || (!isOwnSession && !isSampleSession)) {
+  if (!rawSession) {
     return (
       <>
         <Link href="/sessions" className="back-link">&larr; Sessions</Link>
@@ -51,7 +52,24 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
     );
   }
 
-  const session = isSampleSession ? rawSession : await enrichSessionWithAgentName(rawSession, workspace);
+  const isPropertyMismatch = !isOwnSession && !isSampleSession;
+  const accessibleProperty = isPropertyMismatch
+    ? workspace.communities.find((community) =>
+        propertySessionKeys(community).includes(rawSession.propertyId ?? "")
+      ) ?? null
+    : null;
+  const resolvedProperty = isPropertyMismatch
+    ? accessibleProperty
+      ? { id: accessibleProperty.propertyTygId, name: accessibleProperty.name }
+      : await findPropertyForSessionKey(rawSession.propertyId)
+    : null;
+  const isGlobalAdmin = isGlobalPropertyAdminEmail(workspace.user.email);
+  const canModifySession = isOwnSession || isGlobalAdmin;
+  const isReadOnlyExternal = isPropertyMismatch && !canModifySession;
+
+  const session = isSampleSession || isPropertyMismatch
+    ? rawSession
+    : await enrichSessionWithAgentName(rawSession, workspace);
   const participants = sessionParticipants(session.agentName, session.prospectName);
 
   const analysisRun = await getAnalysisRun(id, versionParam ?? null);
@@ -81,7 +99,15 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
       getConversationPhases(id),
       getAudioInsights(id),
     ])
-    : Promise.resolve([[], null, null, null, null]);
+    : isReadOnlyExternal
+      ? Promise.all([
+          Promise.resolve([]),
+          resolveRecordingUrl(id, session.videoUrl, session.audioUrl),
+          Promise.resolve(null),
+          Promise.resolve(null),
+          Promise.resolve(null),
+        ])
+      : Promise.resolve([[], null, null, null, null]);
 
   const [noteAssets, [transcript, recordingUrl, rubric, phases, audioInsights]] = await Promise.all([
     noteAssetsPromise,
@@ -91,6 +117,16 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
   return (
     <div className={hasAnalysis ? `${styles.page} ${styles.pageExperience}` : styles.page}>
       <Link href="/sessions" className="back-link">&larr; Back to Sessions</Link>
+
+      {isPropertyMismatch && (
+        <SessionPropertyMismatch
+          currentPropertyName={workspace.community.name}
+          targetPropertyId={resolvedProperty?.id ?? null}
+          targetPropertyName={resolvedProperty?.name ?? "another property"}
+          canSwitch={Boolean(accessibleProperty) || isGlobalAdmin}
+          sessionId={id}
+        />
+      )}
 
       {isSampleSession && (
         <p className={styles.analysisVersionBanner}>
@@ -111,7 +147,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
           </p>
         </div>
         <div className={styles.headerRight}>
-          {!isSampleSession && (
+          {!isSampleSession && !isReadOnlyExternal && (
             <EditSessionParticipants
               sessionId={id}
               agentName={session.agentName}
@@ -129,10 +165,11 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
           {hasAnalysis && !isSampleSession && (
             <ExportSessionButton
               href={`/api/sessions/${encodeURIComponent(id)}/export${analysisRun && !analysisRun.isCurrent ? `?version=${analysisRun.version}` : ""}`}
+              audioHref={`/api/sessions/${encodeURIComponent(id)}/recording?download=1`}
               sessionTitle={session.title}
             />
           )}
-          {!isSampleSession && <DeleteSessionButton sessionId={id} />}
+          {!isSampleSession && !isReadOnlyExternal && <DeleteSessionButton sessionId={id} />}
         </div>
       </div>
 
@@ -167,12 +204,25 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
         </section>
       )}
 
-      {!hasAnalysis && isScheduled && (
+      {!hasAnalysis && isScheduled && !isReadOnlyExternal && (
         <UploadAndProcess sessionId={id} hasRecording={false} variant="new-session" defaults={defaults ?? undefined} noteAssets={noteAssets} />
       )}
 
-      {!hasAnalysis && !isScheduled && (
+      {!hasAnalysis && !isScheduled && !isReadOnlyExternal && (
         <UploadAndProcess sessionId={id} hasRecording={hasRecording} defaults={defaults ?? undefined} noteAssets={noteAssets} />
+      )}
+
+      {!hasAnalysis && isReadOnlyExternal && recordingUrl && (
+        <section className="card" style={{ marginTop: 16 }} aria-label="Session recording">
+          <div className="card-header"><h2>Session recording</h2></div>
+          <div className="card-body">
+            {/\.(?:mp4|webm|mov)(?:\?|$)/i.test(recordingUrl) || Boolean(session.videoUrl && !session.audioUrl) ? (
+              <video controls playsInline preload="metadata" src={recordingUrl} style={{ width: "100%", borderRadius: 14, background: "#0b1220" }} />
+            ) : (
+              <audio controls preload="metadata" src={recordingUrl} style={{ width: "100%" }} />
+            )}
+          </div>
+        </section>
       )}
 
       {hasAnalysis && (
@@ -199,11 +249,12 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
             initialAudioInsights={audioInsights}
             participants={participants}
             rubric={rubric ? { id: rubric.id, name: rubric.name, analysisModel: rubric.analysisModel } : null}
+            readOnly={isReadOnlyExternal}
           />
         </>
       )}
 
-      {!hasAnalysis && !isProcessing && hasRecording && (
+      {!hasAnalysis && !isProcessing && hasRecording && !isReadOnlyExternal && (
         <div className="card" style={{ marginTop: 16 }}>
           <div className="card-header"><h2>Session Details</h2></div>
           <div className="card-body">

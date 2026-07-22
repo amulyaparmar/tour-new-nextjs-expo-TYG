@@ -46,29 +46,41 @@ export function WorkspaceActions({
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
-      <div className="card-body">
-        <label className="form-label" htmlFor="profile-community">
-          <Building2 size={14} style={{ display: "inline", marginRight: 6, verticalAlign: "-2px" }} />
-          Active community
-        </label>
-        <select
-          id="profile-community"
-          className="form-select"
-          value={currentCommunityId}
-          disabled={switching}
-          onChange={(event) => void switchCommunity(event.target.value)}
-        >
-          {communities.map((community) => (
-            <option key={community.id} value={community.id}>{community.name}</option>
-          ))}
-        </select>
-        {error && <p style={{ marginTop: 8, color: "var(--red-700)", fontSize: 12 }}>{error}</p>}
+      <div
+        className="card-body"
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+          gap: 18,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ flex: "1 1 320px", maxWidth: 560 }}>
+          <label className="form-label" htmlFor="profile-community" style={{ display: "block", marginBottom: 7 }}>
+            <Building2 size={14} style={{ display: "inline", marginRight: 6, verticalAlign: "-2px" }} />
+            Active property
+          </label>
+          <select
+            id="profile-community"
+            className="form-select"
+            value={currentCommunityId}
+            disabled={switching}
+            onChange={(event) => void switchCommunity(event.target.value)}
+            style={{ width: "100%" }}
+          >
+            {communities.map((community) => (
+              <option key={community.id} value={community.id}>{community.name}</option>
+            ))}
+          </select>
+          {error && <p style={{ marginTop: 8, color: "var(--red-700)", fontSize: 12 }}>{error}</p>}
+        </div>
         <button
           type="button"
           className="btn btn-outline"
           disabled={signingOut}
           onClick={() => void logout()}
-          style={{ marginTop: 14, display: "inline-flex", alignItems: "center", gap: 7 }}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, flex: "0 0 auto" }}
         >
           <LogOut size={15} />
           {signingOut ? "Signing out..." : "Sign out"}

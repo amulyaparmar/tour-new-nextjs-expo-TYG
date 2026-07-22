@@ -1615,7 +1615,7 @@ function FloatingTourSquareWidget() {
         </span>
 
         <span
-          className="absolute top-[76px] h-[30px] min-w-[86px] overflow-hidden rounded-full border border-white bg-[#4F46E5] px-4 shadow-[0_2px_12px_rgba(0,0,0,0.1),0_0_10px_rgba(79,70,229,0.16)] transition-opacity duration-200"
+          className="absolute top-[76px] h-[30px] min-w-[86px] overflow-hidden rounded-full border border-white bg-[#4d8ae5] px-4 shadow-[0_2px_12px_rgba(0,0,0,0.1),0_0_10px_rgba(79,70,229,0.16)] transition-opacity duration-200"
           style={{
             opacity: showSubtleTypingHint ? 0 : miniLabelOpacity * miniWidgetVisibility,
             pointerEvents: !showSubtleTypingHint && miniLabelOpacity > 0.2 && miniWidgetVisibility > 0.15 ? "auto" : "none",

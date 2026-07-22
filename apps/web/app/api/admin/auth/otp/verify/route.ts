@@ -13,6 +13,7 @@ import {
   resolveAdminContextForUser,
 } from "@/lib/admin-auth";
 import { ensurePropertyRubric } from "@/lib/rubrics";
+import { ensurePropertyTeamMember } from "@/lib/property-team";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
 export async function POST(request: Request) {
@@ -53,6 +54,24 @@ export async function POST(request: Request) {
     }
 
     const workspace = await resolveAdminContextForUser(data.user);
+    const hasPropertyCard = workspace.community.teamMembers.some(
+      (member) => member.email === workspace.user.email
+    );
+    if (hasPropertyCard && workspace.communities.length === 1) {
+      await ensurePropertyTeamMember({
+        propertyId: workspace.community.propertyTygId,
+        userId: workspace.user.id,
+        email: workspace.user.email,
+        name: workspace.user.fullName ?? workspace.teamMember.name,
+        alias: workspace.teamMember.alias,
+        phone: workspace.user.phone ?? workspace.teamMember.phone,
+        role: workspace.teamMember.role,
+        title: workspace.user.title ?? workspace.teamMember.title,
+        cardAccent: workspace.user.cardAccent ?? workspace.teamMember.cardAccent,
+        propertyAlias: workspace.community.alias,
+        verified: true,
+      });
+    }
     await ensurePropertyRubric(
       workspace.community.propertyTygId,
       propertySessionKeys(workspace.community)
@@ -83,6 +102,7 @@ export async function POST(request: Request) {
         adminCookieOptions(60 * 60 * 24 * 30)
       );
     }
+    response.headers.set("Cache-Control", "private, no-store");
     return response;
   } catch (caught) {
     const status = caught instanceof AdminAuthError ? caught.status : 500;

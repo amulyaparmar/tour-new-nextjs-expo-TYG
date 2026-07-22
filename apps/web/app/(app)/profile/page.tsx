@@ -4,6 +4,7 @@ import { ContactCardPanel } from "../ContactCardPanel";
 import { requireTourWorkspace } from "@/lib/tour-auth";
 import { WorkspaceActions } from "./WorkspaceActions";
 import { AliasSettings } from "./AliasSettings";
+import { buildWorkspaceContactCard } from "@/lib/workspace-contact-card";
 
 export default async function ProfilePage() {
   const workspace = await requireTourWorkspace();
@@ -24,8 +25,8 @@ export default async function ProfilePage() {
   return (
     <>
       <div className="page-header">
-        <h1>Profile</h1>
-        <p>Manage your account and resources</p>
+        <h1>My Card</h1>
+        <p>Manage your contact card, public aliases, and active property</p>
       </div>
 
       <div className="card" style={{ marginBottom: 12 }}>
@@ -68,7 +69,10 @@ export default async function ProfilePage() {
         memberFallback={defaultUserAlias}
       />
 
-      <ContactCardPanel id="profile-contact-card-heading" />
+      <ContactCardPanel
+        id="profile-contact-card-heading"
+        contact={buildWorkspaceContactCard(workspace)}
+      />
 
       <div className="card">
         <Link href="/materials" className="session-row">

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { defaultPropertyPublicAlias } from "@tour/shared";
+
 import { getSupabaseServiceClient } from "./supabase";
 
 export type EntrataSyncSettings = {
@@ -23,6 +25,7 @@ export type EnsurePropertyTeamMemberInput = {
   role?: string | null;
   title?: string | null;
   cardAccent?: string | null;
+  propertyAlias?: string | null;
   verified?: boolean;
 };
 
@@ -63,6 +66,35 @@ function uniqueMemberAlias(
   return `${base}-${Date.now().toString(36)}`;
 }
 
+async function uniquePropertyAlias(preferred: string, propertyId: string) {
+  const supabase = getSupabaseServiceClient();
+  const base = defaultPropertyPublicAlias({
+    alias: preferred,
+    name: propertyId,
+  }) || "property";
+  const { data, error } = await supabase
+    .from("propertiesTYG")
+    .select("id,alias")
+    .neq("id", propertyId)
+    .ilike("alias", `${base}%`)
+    .limit(1000);
+  if (error) throw new Error(error.message);
+
+  const used = new Set(
+    (data ?? [])
+      .map((row) => cleanString((row as { alias?: unknown }).alias).toLowerCase())
+      .filter(Boolean)
+  );
+  if (!used.has(base)) return base;
+
+  for (let number = 2; number < 1000; number += 1) {
+    const suffix = `-${number}`;
+    const candidate = `${base.slice(0, 48 - suffix.length).replace(/-+$/g, "")}${suffix}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${base.slice(0, 40).replace(/-+$/g, "")}-${Date.now().toString(36)}`;
+}
+
 /**
  * Idempotently creates or completes the authenticated user's contact/access
  * record in PropertiesTYG.metadata.property_team. This is the sole membership
@@ -70,7 +102,7 @@ function uniqueMemberAlias(
  */
 export async function ensurePropertyTeamMember(
   input: EnsurePropertyTeamMemberInput
-): Promise<{ member: Record<string, unknown>; created: boolean }> {
+): Promise<{ member: Record<string, unknown>; created: boolean; propertyAlias: string }> {
   const supabase = getSupabaseServiceClient();
   const email = input.email.trim().toLowerCase();
   if (!email) throw new Error("A verified email is required for the property card.");
@@ -78,9 +110,9 @@ export async function ensurePropertyTeamMember(
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const { data, error } = await supabase
       .from("propertiesTYG")
-      .select("metadata,updated_at")
+      .select("name,alias,metadata,updated_at")
       .eq("id", input.propertyId)
-      .single<{ metadata: unknown; updated_at: string | null }>();
+      .single<{ name: string | null; alias: string | null; metadata: unknown; updated_at: string | null }>();
     if (error || !data) throw new Error(error?.message ?? "Property not found.");
 
     const metadata = isRecord(data.metadata) ? { ...data.metadata } : {};
@@ -117,16 +149,27 @@ export async function ensurePropertyTeamMember(
     else team.push(member);
     metadata.property_team = team;
 
+    const existingPropertyAlias = cleanString(data.alias);
+    const propertyAlias = existingPropertyAlias || await uniquePropertyAlias(
+      cleanString(input.propertyAlias) || cleanString(data.name),
+      input.propertyId
+    );
+
     let update = supabase
       .from("propertiesTYG")
-      .update({ metadata, updated_at: new Date().toISOString() } as never)
+      .update({
+        metadata,
+        updated_at: new Date().toISOString(),
+        ...(!existingPropertyAlias ? { alias: propertyAlias } : {}),
+      } as never)
       .eq("id", input.propertyId);
     update = data.updated_at === null
       ? update.is("updated_at", null)
       : update.eq("updated_at", data.updated_at);
     const { data: updated, error: updateError } = await update.select("id").maybeSingle();
+    if (updateError?.code === "23505" && !existingPropertyAlias) continue;
     if (updateError) throw new Error(updateError.message);
-    if (updated) return { member, created: !existing };
+    if (updated) return { member, created: !existing, propertyAlias };
   }
 
   throw new Error("The property team changed while your card was being prepared. Please try again.");

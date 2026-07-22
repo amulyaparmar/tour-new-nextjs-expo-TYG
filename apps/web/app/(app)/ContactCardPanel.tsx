@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
-import { Download, Globe2, Mail, Phone, Plus, QrCode, Send, UserRound } from "lucide-react";
+import { Download, Globe2, Mail, Pencil, Phone, Plus, QrCode, Send, UserRound } from "lucide-react";
 import {
   contactCard,
   propertyTour as fallbackPropertyTour,
@@ -199,7 +199,11 @@ export function ContactCardPanel({ id, variant = "profile", contact, property }:
               {activeContact.email}
             </ContactCardDetail>
             {isHome && (
-              <ContactCardDetail href={activeContact.website} icon={<Globe2 size={15} aria-hidden="true" />}>
+              <ContactCardDetail
+                href={activeContact.website}
+                icon={<Globe2 size={15} aria-hidden="true" />}
+                editHref="/profile#public-check-in-link"
+              >
                 {activeContact.websiteDisplay}
               </ContactCardDetail>
             )}
@@ -300,32 +304,36 @@ function QrToggleButton({
 
 function ContactCardDetail({
   children,
+  editHref,
   href,
   icon
 }: {
   children: string;
+  editHref?: string;
   href: string;
   icon: ReactNode;
 }) {
   return (
-    <a
-      href={href}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        minWidth: 0,
-        color: "var(--slate-600)",
-        fontSize: 13
-      }}
-    >
-      <span style={{ color: "var(--slate-400)", display: "grid", placeItems: "center", flexShrink: 0 }}>
-        {icon}
-      </span>
-      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {children}
-      </span>
-    </a>
+    <span className="contact-card-detail-row">
+      <a href={href} className="contact-card-detail-link">
+        <span style={{ color: "var(--slate-400)", display: "grid", placeItems: "center", flexShrink: 0 }}>
+          {icon}
+        </span>
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {children}
+        </span>
+      </a>
+      {editHref ? (
+        <Link
+          href={editHref}
+          className="contact-card-detail-edit"
+          aria-label="Edit public check-in link"
+          title="Edit public check-in link"
+        >
+          <Pencil size={13} aria-hidden="true" />
+        </Link>
+      ) : null}
+    </span>
   );
 }
 

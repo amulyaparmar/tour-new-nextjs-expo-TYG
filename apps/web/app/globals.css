@@ -1352,6 +1352,49 @@ button { border: 0; font: inherit; cursor: pointer; }
 
 .form-grid { display: grid; gap: 12px; }
 
+.contact-card-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.contact-card-detail-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--slate-600);
+  font-size: 13px;
+}
+
+.contact-card-detail-edit {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  color: var(--indigo-600);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transform: translateX(-5px);
+  transition: opacity .16s ease, transform .16s ease, background .16s ease;
+}
+
+.contact-card-detail-row:hover .contact-card-detail-edit,
+.contact-card-detail-row:focus-within .contact-card-detail-edit {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.contact-card-detail-edit:hover,
+.contact-card-detail-edit:focus-visible {
+  background: rgba(77, 138, 229, .12);
+  outline: none;
+}
+
 .form-check-row {
   display: flex;
   align-items: flex-start;

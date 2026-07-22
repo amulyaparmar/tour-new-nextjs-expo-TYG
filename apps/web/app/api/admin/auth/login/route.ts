@@ -70,6 +70,7 @@ export async function POST(request: Request) {
         role: workspace.teamMember.role,
         title: workspace.user.title ?? workspace.teamMember.title,
         cardAccent: workspace.user.cardAccent ?? workspace.teamMember.cardAccent,
+        propertyAlias: workspace.community.alias,
         verified: true,
       });
     }

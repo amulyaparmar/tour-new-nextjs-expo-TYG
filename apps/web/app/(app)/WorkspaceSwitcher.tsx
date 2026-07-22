@@ -225,7 +225,7 @@ export function WorkspaceSwitcher({
               <>
                 <div className="top-tool-grid" aria-label="Profile actions">
                   <TopTool href="/sessions" icon={<Video size={16} />} label="My Sessions" />
-                  <TopTool href="/profile" icon={<IdCard size={16} />} label="My Card" />
+                  <TopTool href="/profile" icon={<IdCard size={16} />} label="Profile" />
                   <TopTool href="/new" icon={<Plus size={16} />} label="Add New Lead" />
                 </div>
 

@@ -182,6 +182,7 @@ export async function POST(request: Request) {
       phone: workspace.user.phone ?? workspace.teamMember.phone,
       title: workspace.user.title ?? workspace.teamMember.title,
       cardAccent: workspace.user.cardAccent ?? workspace.teamMember.cardAccent,
+      propertyAlias: property.name,
       verified: true,
     });
 

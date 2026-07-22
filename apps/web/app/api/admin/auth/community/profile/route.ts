@@ -40,6 +40,7 @@ export async function POST(request: Request) {
       role: workspace.teamMember.role,
       title: title || workspace.teamMember.title,
       cardAccent: workspace.user.cardAccent ?? workspace.teamMember.cardAccent,
+      propertyAlias: workspace.community.alias,
       verified: true,
     });
 
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
       property: {
         id: workspace.community.propertyTygId,
         name: workspace.community.name,
+        alias: result.propertyAlias,
       },
     });
   } catch (caught) {

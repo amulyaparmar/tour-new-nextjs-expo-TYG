@@ -26,7 +26,7 @@ export default async function ProfilePage() {
     <>
       <div className="page-header">
         <h1>Profile</h1>
-        <p>Manage your account and resources</p>
+        <p>Manage your contact card, public aliases, and active property</p>
       </div>
 
       <div className="card" style={{ marginBottom: 12 }}>

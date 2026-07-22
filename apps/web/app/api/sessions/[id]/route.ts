@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import type { SessionStatus } from "@tour/shared";
 import { deleteSession, getAnalysisBySessionId, getConversationPhases, getSessionById, setSessionStatus, updateSession } from "@/lib/sessions";
 import { getRecordingPlaybackPath, getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
+import { AdminAuthError } from "@/lib/admin-auth";
+import { requireSessionReadAccess, requireSessionWriteAccess } from "@/lib/session-access";
 
 const VALID_STATUSES: SessionStatus[] = [
   "scheduled", "in_progress", "uploaded", "transcribing", "segmenting",
@@ -37,14 +39,11 @@ async function attachPlaybackUrls(session: NonNullable<Awaited<ReturnType<typeof
   return session;
 }
 
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
 
   try {
-    const session = await getSessionById(id);
-    if (!session) {
-      return NextResponse.json({ error: "Session not found." }, { status: 404 });
-    }
+    const { session } = await requireSessionReadAccess(request, id);
 
     await attachPlaybackUrls(session);
 
@@ -53,9 +52,10 @@ export async function GET(_request: Request, context: Context) {
 
     return NextResponse.json({ session, analysis, phases });
   } catch (error) {
+    const status = error instanceof AdminAuthError ? error.status : 500;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch session." },
-      { status: 500 }
+      { status }
     );
   }
 }
@@ -63,6 +63,7 @@ export async function GET(_request: Request, context: Context) {
 export async function PATCH(request: Request, context: Context) {
   const { id } = await context.params;
   try {
+    await requireSessionWriteAccess(request, id);
     const body = await request.json() as Record<string, unknown>;
 
     if (typeof body.status === "string") {
@@ -89,22 +90,25 @@ export async function PATCH(request: Request, context: Context) {
     }
     return NextResponse.json({ ok: true });
   } catch (error) {
+    const status = error instanceof AdminAuthError ? error.status : 500;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Update failed." },
-      { status: 500 }
+      { status }
     );
   }
 }
 
-export async function DELETE(_request: Request, context: Context) {
+export async function DELETE(request: Request, context: Context) {
   const { id } = await context.params;
   try {
+    await requireSessionWriteAccess(request, id);
     await deleteSession(id);
     return NextResponse.json({ ok: true });
   } catch (error) {
+    const status = error instanceof AdminAuthError ? error.status : 500;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Delete failed." },
-      { status: 500 }
+      { status }
     );
   }
 }

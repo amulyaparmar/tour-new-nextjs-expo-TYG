@@ -8,6 +8,7 @@ import {
 import { searchGoogleBusinesses } from "@/lib/google-places";
 import { ensurePropertyRubric } from "@/lib/rubrics";
 import { getSupabaseServiceClient } from "@/lib/supabase";
+import { ensurePropertyTeamMember } from "@/lib/property-team";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -95,64 +96,6 @@ async function upsertPropertyFromTourReport(placeId: string) {
   return body.property;
 }
 
-async function addUserToPropertyTeam(
-  propertyId: string,
-  member: {
-    id: string;
-    name: string;
-    email: string;
-    role: string;
-    phone: string | null;
-  }
-) {
-  const supabase = getSupabaseServiceClient();
-
-  // The exact-email entry in metadata.property_team is the authorization record.
-  // Retry a compare-and-set update so two people joining at once do not erase one another.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const { data, error } = await supabase
-      .from("propertiesTYG")
-      .select("metadata,updated_at")
-      .eq("id", propertyId)
-      .single<{ metadata: unknown; updated_at: string | null }>();
-    if (error || !data) throw new Error(error?.message ?? "The property could not be found.");
-
-    const metadata = isRecord(data.metadata) ? data.metadata : {};
-    const team = propertyTeam(metadata);
-    if (team.some((entry) => normalizeEmail(entry.email) === member.email)) return;
-
-    const nextMetadata = {
-      ...metadata,
-      property_team: [
-        ...team,
-        {
-          id: member.id,
-          name: member.name,
-          email: member.email,
-          phone: member.phone,
-          role: member.role,
-          verified: false,
-          dateJoined: new Date().toISOString(),
-          src: "Tour.you App TYG",
-        },
-      ],
-    };
-
-    let update = supabase
-      .from("propertiesTYG")
-      .update({ metadata: nextMetadata } as never)
-      .eq("id", propertyId);
-    update = data.updated_at === null
-      ? update.is("updated_at", null)
-      : update.eq("updated_at", data.updated_at);
-    const { data: updated, error: updateError } = await update.select("id").maybeSingle();
-    if (updateError) throw new Error(updateError.message);
-    if (updated) return;
-  }
-
-  throw new Error("The property team changed while you were joining. Please try again.");
-}
-
 function startEnrichment(property: PropertyRow) {
   if (enrichmentState(property) === "enriched") return;
 
@@ -229,12 +172,17 @@ export async function POST(request: Request) {
     let property = await findProperty(placeId);
     if (!property) property = await upsertPropertyFromTourReport(placeId);
 
-    await addUserToPropertyTeam(property.id, {
-      id: workspace.user.id,
+    await ensurePropertyTeamMember({
+      propertyId: property.id,
+      userId: workspace.user.id,
       name: workspace.user.fullName ?? workspace.teamMember.name ?? workspace.user.email.split("@")[0],
       email: workspace.user.email,
       role: workspace.teamMember.role || "Property Team",
-      phone: workspace.teamMember.phone,
+      alias: workspace.teamMember.alias,
+      phone: workspace.user.phone ?? workspace.teamMember.phone,
+      title: workspace.user.title ?? workspace.teamMember.title,
+      cardAccent: workspace.user.cardAccent ?? workspace.teamMember.cardAccent,
+      verified: true,
     });
 
     const scopedRequest = new Request(request.url, { headers: new Headers(request.headers) });

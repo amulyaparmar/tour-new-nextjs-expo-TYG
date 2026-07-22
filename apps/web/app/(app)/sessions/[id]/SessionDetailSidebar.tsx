@@ -37,6 +37,7 @@ export function SessionDetailSidebar({
   onAiSeek,
   selectedCommentId,
   onCommentSelect,
+  readOnly = false,
 }: {
   sessionId: string;
   analysis: AnalysisResult;
@@ -59,6 +60,7 @@ export function SessionDetailSidebar({
   onAiSeek: (seconds: number) => void;
   selectedCommentId: string | null;
   onCommentSelect: (commentId: string) => void;
+  readOnly?: boolean;
 }) {
   const commentCount = comments.filter((c) => !c.parentId && isDiscussionComment(c)).length;
 
@@ -121,6 +123,7 @@ export function SessionDetailSidebar({
             duration={duration}
             currentTime={currentTime}
             onSeek={onSeek}
+            readOnly={readOnly}
           />
         </div>
         <div
@@ -181,6 +184,7 @@ function SessionRubricPanel({
   duration,
   currentTime,
   onSeek,
+  readOnly = false,
 }: {
   analysis: AnalysisResult;
   sessionId: string;
@@ -192,6 +196,7 @@ function SessionRubricPanel({
   duration: number;
   currentTime: number;
   onSeek: (seconds: number) => void;
+  readOnly?: boolean;
 }) {
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [openRubricSection, setOpenRubricSection] = useState<string | null>(null);
@@ -233,12 +238,12 @@ function SessionRubricPanel({
         </div>
       </div>
 
-      <ReanalyzeWithRubric sessionId={sessionId} currentRubricId={rubric?.id ?? null} />
+      {!readOnly && <ReanalyzeWithRubric sessionId={sessionId} currentRubricId={rubric?.id ?? null} />}
 
       {!anyQuestions && (
         <div className={styles.rubricLegacy}>
           <p>Legacy analysis — re-process for question-level detail.</p>
-          <ReprocessButton sessionId={sessionId} />
+          {!readOnly && <ReprocessButton sessionId={sessionId} />}
         </div>
       )}
 

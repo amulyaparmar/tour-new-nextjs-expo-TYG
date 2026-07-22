@@ -60,6 +60,7 @@ export function SessionsPageClient({
   const selectedMenuRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const selectionAnchorIdRef = useRef<string | null>(null);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -185,15 +186,40 @@ export function SessionsPageClient({
   useEffect(() => {
     setSelectedIds(new Set());
     setSelectedMenuOpen(false);
+    selectionAnchorIdRef.current = null;
   }, [scope, selectedAgentId, sort]);
 
-  const toggleSessionSelection = (sessionId: string) => {
+  const toggleSessionSelection = (sessionId: string, shiftKey: boolean) => {
+    const selectableSessionIds = sessions
+      .filter((session) => !session.isSample)
+      .map((session) => session.id);
+    const anchorId = selectionAnchorIdRef.current;
+    const anchorIndex = anchorId ? selectableSessionIds.indexOf(anchorId) : -1;
+    const sessionIndex = selectableSessionIds.indexOf(sessionId);
+
     setSelectedIds((current) => {
       const next = new Set(current);
-      if (next.has(sessionId)) next.delete(sessionId);
-      else next.add(sessionId);
+      const shouldSelect = !current.has(sessionId);
+
+      if (shiftKey && anchorIndex >= 0 && sessionIndex >= 0) {
+        const rangeStart = Math.min(anchorIndex, sessionIndex);
+        const rangeEnd = Math.max(anchorIndex, sessionIndex);
+        selectableSessionIds.slice(rangeStart, rangeEnd + 1).forEach((id) => {
+          if (shouldSelect) next.add(id);
+          else next.delete(id);
+        });
+      } else if (shouldSelect) {
+        next.add(sessionId);
+      } else {
+        next.delete(sessionId);
+      }
+
       return next;
     });
+
+    if (!shiftKey || anchorIndex < 0) {
+      selectionAnchorIdRef.current = sessionId;
+    }
   };
 
   const deleteSelectedSessions = async () => {
@@ -213,6 +239,7 @@ export function SessionsPageClient({
       const failed = results.filter((result) => !result.ok);
       setSelectedIds(new Set());
       setSelectedMenuOpen(false);
+      selectionAnchorIdRef.current = null;
       await fetchPage(1, true);
       router.refresh();
       if (failed.length > 0) {
@@ -410,7 +437,8 @@ export function SessionsPageClient({
                       className="session-row-select"
                       aria-label={`${isSelected ? "Deselect" : "Select"} ${s.title || "session"}`}
                       aria-pressed={isSelected}
-                      onClick={() => toggleSessionSelection(s.id)}
+                      title={`${isSelected ? "Deselect" : "Select"} session (Shift-click for a range)`}
+                      onClick={(event) => toggleSessionSelection(s.id, event.shiftKey)}
                     >
                       <Check size={14} strokeWidth={3} aria-hidden="true" />
                     </button>

@@ -149,6 +149,112 @@
   gap: 5px;
 }
 
+.exportMenuRoot {
+  position: relative;
+  display: inline-flex;
+}
+
+.exportChevron,
+.exportChevronOpen {
+  transition: transform .18s ease;
+}
+
+.exportChevronOpen {
+  transform: rotate(180deg);
+}
+
+.exportPopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 90;
+  width: 264px;
+  padding: 6px;
+  border: 1px solid var(--slate-200);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, .16);
+  transform-origin: top right;
+  animation: export-popover-in .16s cubic-bezier(.2,.8,.2,1) both;
+}
+
+@keyframes export-popover-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.exportPopoverHeading {
+  padding: 7px 9px 6px;
+  color: var(--slate-400);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.exportOption {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--slate-700);
+  font-family: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+
+.exportOption:hover {
+  background: var(--indigo-50);
+  color: var(--indigo-700);
+}
+
+.exportOption:disabled {
+  cursor: wait;
+  opacity: .66;
+}
+
+.exportOptionIcon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  border-radius: 10px;
+  background: var(--indigo-50);
+  color: var(--indigo-600);
+}
+
+.exportOption > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.exportOption strong {
+  color: currentColor;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.exportOption small {
+  color: var(--slate-500);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.exportError {
+  margin: 3px 8px 6px;
+  color: #b42318;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 .exportSpinner {
   animation: export-spin 0.75s linear infinite;
 }
@@ -4063,4 +4169,160 @@
   font-size: 11px;
   line-height: 1.45;
   color: var(--slate-500);
+}
+.readOnlySessionBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 16px;
+  padding: 10px 12px;
+  border: 1px solid #cfe0f7;
+  border-radius: 12px;
+  background: #eff7ff;
+  color: #375270;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.readOnlySessionBanner svg { flex: 0 0 auto; color: #326fc9; }
+.readOnlySessionBanner span { flex: 1; }
+.readOnlySessionBanner button {
+  border: 0;
+  background: transparent;
+  color: #326fc9;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.propertyAccessOverlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(9, 18, 33, .28);
+  backdrop-filter: blur(10px) saturate(.82);
+  animation: property-access-in .22s ease both;
+}
+
+@keyframes property-access-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.propertyMismatchCard {
+  position: relative;
+  width: min(100%, 620px);
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+  padding: clamp(22px, 4vw, 34px);
+  border: 1px solid #cfe0f7;
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(250,253,255,.97) 0%, rgba(234,244,255,.97) 58%, rgba(220,236,255,.97) 100%);
+  box-shadow: 0 30px 80px rgba(33, 73, 133, .24);
+  backdrop-filter: blur(18px);
+  animation: property-access-card-in .28s cubic-bezier(.2,.8,.2,1) both;
+}
+
+@keyframes property-access-card-in {
+  from { opacity: 0; transform: translateY(10px) scale(.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.propertyMismatchClose {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(77,138,229,.18);
+  border-radius: 999px;
+  background: rgba(255,255,255,.7);
+  color: #52637a;
+  cursor: pointer;
+}
+
+.propertyMismatchIcon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 15px;
+  background: #fff;
+  color: #326fc9;
+  box-shadow: 0 10px 24px rgba(77, 138, 229, .17);
+}
+
+.propertyMismatchEyebrow {
+  margin: 0 0 8px;
+  color: #326fc9;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.propertyMismatchCard h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: clamp(24px, 4vw, 34px);
+  line-height: 1.08;
+  letter-spacing: -.035em;
+}
+
+.propertyMismatchCard div > p:last-child {
+  max-width: 560px;
+  margin: 12px 0 0;
+  color: #52637a;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.propertyMismatchAccess {
+  margin: 0;
+  color: #52637a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.propertyMismatchActions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+
+.propertyMismatchSuccess {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #b7e4d0;
+  border-radius: 11px;
+  background: #ecfdf5;
+  color: #087553;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.propertyMismatchError {
+  margin: 0;
+  color: #b42318;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.sidebarCommentsReadOnly {
+  margin: 10px;
+  padding: 11px 12px;
+  border: 1px solid #cfe0f7;
+  border-radius: 11px;
+  background: #eff7ff;
+  color: #52637a;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  .propertyAccessOverlay { padding: 12px; }
+  .propertyMismatchCard { padding: 22px 18px; }
+  .readOnlySessionBanner { align-items: flex-start; flex-wrap: wrap; }
 }

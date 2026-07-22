@@ -262,10 +262,19 @@
 }
 
 .footerBrand {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   color: #9ca3af;
   font-size: 12px;
   margin-top: 16px;
+}
+
+.footerBrand img {
+  width: 47px;
+  height: auto;
+  opacity: .78;
 }
 
 .scrim {

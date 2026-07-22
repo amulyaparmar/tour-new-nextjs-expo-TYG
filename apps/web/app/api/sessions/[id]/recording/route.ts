@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { AdminAuthError } from "@/lib/admin-auth";
+import { requireSessionReadAccess } from "@/lib/session-access";
 import { fetchRecordingFile } from "@/lib/storage";
 
 type Context = { params: Promise<{ id: string }> };
@@ -8,6 +10,7 @@ export async function GET(request: Request, context: Context) {
   const { id } = await context.params;
 
   try {
+    await requireSessionReadAccess(request, id);
     const file = await fetchRecordingFile(id);
     if (!file) {
       return NextResponse.json({ error: "Recording not found." }, { status: 404 });
@@ -51,9 +54,10 @@ export async function GET(request: Request, context: Context) {
       },
     });
   } catch (error) {
+    const status = error instanceof AdminAuthError ? error.status : 500;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load recording." },
-      { status: 500 }
+      { status }
     );
   }
 }

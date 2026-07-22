@@ -6,12 +6,19 @@ import { ContactCardPanel } from "./ContactCardPanel";
 import { SmartSessionModalButton } from "./SmartSessionForm";
 import { UserGreeting } from "./UserGreeting";
 import { requireTourWorkspace } from "@/lib/tour-auth";
+import { getPropertyProfile } from "@/lib/property-reps";
+import { getPropertyHeroMedia } from "@/lib/materials";
+import { buildWorkspaceContactCard } from "@/lib/workspace-contact-card";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const workspace = await requireTourWorkspace();
-  const sessions = await listSessions({ limit: 100, propertyId: workspace.community.id });
+  const [sessions, selectedProperty, heroMedia] = await Promise.all([
+    listSessions({ limit: 100, propertyId: workspace.community.id }),
+    getPropertyProfile(workspace.community.propertyTygId).catch(() => null),
+    getPropertyHeroMedia(workspace.community.propertyTygId).catch(() => null),
+  ]);
   const now = Date.now();
   const oneDayMs = 24 * 60 * 60 * 1000;
   const inProgressStatuses = ["uploaded", "transcribing", "segmenting", "analyzing"];
@@ -63,7 +70,16 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <ContactCardPanel id="home-contact-card-heading" variant="home" />
+      <ContactCardPanel
+        id="home-contact-card-heading"
+        variant="home"
+        contact={buildWorkspaceContactCard(workspace)}
+        property={{
+          name: workspace.community.name,
+          mediaUrl: heroMedia?.url ?? selectedProperty?.mediaUrl ?? "",
+          mediaKind: heroMedia?.kind ?? selectedProperty?.mediaKind,
+        }}
+      />
 
       {liveSessions.length > 0 && (
         <div className="live-now-card">

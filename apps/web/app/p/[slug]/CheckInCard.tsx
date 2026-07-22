@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useId, useRef, useState } from "react";
 import type {
   FormEvent,
@@ -293,7 +294,15 @@ export function CheckInCard({
               </button>
             </div>
 
-            <p className={styles.footerBrand}>Powered by Tour</p>
+            <p className={styles.footerBrand}>
+              <span>Powered by</span>
+              <Image
+                src="/images/tour%20logo%20TYG.svg"
+                alt="Tour"
+                width={139}
+                height={50}
+              />
+            </p>
           </div>
         </section>
 

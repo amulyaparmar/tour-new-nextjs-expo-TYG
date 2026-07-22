@@ -44,6 +44,7 @@ type Props = {
     name: string | null;
     analysisModel?: AnalysisModelId;
   } | null;
+  readOnly?: boolean;
 };
 
 const SIDEBAR_DEFAULT_WIDTH = 360;
@@ -74,6 +75,7 @@ export function SessionDetailExperience({
   initialAudioInsights,
   participants,
   rubric,
+  readOnly = false,
 }: Props) {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -451,6 +453,7 @@ export function SessionDetailExperience({
         onAiSeek={handleAiSeek}
         selectedCommentId={selectedCommentId}
         onCommentSelect={handleCommentSelect}
+        readOnly={readOnly}
       />
     </div>
   );

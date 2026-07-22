@@ -32,6 +32,7 @@ export function SidebarCommentsPanel({
   onSeek,
   selectedCommentId,
   onCommentSelect,
+  readOnly = false,
 }: {
   sessionId: string;
   currentTime: number;
@@ -40,6 +41,7 @@ export function SidebarCommentsPanel({
   onSeek: (seconds: number) => void;
   selectedCommentId: string | null;
   onCommentSelect: (commentId: string) => void;
+  readOnly?: boolean;
 }) {
   const [body, setBody] = useState("");
   const [linkTimestamp, setLinkTimestamp] = useState(false);
@@ -135,6 +137,7 @@ export function SidebarCommentsPanel({
   }
 
   function renderCommentMenu(commentId: string) {
+    if (readOnly) return null;
     const isOpen = openMenuCommentId === commentId;
     return (
       <div
@@ -243,6 +246,7 @@ export function SidebarCommentsPanel({
                 <p
                   className={styles.sidebarCommentBody}
                   onDoubleClick={(event) => {
+                    if (readOnly) return;
                     event.stopPropagation();
                     setEditingCommentId(comment.id);
                   }}
@@ -251,7 +255,7 @@ export function SidebarCommentsPanel({
                   {comment.body}
                 </p>
               )}
-              <div className={styles.sidebarCommentActions}>
+              {!readOnly && <div className={styles.sidebarCommentActions}>
                 <button
                   type="button"
                   onClick={(event) => {
@@ -263,7 +267,7 @@ export function SidebarCommentsPanel({
                   <Reply size={13} />
                   Reply
                 </button>
-              </div>
+              </div>}
 
               {replies(comment.id).map((reply) => (
                 <div key={reply.id} className={styles.sidebarCommentReply}>
@@ -292,6 +296,7 @@ export function SidebarCommentsPanel({
                     <p
                       className={styles.sidebarCommentBody}
                       onDoubleClick={(event) => {
+                        if (readOnly) return;
                         event.stopPropagation();
                         setEditingCommentId(reply.id);
                       }}
@@ -307,7 +312,11 @@ export function SidebarCommentsPanel({
         )}
       </div>
 
-      <form className={styles.sidebarCommentsCompose} onSubmit={handleSubmit}>
+      {readOnly ? (
+        <div className={styles.sidebarCommentsReadOnly}>
+          Join this property team to leave comments or reply.
+        </div>
+      ) : <form className={styles.sidebarCommentsCompose} onSubmit={handleSubmit}>
         {replyTo && (
           <div className={styles.sidebarCommentsReplyBanner}>
             <Reply size={12} />
@@ -363,7 +372,7 @@ export function SidebarCommentsPanel({
           <Send size={14} />
           {submitting ? "Posting..." : "Post comment"}
         </button>
-      </form>
+      </form>}
     </div>
   );
 }

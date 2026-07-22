@@ -229,6 +229,10 @@
   padding: 0 28px;
 }
 
+.progress[data-steps="4"] {
+  grid-template-columns: repeat(4, 1fr);
+}
+
 .progress span {
   height: 3px;
   overflow: hidden;

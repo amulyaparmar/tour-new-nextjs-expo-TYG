@@ -30,6 +30,8 @@ type StoreShape = {
   audioInsights: Record<string, AudioInsights>;
 };
 
+export type LocalWorkflowKind = "analysis" | "audioInsights";
+
 const STORE_PATH = path.join(process.cwd(), ".codex", "local-session-store.json");
 
 async function loadStore(): Promise<StoreShape> {
@@ -46,6 +48,8 @@ async function loadStore(): Promise<StoreShape> {
         leads: session.leads ?? [],
         attachments: session.attachments ?? [],
         audioInsightsStatus: normalizeAudioInsightsStatus(session.audioInsightsStatus),
+        analysisWorkflowAttempts: session.analysisWorkflowAttempts ?? 0,
+        audioInsightsAttempts: session.audioInsightsAttempts ?? 0,
       })),
       analyses: parsed.analyses ?? {},
       analysisRuns: parsed.analysisRuns ?? {},
@@ -114,6 +118,16 @@ export async function createLocalSession(input: {
     overallScore: null,
     createdAt: new Date().toISOString(),
     audioInsightsStatus: "pending",
+    analysisWorkflowRunId: null,
+    analysisWorkflowStartedAt: null,
+    analysisWorkflowCompletedAt: null,
+    analysisWorkflowError: null,
+    analysisWorkflowAttempts: 0,
+    audioInsightsWorkflowRunId: null,
+    audioInsightsStartedAt: null,
+    audioInsightsCompletedAt: null,
+    audioInsightsError: null,
+    audioInsightsAttempts: 0,
     cardSummary: null,
     needsImprovement: null,
     notes: input.notes ?? null,
@@ -142,6 +156,16 @@ export async function updateLocalSession(
     location?: string | null;
     notes?: string | null;
     rubricId?: string | null;
+    analysisWorkflowRunId?: string | null;
+    analysisWorkflowStartedAt?: string | null;
+    analysisWorkflowCompletedAt?: string | null;
+    analysisWorkflowError?: string | null;
+    analysisWorkflowAttempts?: number;
+    audioInsightsWorkflowRunId?: string | null;
+    audioInsightsStartedAt?: string | null;
+    audioInsightsCompletedAt?: string | null;
+    audioInsightsError?: string | null;
+    audioInsightsAttempts?: number;
   }
 ) {
   const store = await loadStore();
@@ -154,6 +178,75 @@ export async function updateLocalSession(
   if (fields.location !== undefined) session.location = fields.location;
   if (fields.notes !== undefined) session.notes = fields.notes;
   if (fields.rubricId !== undefined) session.rubricId = fields.rubricId;
+  if (fields.analysisWorkflowRunId !== undefined) session.analysisWorkflowRunId = fields.analysisWorkflowRunId;
+  if (fields.analysisWorkflowStartedAt !== undefined) session.analysisWorkflowStartedAt = fields.analysisWorkflowStartedAt;
+  if (fields.analysisWorkflowCompletedAt !== undefined) session.analysisWorkflowCompletedAt = fields.analysisWorkflowCompletedAt;
+  if (fields.analysisWorkflowError !== undefined) session.analysisWorkflowError = fields.analysisWorkflowError;
+  if (fields.analysisWorkflowAttempts !== undefined) session.analysisWorkflowAttempts = fields.analysisWorkflowAttempts;
+  if (fields.audioInsightsWorkflowRunId !== undefined) session.audioInsightsWorkflowRunId = fields.audioInsightsWorkflowRunId;
+  if (fields.audioInsightsStartedAt !== undefined) session.audioInsightsStartedAt = fields.audioInsightsStartedAt;
+  if (fields.audioInsightsCompletedAt !== undefined) session.audioInsightsCompletedAt = fields.audioInsightsCompletedAt;
+  if (fields.audioInsightsError !== undefined) session.audioInsightsError = fields.audioInsightsError;
+  if (fields.audioInsightsAttempts !== undefined) session.audioInsightsAttempts = fields.audioInsightsAttempts;
+  await saveStore(store);
+}
+
+export async function recordLocalWorkflowStarted(
+  sessionId: string,
+  kind: LocalWorkflowKind,
+  runId: string | null
+) {
+  const store = await loadStore();
+  const session = store.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  const now = new Date().toISOString();
+  if (kind === "analysis") {
+    session.analysisWorkflowRunId = runId;
+    session.analysisWorkflowStartedAt = now;
+    session.analysisWorkflowCompletedAt = null;
+    session.analysisWorkflowError = null;
+    session.analysisWorkflowAttempts = (session.analysisWorkflowAttempts ?? 0) + 1;
+  } else {
+    session.audioInsightsWorkflowRunId = runId;
+    session.audioInsightsStartedAt = now;
+    session.audioInsightsCompletedAt = null;
+    session.audioInsightsError = null;
+    session.audioInsightsAttempts = (session.audioInsightsAttempts ?? 0) + 1;
+  }
+  await saveStore(store);
+}
+
+export async function recordLocalWorkflowCompleted(
+  sessionId: string,
+  kind: LocalWorkflowKind
+) {
+  const store = await loadStore();
+  const session = store.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  const now = new Date().toISOString();
+  if (kind === "analysis") {
+    session.analysisWorkflowCompletedAt = now;
+    session.analysisWorkflowError = null;
+  } else {
+    session.audioInsightsCompletedAt = now;
+    session.audioInsightsError = null;
+  }
+  await saveStore(store);
+}
+
+export async function recordLocalWorkflowFailed(
+  sessionId: string,
+  kind: LocalWorkflowKind,
+  error: string
+) {
+  const store = await loadStore();
+  const session = store.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  if (kind === "analysis") {
+    session.analysisWorkflowError = error;
+  } else {
+    session.audioInsightsError = error;
+  }
   await saveStore(store);
 }
 

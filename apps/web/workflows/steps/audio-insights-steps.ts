@@ -8,6 +8,8 @@ import {
   getSessionById,
   saveAudioInsights,
   setAudioInsightsStatus,
+  recordSessionWorkflowCompleted,
+  recordSessionWorkflowFailed,
   updateSession,
 } from "@/lib/sessions";
 import { deriveSessionTitleFromParticipants } from "@/lib/session-naming";
@@ -85,6 +87,7 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
     await updateSession(sessionId, nameUpdates);
   }
   await setAudioInsightsStatus(sessionId, "ready");
+  await recordSessionWorkflowCompleted(sessionId, "audioInsights");
 
   return {
     segmentCount: insights.segments.length,
@@ -93,7 +96,8 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
 }
 analyzeAudioInsightsStep.maxRetries = 3;
 
-export async function markAudioInsightsFailedStep(sessionId: string) {
+export async function markAudioInsightsFailedStep(sessionId: string, reason?: string) {
   "use step";
   await setAudioInsightsStatus(sessionId, "failed").catch(() => {});
+  await recordSessionWorkflowFailed(sessionId, "audioInsights", reason ?? "Audio insights workflow failed.").catch(() => {});
 }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { SESSION_STATUS_LABELS } from "@tour/shared";
+import { buildSessionTourTitle, SESSION_STATUS_LABELS } from "@tour/shared";
 
 import { getTranscriptForSession } from "@/lib/evidence";
 import { listVisibleMaterials } from "@/lib/materials";
@@ -70,6 +70,11 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
   const session = isSampleSession || isPropertyMismatch
     ? rawSession
     : await enrichSessionWithAgentName(rawSession, workspace);
+  const sessionTitle = buildSessionTourTitle({
+    title: session.title,
+    agentName: session.agentName,
+    prospectName: session.prospectName || session.leads?.[0]?.name,
+  });
   const participants = sessionParticipants(session.agentName, session.prospectName);
 
   const analysisRun = await getAnalysisRun(id, versionParam ?? null);
@@ -136,7 +141,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
 
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <h1 className={styles.title}>{session.title}</h1>
+          <h1 className={styles.title}>{sessionTitle}</h1>
           <p className={styles.meta}>
             {session.scheduledAt
               ? new Date(session.scheduledAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
@@ -166,7 +171,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
             <ExportSessionButton
               href={`/api/sessions/${encodeURIComponent(id)}/export${analysisRun && !analysisRun.isCurrent ? `?version=${analysisRun.version}` : ""}`}
               audioHref={`/api/sessions/${encodeURIComponent(id)}/recording?download=1`}
-              sessionTitle={session.title}
+              sessionTitle={sessionTitle}
             />
           )}
           {!isSampleSession && !isReadOnlyExternal && <DeleteSessionButton sessionId={id} />}
@@ -205,11 +210,11 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
       )}
 
       {!hasAnalysis && isScheduled && !isReadOnlyExternal && (
-        <UploadAndProcess sessionId={id} hasRecording={false} variant="new-session" defaults={defaults ?? undefined} noteAssets={noteAssets} />
+        <UploadAndProcess sessionId={id} hasRecording={false} variant="new-session" defaults={defaults ?? undefined} noteAssets={noteAssets} recordingDuration={session.duration} />
       )}
 
       {!hasAnalysis && !isScheduled && !isReadOnlyExternal && (
-        <UploadAndProcess sessionId={id} hasRecording={hasRecording} defaults={defaults ?? undefined} noteAssets={noteAssets} />
+        <UploadAndProcess sessionId={id} hasRecording={hasRecording} defaults={defaults ?? undefined} noteAssets={noteAssets} recordingDuration={session.duration} />
       )}
 
       {!hasAnalysis && isReadOnlyExternal && recordingUrl && (
@@ -260,7 +265,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
           <div className="card-body">
             <EditSessionForm
               sessionId={id}
-              title={session.title}
+              title={sessionTitle}
               scheduledAt={session.scheduledAt}
               agentName={session.agentName}
               prospectName={session.prospectName}

@@ -1,5 +1,6 @@
 import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionAttachment, SessionDetail, SessionLead, SessionSummary } from "@tour/shared";
 import { fetch as expoFetch } from "expo/fetch";
+import { File, Paths } from "expo-file-system";
 
 import { authenticatedFetch, getCurrentSession } from "./auth";
 import { getApiBaseUrl } from "./config";
@@ -241,6 +242,20 @@ export async function getRecordingSignedPlaybackUrl(sessionId: string) {
   return (await res.json()) as { signedUrl: string; expiresAt: string };
 }
 
+export async function downloadSessionReportPdf(sessionId: string, sessionTitle: string) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/export`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? "PDF export failed.");
+  }
+
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const filename = responseFilename(res) || `${safeFilename(sessionTitle) || "session"}-evaluation.pdf`;
+  const file = new File(Paths.document, `${Date.now()}-${filename}`);
+  file.write(bytes);
+  return { uri: file.uri, filename };
+}
+
 export async function deleteSession(sessionId: string) {
   const res = await authenticatedFetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
   if (!res.ok) {
@@ -248,6 +263,22 @@ export async function deleteSession(sessionId: string) {
     throw new Error(body?.error ?? "Failed to delete session.");
   }
   return (await res.json().catch(() => ({ ok: true }))) as { ok?: boolean };
+}
+
+function responseFilename(response: Response) {
+  const disposition = response.headers.get("content-disposition");
+  const match = disposition?.match(/filename="?([^";]+)"?/i);
+  return match?.[1] ?? null;
+}
+
+function safeFilename(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+    .toLowerCase();
 }
 
 export async function fetchRubrics() {

@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "NEXT_IGNORE_INCORRECT_LOCKFILE=true next dev --turbopack",
+    "dev": "NEXT_IGNORE_INCORRECT_LOCKFILE=true next dev --webpack",
+    "dev:turbopack": "NEXT_IGNORE_INCORRECT_LOCKFILE=true next dev --turbopack",
     "build": "next build",
     "build:web": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "web": "NEXT_IGNORE_INCORRECT_LOCKFILE=true next dev --turbopack",
+    "web": "NEXT_IGNORE_INCORRECT_LOCKFILE=true next dev --webpack",
+    "web:turbopack": "NEXT_IGNORE_INCORRECT_LOCKFILE=true next dev --turbopack",
     "workflow:web": "workflow web",
     "workflow:runs": "workflow inspect runs",
     "clean": "rm -rf .next"

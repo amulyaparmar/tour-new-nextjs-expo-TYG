@@ -4,7 +4,7 @@ import { start } from "workflow/api";
 import {
   prepareAudioInsightsProcessing,
 } from "@/lib/start-audio-insights-workflow";
-import { getSessionById, setSessionStatus } from "@/lib/sessions";
+import { getSessionById, recordSessionWorkflowFailed, recordSessionWorkflowStarted, setSessionStatus } from "@/lib/sessions";
 import { processSessionWorkflow } from "@/workflows/process-session";
 
 type Context = { params: Promise<{ id: string }> };
@@ -36,6 +36,7 @@ export async function POST(_request: Request, context: Context) {
     await prepareAudioInsightsProcessing(id);
 
     const run = await start(processSessionWorkflow, [id]);
+    await recordSessionWorkflowStarted(id, "analysis", run.runId);
 
     return NextResponse.json(
       {
@@ -48,6 +49,11 @@ export async function POST(_request: Request, context: Context) {
     );
   } catch (error) {
     await setSessionStatus(id, "failed").catch(() => {});
+    await recordSessionWorkflowFailed(
+      id,
+      "analysis",
+      error instanceof Error ? error.message : "Failed to start processing."
+    ).catch(() => {});
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to start processing." },
       { status: 500 }

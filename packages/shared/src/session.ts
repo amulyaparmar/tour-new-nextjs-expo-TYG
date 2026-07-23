@@ -65,6 +65,16 @@ export type SessionSummary = {
   duration: number | null;
   createdAt: string;
   audioInsightsStatus: AudioInsightsStatus;
+  analysisWorkflowRunId?: string | null;
+  analysisWorkflowStartedAt?: string | null;
+  analysisWorkflowCompletedAt?: string | null;
+  analysisWorkflowError?: string | null;
+  analysisWorkflowAttempts?: number;
+  audioInsightsWorkflowRunId?: string | null;
+  audioInsightsStartedAt?: string | null;
+  audioInsightsCompletedAt?: string | null;
+  audioInsightsError?: string | null;
+  audioInsightsAttempts?: number;
   /** Pipeline-authored ~9-word card blurb. */
   cardSummary?: string | null;
   /** Pipeline-authored improvement line for cards. */

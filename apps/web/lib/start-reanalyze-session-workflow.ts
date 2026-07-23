@@ -3,7 +3,7 @@ import "server-only";
 import { start } from "workflow/api";
 
 import { resolveRubricForReanalysis } from "./reanalyze-session";
-import { getSessionById } from "./sessions";
+import { getSessionById, recordSessionWorkflowFailed, recordSessionWorkflowStarted } from "./sessions";
 import { reanalyzeSessionWorkflow } from "@/workflows/reanalyze-session";
 
 export async function startReanalyzeSessionWorkflow(
@@ -18,6 +18,16 @@ export async function startReanalyzeSessionWorkflow(
   const rubric = await resolveRubricForReanalysis(session, options?.rubricId);
   const resegment = Boolean(options?.resegment);
 
-  const run = await start(reanalyzeSessionWorkflow, [sessionId, rubric.id, resegment]);
-  return { runId: run.runId, rubricId: rubric.id, resegment };
+  try {
+    const run = await start(reanalyzeSessionWorkflow, [sessionId, rubric.id, resegment]);
+    await recordSessionWorkflowStarted(sessionId, "analysis", run.runId);
+    return { runId: run.runId, rubricId: rubric.id, resegment };
+  } catch (error) {
+    await recordSessionWorkflowFailed(
+      sessionId,
+      "analysis",
+      error instanceof Error ? error.message : "Failed to start re-analysis."
+    ).catch(() => {});
+    throw error;
+  }
 }

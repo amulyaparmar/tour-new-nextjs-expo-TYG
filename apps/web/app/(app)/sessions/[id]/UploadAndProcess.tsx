@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookmarkPlus, CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle, Brain, Sparkles, Upload, Video, GitBranch } from "lucide-react";
+import { BookmarkPlus, CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle, Brain, Sparkles, Upload, Video, GitBranch, Clock, FileText } from "lucide-react";
 
 import type { SessionStatus } from "@tour/shared";
 import { waitForSessionProcessing } from "@/lib/wait-for-session-processing";
-import { uploadFileWithPresign } from "@/lib/client-upload";
+import { detectMediaDurationSeconds, uploadFileWithPresign } from "@/lib/client-upload";
 
 type Phase = "choose" | "recording" | "details" | "processing";
 type Step = "idle" | "uploading" | "uploaded" | "transcribing" | "segmenting" | "analyzing" | "generating_actions" | "done" | "error";
@@ -42,6 +42,44 @@ const STEP_ICONS = {
   brain: Brain,
   sparkles: Sparkles,
   check: CheckCircle2,
+};
+
+const STEP_DETAILS: Record<Exclude<Step, "idle" | "uploaded">, { stage: string; output: string; status: string }> = {
+  uploading: {
+    stage: "Uploading recording",
+    output: "Recording uploaded securely",
+    status: "In progress",
+  },
+  transcribing: {
+    stage: "Transcribing audio",
+    output: "Transcript with speaker labels",
+    status: "In progress",
+  },
+  segmenting: {
+    stage: "Segmenting conversation",
+    output: "Conversation phase map",
+    status: "In progress",
+  },
+  analyzing: {
+    stage: "Analyzing rubric",
+    output: "Scores, moments, coaching",
+    status: "In progress",
+  },
+  generating_actions: {
+    stage: "Creating follow-up actions",
+    output: "Next steps and suggested messages",
+    status: "In progress",
+  },
+  done: {
+    stage: "Analysis complete",
+    output: "Review-ready session",
+    status: "Complete",
+  },
+  error: {
+    stage: "Processing stopped",
+    output: "Needs retry",
+    status: "Failed",
+  },
 };
 
 function statusToStep(status: SessionStatus): Step {
@@ -87,18 +125,59 @@ function stepIndex(step: Step): number {
   return idx >= 0 ? idx : -1;
 }
 
+function estimateStageSeconds(step: Step, durationSeconds: number | null): number {
+  const duration = durationSeconds ?? 90;
+  switch (step) {
+    case "uploading":
+    case "uploaded":
+      return Math.max(8, Math.round(duration * 0.03));
+    case "transcribing":
+      return Math.max(18, Math.round(duration * 0.35));
+    case "segmenting":
+      return Math.max(10, Math.round(duration * 0.07));
+    case "analyzing":
+      return Math.max(22, Math.round(duration * 0.16));
+    case "generating_actions":
+      return 14;
+    default:
+      return 0;
+  }
+}
+
+function estimateRemainingSeconds(step: Step, durationSeconds: number | null, stepElapsed: number): number | null {
+  if (step === "done" || step === "error" || step === "idle") return null;
+  const normalizedStep = step === "uploaded" ? "uploading" : step;
+  const currentIdx = stepIndex(normalizedStep);
+  if (currentIdx < 0) return null;
+
+  const activeRemaining = Math.max(0, estimateStageSeconds(normalizedStep, durationSeconds) - stepElapsed);
+  const upcoming = PIPELINE_STEPS
+    .slice(currentIdx + 1)
+    .reduce((sum, pipelineStep) => sum + estimateStageSeconds(pipelineStep.key, durationSeconds), 0);
+  return activeRemaining + upcoming;
+}
+
+function formatEta(seconds: number | null): string {
+  if (seconds === null) return "Estimating";
+  if (seconds <= 15) return "Finishing";
+  if (seconds < 60) return "<1 min";
+  return `~${Math.ceil(seconds / 60)} min`;
+}
+
 export function UploadAndProcess({
   sessionId,
   hasRecording,
   variant = "record",
   defaults,
-  noteAssets = []
+  noteAssets = [],
+  recordingDuration = null
 }: {
   sessionId: string;
   hasRecording: boolean;
   variant?: "record" | "new-session";
   defaults?: SessionDetailDefaults;
   noteAssets?: NoteAsset[];
+  recordingDuration?: number | null;
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -116,6 +195,8 @@ export function UploadAndProcess({
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordingMode, setRecordingMode] = useState<RecordingMode>("video");
   const [processingElapsed, setProcessingElapsed] = useState(0);
+  const [stepElapsed, setStepElapsed] = useState(0);
+  const [mediaDurationSec, setMediaDurationSec] = useState<number | null>(recordingDuration ?? null);
   const [notesDraft, setNotesDraft] = useState("");
   const [insertedAssetIds, setInsertedAssetIds] = useState<string[]>([]);
 
@@ -128,9 +209,20 @@ export function UploadAndProcess({
 
   useEffect(() => {
     if (phase !== "processing" || step === "done" || step === "error") return;
-    const t = setInterval(() => setProcessingElapsed((e) => e + 1), 1000);
+    const t = setInterval(() => {
+      setProcessingElapsed((e) => e + 1);
+      setStepElapsed((e) => e + 1);
+    }, 1000);
     return () => clearInterval(t);
   }, [phase, step]);
+
+  useEffect(() => {
+    setStepElapsed(0);
+  }, [phase, step]);
+
+  useEffect(() => {
+    if (recordingDuration && recordingDuration > 0) setMediaDurationSec(recordingDuration);
+  }, [recordingDuration]);
 
   useEffect(() => {
     if (step === "done") {
@@ -230,13 +322,14 @@ export function UploadAndProcess({
     recorder.onstop = (e) => {
       if (typeof prev === "function") prev.call(recorder, e);
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
+      setMediaDurationSec(elapsed > 0 ? elapsed : null);
       setRecordedBlob(blob);
       setPhase("details");
     };
     recorder.stop();
   }
 
-  const uploadBlob = useCallback(async (file: File) => {
+  const uploadBlob = useCallback(async (file: File, durationSec: number | null) => {
     await uploadFileWithPresign({
       presignUrl: `/api/sessions/${sessionId}/upload/presign`,
       completeUrl: `/api/sessions/${sessionId}/upload/complete`,
@@ -246,6 +339,9 @@ export function UploadAndProcess({
         fileName: file.name,
         contentType: file.type || "application/octet-stream",
       },
+      completeBody: () => ({
+        ...(durationSec && durationSec > 0 ? { durationSec } : {}),
+      }),
       onProgress: setProgress,
     });
   }, [sessionId]);
@@ -255,9 +351,12 @@ export function UploadAndProcess({
     setStep("uploading");
     setProgress(0);
     setProcessingElapsed(0);
+    setStepElapsed(0);
     setErrorMsg(null);
     try {
-      await uploadBlob(file);
+      const detectedDuration = mediaDurationSec ?? await detectMediaDurationSeconds(file);
+      if (detectedDuration) setMediaDurationSec(detectedDuration);
+      await uploadBlob(file, detectedDuration);
       setStep("uploaded");
       setProgress(100);
       setStep("transcribing");
@@ -313,12 +412,16 @@ export function UploadAndProcess({
   async function handleFileUpload(file: File) {
     setRecordedBlob(file);
     setPhase("details");
+    void detectMediaDurationSeconds(file).then((duration) => {
+      if (duration) setMediaDurationSec(duration);
+    });
   }
 
   const startProcessing = useCallback(async () => {
     setPhase("processing");
     setStep("transcribing");
     setProcessingElapsed(0);
+    setStepElapsed(0);
     setErrorMsg(null);
     try {
       await startProcessingAndWait(sessionId, (status) => setStep(statusToStep(status)));
@@ -556,128 +659,123 @@ export function UploadAndProcess({
   const isDone = step === "done";
   const isError = step === "error";
   const totalSteps = PIPELINE_STEPS.length;
-  const overallPct = isDone ? 100 : isError ? 0 : Math.round(((currentIdx < 0 ? 0 : currentIdx) / totalSteps) * 100);
+  const visibleStepCount = isDone
+    ? totalSteps
+    : isError
+      ? Math.max(1, currentIdx + 1)
+      : Math.max(1, currentIdx + 1);
+  const overallPct = isDone ? 100 : isError ? 0 : Math.round((visibleStepCount / totalSteps) * 100);
   const activeStep = PIPELINE_STEPS.find((ps) => ps.key === step || (step === "uploaded" && ps.key === "uploading"));
+  const activeDetails = STEP_DETAILS[step === "uploaded" ? "uploading" : step === "idle" ? "transcribing" : step];
+  const etaSeconds = estimateRemainingSeconds(step, mediaDurationSec, stepElapsed);
 
   return (
-    <div style={{
-      background: "white",
-      borderRadius: 16,
-      border: "1px solid var(--slate-200)",
-      overflow: "hidden",
-      boxShadow: "var(--shadow-card)",
-    }}>
-      {/* Header */}
-      <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--slate-200)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+    <div className="pipeline-stage-card">
+      <div className="pipeline-stage-header">
+        <div className="pipeline-stage-heading">
+          <div className={`pipeline-stage-icon ${isDone ? "is-done" : isError ? "is-error" : ""}`}>
+            {isDone ? <CheckCircle2 size={30} /> : isError ? <XCircle size={30} /> : <Mic size={30} />}
+          </div>
           <div>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--slate-900)", margin: 0 }}>
-              {isDone ? "Analysis Complete" : isError ? "Processing Failed" : "Analyzing Your Tour"}
-            </h2>
-            <p style={{ fontSize: 13, color: "var(--slate-500)", margin: "2px 0 0" }}>
+            <h2>{isDone ? "Analysis complete" : isError ? "Processing failed" : "Analyzing your tour"}</h2>
+            <p>
               {isDone
                 ? "Loading your results..."
                 : isError
                   ? errorMsg
-                  : activeStep
-                    ? activeStep.description
-                    : "Preparing..."}
+                  : "We're converting the recording into structured insights and follow-up actions."}
             </p>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--slate-500)", fontVariantNumeric: "tabular-nums" }}>
-              {formatTime(processingElapsed)}
-            </span>
-            {!isDone && !isError && <div className="pipeline-spinner" />}
-            {isDone && <CheckCircle2 size={22} style={{ color: "var(--green-600)" }} />}
-            {isError && <XCircle size={22} style={{ color: "#ef4444" }} />}
-          </div>
         </div>
-
-        {/* Overall progress bar */}
-        {!isError && (
-          <div style={{ height: 6, borderRadius: 99, background: "var(--slate-100)", overflow: "hidden" }}>
-            <div style={{
-              height: "100%", borderRadius: 99,
-              background: isDone
-                ? "var(--green-500)"
-                : "linear-gradient(90deg, var(--indigo-500), var(--indigo-400))",
-              width: `${overallPct}%`,
-              transition: "width 0.5s ease",
-            }} />
+        <div className="pipeline-elapsed" aria-label={`Elapsed time ${formatTime(processingElapsed)}`}>
+          <div>
+            <Clock size={18} />
+            <strong>{formatTime(processingElapsed)}</strong>
           </div>
-        )}
+          <span>Elapsed time</span>
+        </div>
       </div>
 
-      {/* Step details — compact horizontal on wider screens, vertical on small */}
-      <div style={{ padding: "16px 24px 20px" }}>
-        {/* Horizontal step indicators */}
-        <div style={{ display: "flex", gap: 0, marginBottom: 4 }}>
-          {PIPELINE_STEPS.map((ps, i) => {
-            const Icon = STEP_ICONS[ps.icon];
-            const isActive = ps.key === step || (step === "uploaded" && ps.key === "uploading");
-            const isPast = currentIdx > i || isDone;
+      <div className="pipeline-divider" />
 
-            let dotBg = "var(--slate-100)";
-            let dotColor = "var(--slate-400)";
-            let labelColor = "var(--slate-400)";
+      <div className="pipeline-progress-row">
+        <strong>{overallPct}%</strong>
+        <span>{visibleStepCount} of {totalSteps} steps complete</span>
+      </div>
+      {!isError && (
+        <div className="pipeline-progress-track" aria-label={`${overallPct}% complete`}>
+          <div
+            className={`pipeline-progress-fill ${isDone ? "is-done" : ""}`}
+            style={{ width: `${overallPct}%` }}
+          />
+        </div>
+      )}
 
-            if (isPast) {
-              dotBg = "rgba(34,197,94,0.1)";
-              dotColor = "var(--green-600)";
-              labelColor = "var(--slate-600)";
-            } else if (isActive && !isDone) {
-              dotBg = "var(--indigo-50)";
-              dotColor = "var(--indigo-600)";
-              labelColor = "var(--slate-800)";
-            }
+      <div className="pipeline-timeline" aria-label="Processing steps">
+        {PIPELINE_STEPS.map((ps, i) => {
+          const Icon = STEP_ICONS[ps.icon];
+          const isActive = ps.key === step || (step === "uploaded" && ps.key === "uploading");
+          const isPast = isDone || currentIdx > i;
+          const state = isPast ? "done" : isActive && !isDone && !isError ? "active" : isError && isActive ? "error" : "upcoming";
 
-            return (
-              <div key={ps.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                <div style={{
-                  width: 32, height: 32, borderRadius: "50%",
-                  background: dotBg,
-                  display: "grid", placeItems: "center",
-                  transition: "all 0.3s ease",
-                  ...(isActive && !isDone ? { boxShadow: "0 0 0 3px var(--indigo-100)" } : {}),
-                }}>
-                  {isPast
-                    ? <CheckCircle2 size={14} style={{ color: dotColor }} />
-                    : isActive && !isDone
-                      ? <div className="pipeline-spinner-sm" />
-                      : <Icon size={14} style={{ color: dotColor }} />}
-                </div>
-                <span style={{
-                  fontSize: 10, fontWeight: 600, color: labelColor,
-                  textAlign: "center", lineHeight: 1.2,
-                  transition: "color 0.3s ease",
-                }}>
-                  {ps.label}
-                </span>
+          return (
+            <div className="pipeline-timeline-step" data-state={state} key={ps.key}>
+              {i > 0 && <span className="pipeline-step-connector" data-filled={isDone || currentIdx >= i ? "true" : "false"} />}
+              <div className="pipeline-step-node">
+                {isPast ? <CheckCircle2 size={24} /> : isError && isActive ? <XCircle size={24} /> : <Icon size={24} />}
+                {isPast && i === 0 && <span className="pipeline-step-check"><CheckCircle2 size={14} /></span>}
               </div>
-            );
-          })}
-        </div>
+              <span className="pipeline-step-number">{i + 1}</span>
+              <strong>{ps.label}</strong>
+              <small>{isPast ? "Completed" : isActive && !isError ? "In progress" : isError && isActive ? "Failed" : "Upcoming"}</small>
+            </div>
+          );
+        })}
+      </div>
 
-        {/* Connector line between dots */}
-        <div style={{ display: "flex", alignItems: "center", margin: "-46px 40px 28px", position: "relative", zIndex: 0 }}>
-          {PIPELINE_STEPS.slice(0, -1).map((_, i) => {
-            const isPast = currentIdx > i + 1 || isDone;
-            const isTransitioning = currentIdx === i + 1 && !isDone;
-            return (
-              <div key={i} style={{
-                flex: 1, height: 2,
-                background: isPast ? "var(--green-400)" : isTransitioning ? "var(--indigo-300)" : "var(--slate-200)",
-                transition: "background 0.3s ease",
-              }} />
-            );
-          })}
-        </div>
+      <div className="pipeline-divider" />
+
+      <div className="pipeline-summary-grid">
+        <article className="pipeline-summary-card">
+          <span className="pipeline-summary-icon">
+            {activeStep ? (() => {
+              const Icon = STEP_ICONS[activeStep.icon];
+              return <Icon size={24} />;
+            })() : <Mic size={24} />}
+          </span>
+          <div>
+            <span>Current stage</span>
+            <strong>{activeDetails.stage}</strong>
+            <small data-tone={isError ? "error" : isDone ? "done" : "active"}>{activeDetails.status}</small>
+          </div>
+        </article>
+
+        <article className="pipeline-summary-card">
+          <span className="pipeline-summary-icon is-eta">
+            <Clock size={24} />
+          </span>
+          <div>
+            <span>Estimated time left</span>
+            <strong>{formatEta(etaSeconds)}</strong>
+            <small>Based on current progress</small>
+          </div>
+        </article>
+
+        <article className="pipeline-summary-card">
+          <span className="pipeline-summary-icon is-output">
+            <FileText size={24} />
+          </span>
+          <div>
+            <span>Output</span>
+            <strong>{activeDetails.output}</strong>
+            <small data-tone="done">{isDone ? "Ready" : "Planned output"}</small>
+          </div>
+        </article>
       </div>
 
       {/* Error retry */}
       {isError && (
-        <div style={{ padding: "0 24px 20px", display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="pipeline-retry-actions">
           <button
             type="button"
             className="btn btn-primary btn-sm"

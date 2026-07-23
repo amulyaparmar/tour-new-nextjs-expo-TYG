@@ -21,7 +21,7 @@ import {
 
 import { SmartSessionForm } from "../SmartSessionForm";
 import { RubricSelector } from "../RubricSelector";
-import { uploadFileWithPresign } from "@/lib/client-upload";
+import { detectMediaDurationSeconds, uploadFileWithPresign } from "@/lib/client-upload";
 
 type Phase = "choose" | "lead" | "recording" | "details" | "saving" | "bulk";
 type CreateTab = "session" | "content";
@@ -219,12 +219,13 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
     for (const item of itemsToProcess) {
       try {
         updateBulkItem(item.id, { status: "creating", error: null, progress: 0 });
-        const title = item.file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ").trim() || "Uploaded tour";
+        const durationSec = await detectMediaDurationSeconds(item.file);
         const createRes = await fetch("/api/sessions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            title,
+            title: null,
+            sourceFileName: item.file.name,
             scheduledAt: new Date().toISOString(),
             uploaderIsAgent,
           }),
@@ -245,6 +246,9 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
             fileName: item.file.name,
             contentType: item.file.type || "application/octet-stream",
           },
+          completeBody: () => ({
+            ...(durationSec && durationSec > 0 ? { durationSec } : {}),
+          }),
           onProgress: (progress) => updateBulkItem(item.id, {
             progress: Math.max(0, Math.min(100, progress)),
           }),
@@ -366,6 +370,7 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
       const sessionId = session.id;
 
       const file = new File([recordedBlob], `recording-${sessionId}.${ext}`, { type: recordedBlob.type });
+      const durationSec = await detectMediaDurationSeconds(recordedBlob);
       setUploadStage("Uploading recording");
       await uploadFileWithPresign({
         presignUrl: `/api/sessions/${sessionId}/upload/presign`,
@@ -376,6 +381,9 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
           fileName: file.name,
           contentType: file.type || "application/octet-stream",
         },
+        completeBody: () => ({
+          ...(durationSec && durationSec > 0 ? { durationSec } : {}),
+        }),
         onProgress: (progress) => {
           setUploadProgress(Math.max(0, Math.min(100, progress)));
           setUploadStage("Uploading recording");

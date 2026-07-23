@@ -4,6 +4,8 @@ import { isGeminiConfigured } from "@/lib/gemini-client";
 import { getRubricForSession } from "@/lib/rubrics";
 import {
   getSessionById,
+  recordSessionWorkflowFailed,
+  recordSessionWorkflowStarted,
   setAudioInsightsStatus,
 } from "@/lib/sessions";
 import { processAudioInsightsWorkflow } from "@/workflows/process-audio-insights";
@@ -49,9 +51,15 @@ export async function startAudioInsightsWorkflow(sessionId: string) {
   await setAudioInsightsStatus(sessionId, "processing");
   try {
     const run = await start(processAudioInsightsWorkflow, [sessionId]);
+    await recordSessionWorkflowStarted(sessionId, "audioInsights", run.runId);
     return { skipped: false as const, runId: run.runId };
   } catch (error) {
     await setAudioInsightsStatus(sessionId, "failed").catch(() => {});
+    await recordSessionWorkflowFailed(
+      sessionId,
+      "audioInsights",
+      error instanceof Error ? error.message : "Failed to start audio insights."
+    ).catch(() => {});
     throw error;
   }
 }

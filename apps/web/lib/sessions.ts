@@ -35,6 +35,9 @@ import {
   listLocalAnalysisRuns,
   listLocalSessions,
   replaceLocalActions,
+  recordLocalWorkflowCompleted,
+  recordLocalWorkflowFailed,
+  recordLocalWorkflowStarted,
   saveLocalAnalysisRun,
   saveLocalAudioInsights,
   saveLocalConversationPhases,
@@ -84,12 +87,24 @@ type SessionRow = {
   duration: number | null;
   created_at: string;
   audio_insights_status: AudioInsightsStatus | null;
+  analysis_workflow_run_id?: string | null;
+  analysis_workflow_started_at?: string | null;
+  analysis_workflow_completed_at?: string | null;
+  analysis_workflow_error?: string | null;
+  analysis_workflow_attempts?: number | null;
+  audio_insights_workflow_run_id?: string | null;
+  audio_insights_started_at?: string | null;
+  audio_insights_completed_at?: string | null;
+  audio_insights_error?: string | null;
+  audio_insights_attempts?: number | null;
   card_summary?: string | null;
   needs_improvement?: string | null;
 };
 
 const SESSION_COLUMNS =
-  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,leads,attachments,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,card_summary,needs_improvement";
+  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,leads,attachments,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,analysis_workflow_run_id,analysis_workflow_started_at,analysis_workflow_completed_at,analysis_workflow_error,analysis_workflow_attempts,audio_insights_workflow_run_id,audio_insights_started_at,audio_insights_completed_at,audio_insights_error,audio_insights_attempts,card_summary,needs_improvement";
+
+export type SessionWorkflowKind = "analysis" | "audioInsights";
 
 type AnalysisRow = {
   id: string;
@@ -148,17 +163,6 @@ type FollowUpActionRow = {
   suggested_message: string | null;
   created_at: string;
 };
-
-function titleCandidateFromSourceFileName(fileName: string | null | undefined): string | null {
-  const withoutPath = fileName?.trim().split(/[\\/]/).pop();
-  if (!withoutPath) return null;
-  const withoutExtension = withoutPath.replace(/\.[^.]+$/, "");
-  const cleaned = withoutExtension
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return cleaned || null;
-}
 
 export type ListSessionsParams = {
   page?: number;
@@ -326,7 +330,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
   );
   const agentName = normalizeParticipantName(input.agentName);
   const normalizedTitle = buildSessionTourTitle({
-    title: input.title ?? titleCandidateFromSourceFileName(input.sourceFileName),
+    title: input.title ?? null,
     agentName,
     prospectName,
   });
@@ -851,6 +855,98 @@ export async function setSessionStatus(
   }
 }
 
+export async function recordSessionWorkflowStarted(
+  sessionId: string,
+  kind: SessionWorkflowKind,
+  runId: string | null
+): Promise<void> {
+  const now = new Date().toISOString();
+  const patch = kind === "analysis"
+    ? {
+        analysis_workflow_run_id: runId,
+        analysis_workflow_started_at: now,
+        analysis_workflow_completed_at: null,
+        analysis_workflow_error: null,
+      }
+    : {
+        audio_insights_workflow_run_id: runId,
+        audio_insights_started_at: now,
+        audio_insights_completed_at: null,
+        audio_insights_error: null,
+      };
+
+  try {
+    const supabase = getSupabaseServiceClient();
+    const attemptColumn = kind === "analysis"
+      ? "analysis_workflow_attempts"
+      : "audio_insights_attempts";
+    const { data: existing } = await supabase
+      .from("sessions")
+      .select(attemptColumn)
+      .eq("id", sessionId)
+      .single<Record<string, number | null>>();
+    const attempts = Math.max(0, Number(existing?.[attemptColumn] ?? 0)) + 1;
+    const { error } = await supabase
+      .from("sessions")
+      .update({ ...patch, [attemptColumn]: attempts } as never)
+      .eq("id", sessionId);
+    if (error) throw error;
+  } catch (error) {
+    rethrowInProduction(error);
+    await recordLocalWorkflowStarted(sessionId, kind, runId);
+  }
+}
+
+export async function recordSessionWorkflowCompleted(
+  sessionId: string,
+  kind: SessionWorkflowKind
+): Promise<void> {
+  const now = new Date().toISOString();
+  const patch = kind === "analysis"
+    ? {
+        analysis_workflow_completed_at: now,
+        analysis_workflow_error: null,
+      }
+    : {
+        audio_insights_completed_at: now,
+        audio_insights_error: null,
+      };
+
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { error } = await supabase
+      .from("sessions")
+      .update(patch as never)
+      .eq("id", sessionId);
+    if (error) throw error;
+  } catch (error) {
+    rethrowInProduction(error);
+    await recordLocalWorkflowCompleted(sessionId, kind);
+  }
+}
+
+export async function recordSessionWorkflowFailed(
+  sessionId: string,
+  kind: SessionWorkflowKind,
+  errorMessage: string
+): Promise<void> {
+  const patch = kind === "analysis"
+    ? { analysis_workflow_error: errorMessage }
+    : { audio_insights_error: errorMessage };
+
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { error } = await supabase
+      .from("sessions")
+      .update(patch as never)
+      .eq("id", sessionId);
+    if (error) throw error;
+  } catch (error) {
+    rethrowInProduction(error);
+    await recordLocalWorkflowFailed(sessionId, kind, errorMessage);
+  }
+}
+
 export type StoredTranscriptSegment = {
   id: string;
   sessionId: string;
@@ -1051,6 +1147,16 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     duration: row.duration,
     createdAt: row.created_at,
     audioInsightsStatus: normalizeAudioInsightsStatus(row.audio_insights_status),
+    analysisWorkflowRunId: row.analysis_workflow_run_id ?? null,
+    analysisWorkflowStartedAt: row.analysis_workflow_started_at ?? null,
+    analysisWorkflowCompletedAt: row.analysis_workflow_completed_at ?? null,
+    analysisWorkflowError: row.analysis_workflow_error ?? null,
+    analysisWorkflowAttempts: row.analysis_workflow_attempts ?? 0,
+    audioInsightsWorkflowRunId: row.audio_insights_workflow_run_id ?? null,
+    audioInsightsStartedAt: row.audio_insights_started_at ?? null,
+    audioInsightsCompletedAt: row.audio_insights_completed_at ?? null,
+    audioInsightsError: row.audio_insights_error ?? null,
+    audioInsightsAttempts: row.audio_insights_attempts ?? 0,
     cardSummary: row.card_summary?.trim() || null,
     needsImprovement: row.needs_improvement?.trim() || null,
   };

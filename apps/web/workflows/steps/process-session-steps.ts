@@ -9,6 +9,8 @@ import {
   getAnalysisBySessionId,
   getSessionById,
   getTranscript,
+  recordSessionWorkflowCompleted,
+  recordSessionWorkflowFailed,
   replaceFollowUpActions,
   saveConversationPhases,
   saveTranscript,
@@ -176,6 +178,8 @@ export async function finalizeSessionStep(sessionId: string) {
     }
   }
 
+  await recordSessionWorkflowCompleted(sessionId, "analysis");
+
   return { overallScore: analysis.overallScore, materialIndexed, materialIndexError };
 }
 
@@ -196,20 +200,23 @@ export async function startAudioInsightsAfterAnalysisStep(sessionId: string) {
   }
 }
 
-export async function markSessionFailedStep(sessionId: string) {
+export async function markSessionFailedStep(sessionId: string, reason?: string) {
   "use step";
   await setSessionStatus(sessionId, "failed").catch(() => {});
+  await recordSessionWorkflowFailed(sessionId, "analysis", reason ?? "Session analysis workflow failed.").catch(() => {});
 }
 
-export async function markReanalysisFailedStep(sessionId: string) {
+export async function markReanalysisFailedStep(sessionId: string, reason?: string) {
   "use step";
 
   const analysis = await getAnalysisBySessionId(sessionId).catch(() => null);
   if (analysis) {
     await setSessionStatus(sessionId, "analysis_ready", analysis.overallScore).catch(() => {});
+    await recordSessionWorkflowFailed(sessionId, "analysis", reason ?? "Session re-analysis workflow failed.").catch(() => {});
     return { preservedExistingAnalysis: true };
   }
 
   await setSessionStatus(sessionId, "failed").catch(() => {});
+  await recordSessionWorkflowFailed(sessionId, "analysis", reason ?? "Session analysis workflow failed.").catch(() => {});
   return { preservedExistingAnalysis: false };
 }

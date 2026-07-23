@@ -106,6 +106,56 @@ export async function uploadFileWithPresign<TComplete>(options: {
   });
 }
 
+function fallbackDurationFromSize(file: Blob, contentType: string): number | null {
+  if (!file.size || file.size <= 0) return null;
+  const lowerType = contentType.toLowerCase();
+  const assumedBitsPerSecond = lowerType.startsWith("audio/")
+    ? 128_000
+    : lowerType.startsWith("video/")
+      ? 2_500_000
+      : 0;
+  if (!assumedBitsPerSecond) return null;
+  const seconds = Math.round((file.size * 8) / assumedBitsPerSecond);
+  return Number.isFinite(seconds) && seconds > 0 ? Math.max(1, seconds) : null;
+}
+
+export async function detectMediaDurationSeconds(file: Blob): Promise<number | null> {
+  const contentType = file.type || "application/octet-stream";
+  const lowerType = contentType.toLowerCase();
+  const sizeFallback = fallbackDurationFromSize(file, contentType);
+  if (typeof document === "undefined") return sizeFallback;
+  if (!lowerType.startsWith("audio/") && !lowerType.startsWith("video/")) return sizeFallback;
+
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const media = lowerType.startsWith("video/")
+      ? document.createElement("video")
+      : document.createElement("audio");
+    let settled = false;
+
+    const finish = (duration: number | null) => {
+      if (settled) return;
+      settled = true;
+      URL.revokeObjectURL(url);
+      media.removeAttribute("src");
+      media.load();
+      resolve(duration && Number.isFinite(duration) && duration > 0 ? Math.round(duration) : sizeFallback);
+    };
+
+    const timeout = window.setTimeout(() => finish(null), 7000);
+    media.preload = "metadata";
+    media.onloadedmetadata = () => {
+      window.clearTimeout(timeout);
+      finish(media.duration);
+    };
+    media.onerror = () => {
+      window.clearTimeout(timeout);
+      finish(null);
+    };
+    media.src = url;
+  });
+}
+
 export async function uploadFileForRubricExtract<T>(file: File): Promise<T> {
   const presign = await presignAndPutFile({
     presignUrl: "/api/admin/rubrics/extract/presign",

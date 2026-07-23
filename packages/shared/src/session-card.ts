@@ -51,6 +51,19 @@ function firstName(value: string | null | undefined): string | null {
   return token ? formatNamePart(token) : null;
 }
 
+function isParticipantOnlyTourTitle(
+  title: string | null | undefined,
+  agentName: string | null | undefined,
+  prospectName: string | null | undefined,
+): boolean {
+  const normalized = title?.trim().toLowerCase() ?? "";
+  if (!normalized) return false;
+  const participantTitles = [firstName(agentName), firstName(prospectName)]
+    .filter((name): name is string => Boolean(name))
+    .map((name) => `${name} tour`.toLowerCase());
+  return participantTitles.includes(normalized);
+}
+
 function leadName(fields: SessionCardFields): string | null {
   return (
     fields.prospectName?.trim() ||
@@ -65,6 +78,9 @@ export function isGenericSessionTitle(title: string | null | undefined): boolean
   if (GENERIC_SESSION_TITLES.has(normalized)) return true;
   if (/^entrata\b/i.test(normalized)) return true;
   if (/^(in-person|virtual)\s+tour\b/i.test(normalized)) return true;
+  if (/^\d{1,2}\s+[a-z]{3,9}\s+\d{1,2}:\d{2}\s+tour$/i.test(normalized)) return true;
+  if (/^tour\s+[a-z]{3,9}\s+\d{1,2}\s+\d{1,2}:\d{2}(?:\s*[ap]m)?$/i.test(normalized)) return true;
+  if (/^[0-9a-f]{8}(?:[\s-][0-9a-f]{4}){3}[\s-][0-9a-f]{12}$/i.test(normalized)) return true;
   return false;
 }
 
@@ -91,7 +107,10 @@ export function buildSessionTourTitle(input: {
           : null;
 
   const existing = input.title?.trim() || null;
-  if (peopleTitle && (input.preferPeopleTitle || isGenericSessionTitle(existing))) {
+  if (
+    peopleTitle &&
+    (input.preferPeopleTitle || isGenericSessionTitle(existing) || isParticipantOnlyTourTitle(existing, input.agentName, input.prospectName))
+  ) {
     return peopleTitle;
   }
   return existing || peopleTitle || "Tour conversation";

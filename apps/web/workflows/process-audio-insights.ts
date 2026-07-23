@@ -9,7 +9,10 @@ export async function processAudioInsightsWorkflow(sessionId: string) {
   try {
     return await analyzeAudioInsightsStep(sessionId);
   } catch (error) {
-    await markAudioInsightsFailedStep(sessionId);
+    await markAudioInsightsFailedStep(
+      sessionId,
+      error instanceof Error ? error.message : "Audio insights workflow failed."
+    );
     throw error;
   }
 }

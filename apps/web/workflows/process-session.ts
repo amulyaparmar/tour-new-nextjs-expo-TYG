@@ -32,7 +32,10 @@ export async function processSessionWorkflow(sessionId: string) {
       actionsGenerated,
     };
   } catch (error) {
-    await markSessionFailedStep(sessionId);
+    await markSessionFailedStep(
+      sessionId,
+      error instanceof Error ? error.message : "Session analysis workflow failed."
+    );
     throw error;
   }
 

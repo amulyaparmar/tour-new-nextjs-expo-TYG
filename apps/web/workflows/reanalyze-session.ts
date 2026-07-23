@@ -31,7 +31,10 @@ export async function reanalyzeSessionWorkflow(
       resegment,
     };
   } catch (error) {
-    await markReanalysisFailedStep(sessionId);
+    await markReanalysisFailedStep(
+      sessionId,
+      error instanceof Error ? error.message : "Session re-analysis workflow failed."
+    );
     throw error;
   }
 }

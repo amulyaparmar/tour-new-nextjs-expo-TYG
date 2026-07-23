@@ -85,6 +85,7 @@ import {
   type SessionComment,
   deleteComment,
   deleteSession,
+  downloadSessionReportPdf,
   fetchActions,
   fetchAnalysis,
   fetchAudioInsights,
@@ -3822,6 +3823,7 @@ function SessionReviewExperience({
   const [selectionBusy, setSelectionBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [followPlayback, setFollowPlayback] = useState(true);
+  const [exportingReport, setExportingReport] = useState(false);
   const [annotationSheet, setAnnotationSheet] = useState<{
     items: TranscriptAnnotation[];
     index: number;
@@ -4080,8 +4082,27 @@ function SessionReviewExperience({
     }
   }
 
+  async function downloadPdfReport() {
+    if (exportingReport) return;
+    setExportingReport(true);
+    try {
+      const report = await downloadSessionReportPdf(sessionId, session.title);
+      await Share.share({
+        title: report.filename,
+        message: `${session.title} PDF report`,
+        url: report.uri,
+      });
+      showToast("PDF report ready", "success");
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not export PDF report", "error");
+    } finally {
+      setExportingReport(false);
+    }
+  }
+
   function openSessionMoreMenu() {
     Alert.alert("Session options", undefined, [
+      { text: exportingReport ? "Preparing PDF…" : "PDF report", onPress: () => void downloadPdfReport() },
       { text: comments.length > 0 ? `Comments (${comments.length})` : "Comments", onPress: onOpenComments },
       { text: "Audio insights", onPress: onOpenAudioInsights },
       { text: "Cancel", style: "cancel" },

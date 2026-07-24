@@ -9,7 +9,12 @@ import {
 } from "lucide-react";
 
 import type { Rubric } from "@tour/shared";
-import { getAnalysisModel, rubricItemCount, rubricSessionTypeLabel } from "@tour/shared";
+import {
+  getAnalysisModel,
+  getTranscribeProvider,
+  rubricItemCount,
+  rubricSessionTypeLabel,
+} from "@tour/shared";
 
 import { invalidateRubricsCache } from "@/lib/client-rubrics-cache";
 import { RubricCreationFlow } from "./RubricCreationFlow";
@@ -304,7 +309,7 @@ export function RubricsDashboard({
                     <span className="text-xs text-muted-foreground font-mono">{selectedRubric.version}</span>
                   </div>
                   <p className="text-muted-foreground text-sm">
-                    {selectedRubric.propertyIds.length} properties · {rubricSessionTypeLabel(selectedRubric.sessionType)} · {selectedRubric.categories.length} categories · {selectedRubric.sessionCount} sessions scored · {getAnalysisModel(selectedRubric.analysisModel).label}
+                    {selectedRubric.propertyIds.length} properties · {rubricSessionTypeLabel(selectedRubric.sessionType)} · {selectedRubric.categories.length} categories · {selectedRubric.sessionCount} sessions scored · {getTranscribeProvider(selectedRubric.transcribeProvider).label} → {getAnalysisModel(selectedRubric.analysisModel).label}{selectedRubric.audioUnderstandingEnabled ? " → Gemini audio" : ""}
                   </p>
                 </div>
                 <div className="flex gap-2 shrink-0 flex-wrap justify-end">

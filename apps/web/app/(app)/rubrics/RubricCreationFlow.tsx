@@ -14,13 +14,16 @@ import {
   DEFAULT_RUBRIC_SESSION_TYPE,
   DEFAULT_SEGMENTATION_PROMPT,
   RUBRIC_SESSION_TYPE_PRESETS,
+  TRANSCRIBE_PROVIDERS,
   buildRubricAnalysisPrompt,
+  getTranscribeProvider,
   isRubricSessionTypePreset,
   normalizeRubricPromptOverride,
   type AnalysisModelId,
   type AiProvider,
   type RubricDefinition,
   type RubricSessionTypePresetId,
+  type TranscribeProviderId,
 } from "@tour/shared";
 
 import { invalidateRubricsCache } from "@/lib/client-rubrics-cache";
@@ -102,6 +105,13 @@ export function RubricCreationFlow({
   const [rubricName, setRubricName] = useState(initialRubric?.name ?? "");
   const [analysisModel, setAnalysisModel] = useState<AnalysisModelId>(
     initialRubric?.analysisModel ?? DEFAULT_ANALYSIS_MODEL
+  );
+  const [transcribeProvider, setTranscribeProvider] =
+    useState<TranscribeProviderId>(
+      initialRubric?.transcribeProvider ?? "whisper"
+    );
+  const [audioUnderstandingEnabled, setAudioUnderstandingEnabled] = useState(
+    initialRubric?.audioUnderstandingEnabled ?? false
   );
   const initialSessionType = initialRubric?.sessionType ?? DEFAULT_RUBRIC_SESSION_TYPE;
   const [sessionTypeMode, setSessionTypeMode] = useState<SessionTypeMode>(
@@ -248,6 +258,8 @@ export function RubricCreationFlow({
           name,
           definition,
           analysisModel,
+          transcribeProvider,
+          audioUnderstandingEnabled,
           sessionType: resolvedSessionType || DEFAULT_RUBRIC_SESSION_TYPE,
           segmentationPrompt: normalizeRubricPromptOverride(segmentationPrompt, DEFAULT_SEGMENTATION_PROMPT),
           analysisPrompt: normalizeRubricPromptOverride(analysisPrompt, defaultAnalysisPrompt),
@@ -523,6 +535,37 @@ export function RubricCreationFlow({
                       {ANALYSIS_MODELS.find((model) => model.id === analysisModel)?.description}
                     </p>
                   </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-foreground mb-1.5">Transcription provider</label>
+                    <select
+                      value={transcribeProvider}
+                      onChange={(event) => setTranscribeProvider(event.target.value as TranscribeProviderId)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {TRANSCRIBE_PROVIDERS.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      {getTranscribeProvider(transcribeProvider).description}
+                    </p>
+                  </div>
+                  <label className="flex items-start gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={audioUnderstandingEnabled}
+                      onChange={(event) => setAudioUnderstandingEnabled(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 accent-primary"
+                    />
+                    <span>
+                      <strong className="block text-sm text-foreground">Gemini audio enrichment</strong>
+                      <small className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                        After transcription and rubric scoring, let Gemini listen to the original recording for sentiment, ambience, participant names, and semantic interactivity. This is independent of the transcription and analysis model, so ElevenLabs → Claude → Gemini is supported.
+                      </small>
+                    </span>
+                  </label>
                   <div>
                     <label className="block text-sm font-semibold text-foreground mb-1.5">Assign to properties</label>
                     <div className="space-y-2">

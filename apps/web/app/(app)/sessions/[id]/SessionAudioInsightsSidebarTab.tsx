@@ -1,11 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { AudioInsights, AudioInsightsStatus, SessionParticipants } from "@tour/shared";
+import type {
+  AudioInsights,
+  AudioInsightsStatus,
+  SessionParticipants,
+  TranscriptConversationStats,
+} from "@tour/shared";
 import { AUDIO_INSIGHTS_STATUS_LABELS } from "@tour/shared";
-import { Activity, Loader2, RefreshCw } from "lucide-react";
+import { Activity, BarChart3, Loader2, RefreshCw } from "lucide-react";
 
-import { SessionAudioInsightsPanel } from "./SessionAudioInsightsPanel";
+import {
+  AudioAccordion,
+  AudioStatsGrid,
+  SessionAudioInsightsPanel,
+} from "./SessionAudioInsightsPanel";
 import styles from "./session-detail.module.css";
 
 type AudioInsightsResponse = {
@@ -25,6 +34,7 @@ export function SessionAudioInsightsSidebarTab({
   sessionId,
   initialStatus,
   initialInsights,
+  fallbackConversationStats = null,
   participants,
   duration,
   currentTime,
@@ -33,6 +43,7 @@ export function SessionAudioInsightsSidebarTab({
   sessionId: string;
   initialStatus: AudioInsightsStatus;
   initialInsights: AudioInsights | null;
+  fallbackConversationStats?: TranscriptConversationStats | null;
   participants: SessionParticipants;
   duration: number;
   currentTime: number;
@@ -40,6 +51,7 @@ export function SessionAudioInsightsSidebarTab({
 }) {
   const [status, setStatus] = useState(initialStatus);
   const [insights, setInsights] = useState(initialInsights);
+  const transcriptConversationStats = fallbackConversationStats;
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
 
@@ -75,6 +87,7 @@ export function SessionAudioInsightsSidebarTab({
       <SessionAudioInsightsPanel
         sessionId={sessionId}
         insights={insights}
+        fallbackConversationStats={transcriptConversationStats}
         participants={participants}
         duration={duration}
         currentTime={currentTime}
@@ -132,42 +145,61 @@ export function SessionAudioInsightsSidebarTab({
           <h2>Audio insights</h2>
         </div>
       </header>
-      <div className={styles.audioPanelEmpty}>
-        {POLLING_STATUSES.has(status) ? (
-          <>
-            <Loader2 size={28} className="animate-spin" aria-hidden />
-            <p>{AUDIO_INSIGHTS_STATUS_LABELS[status]}</p>
-            <p className={styles.audioPanelEmptyHint}>
-              Gemini is analyzing sentiment, speaker dynamics, and ambience from the recording. This runs separately from rubric scoring and may take a few minutes.
-            </p>
-            {rerunButton}
-          </>
-        ) : status === "unavailable" ? (
-          <>
-            <Activity size={28} aria-hidden />
-            <p>Audio insights are not configured.</p>
-            <p className={styles.audioPanelEmptyHint}>
-              Set GEMINI_API_KEY on the server to enable sentiment and ambience analysis for every session.
-            </p>
-            {rerunButton}
-          </>
-        ) : status === "failed" ? (
-          <>
-            <p>Audio insights could not be generated.</p>
-            <p className={styles.audioPanelEmptyHint}>
-              {error ?? "Re-process the session to try again."}
-            </p>
-            {rerunButton}
-          </>
-        ) : (
-          <>
-            <p>No audio insights yet.</p>
-            <p className={styles.audioPanelEmptyHint}>
-              Insights will appear here once processing starts.
-            </p>
-            {rerunButton}
-          </>
-        )}
+      <div className={styles.audioPanelScroll}>
+        <div className={styles.audioAccordionStack}>
+          {transcriptConversationStats ? (
+            <AudioAccordion
+              title="Conversation stats"
+              icon={<BarChart3 size={14} aria-hidden />}
+              defaultOpen
+              preview={transcriptConversationStats.talkRatioPercent == null
+                ? "Transcript estimate"
+                : `${Math.round(transcriptConversationStats.talkRatioPercent)}% talk ratio`}
+            >
+              <AudioStatsGrid
+                stats={transcriptConversationStats}
+                source="transcript"
+              />
+            </AudioAccordion>
+          ) : null}
+          <div className={styles.audioPanelEmpty}>
+            {POLLING_STATUSES.has(status) ? (
+              <>
+                <Loader2 size={28} className="animate-spin" aria-hidden />
+                <p>{AUDIO_INSIGHTS_STATUS_LABELS[status]}</p>
+                <p className={styles.audioPanelEmptyHint}>
+                  Gemini is analyzing sentiment, speaker dynamics, ambience, and semantic interactivity. The transcript measurements above are available independently.
+                </p>
+                {rerunButton}
+              </>
+            ) : status === "unavailable" ? (
+              <>
+                <Activity size={28} aria-hidden />
+                <p>Gemini enrichment is not configured.</p>
+                <p className={styles.audioPanelEmptyHint}>
+                  Transcript measurements remain available. Set GEMINI_API_KEY on the server to add sentiment and ambience analysis.
+                </p>
+                {rerunButton}
+              </>
+            ) : status === "failed" ? (
+              <>
+                <p>Gemini enrichment could not be generated.</p>
+                <p className={styles.audioPanelEmptyHint}>
+                  {error ?? "The transcript measurements remain available. Re-run audio insights to try Gemini again."}
+                </p>
+                {rerunButton}
+              </>
+            ) : (
+              <>
+                <p>{transcriptConversationStats ? "Gemini enrichment has not run yet." : "No audio insights yet."}</p>
+                <p className={styles.audioPanelEmptyHint}>
+                  Run audio insights to add sentiment, speaker dynamics, ambience, and semantic interactivity.
+                </p>
+                {rerunButton}
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

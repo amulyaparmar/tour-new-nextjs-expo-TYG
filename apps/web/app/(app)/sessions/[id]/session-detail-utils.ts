@@ -314,7 +314,7 @@ function findNearestTranscript(timestamp: number, transcript: TranscriptSegment[
 }
 
 export function initialsFor(name: string) {
-  const displayName = name.split("·")[0]?.trim() || name.trim();
+  const displayName = (name.split("·")[0]?.trim() || name.trim()).replace(/^~/, "");
   const parts = displayName.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();

@@ -3,6 +3,7 @@ import "server-only";
 import {
   normalizeAudioInsights,
   normalizeParticipantName,
+  normalizeParticipantNameConfidence,
   type AudioInsights,
   type GeminiAudioFileRef,
 } from "@tour/shared";
@@ -24,6 +25,10 @@ const AUDIO_INSIGHTS_SCHEMA = {
   type: "object",
   properties: {
     summary: { type: "string" },
+    topicSummary: {
+      type: "string",
+      description: "Concise 1-4 word subject; for tours prefer unit type(s), for calls state the purpose",
+    },
     overallSentiment: {
       type: "string",
       enum: ["positive", "neutral", "negative", "mixed"],
@@ -103,8 +108,31 @@ const AUDIO_INSIGHTS_SCHEMA = {
           type: "string",
           description: "Prospect/customer/visitor name heard in the audio; empty string if unknown",
         },
+        agentNameConfidence: {
+          type: "number",
+          description: "0-100 confidence the agent name is correct; 0 when unknown",
+        },
+        prospectNameConfidence: {
+          type: "number",
+          description: "0-100 confidence the prospect name is correct; 0 when unknown",
+        },
+        agentNameFirstMentionTimestamp: {
+          type: "string",
+          description: "MM:SS of the earliest audible mention of the agent's name; empty string if unavailable",
+        },
+        prospectNameFirstMentionTimestamp: {
+          type: "string",
+          description: "MM:SS of the earliest audible mention of the prospect's name; empty string if unavailable",
+        },
       },
-      required: ["agentName", "prospectName"],
+      required: [
+        "agentName",
+        "prospectName",
+        "agentNameConfidence",
+        "prospectNameConfidence",
+        "agentNameFirstMentionTimestamp",
+        "prospectNameFirstMentionTimestamp",
+      ],
     },
     conversationStats: {
       type: "object",
@@ -158,11 +186,19 @@ const AUDIO_INSIGHTS_SCHEMA = {
       ],
     },
   },
-  required: ["summary", "overallSentiment", "segments", "participants", "conversationStats"],
+  required: [
+    "summary",
+    "topicSummary",
+    "overallSentiment",
+    "segments",
+    "participants",
+    "conversationStats",
+  ],
 } as const;
 
 type GeminiAudioInsightsPayload = {
   summary: string;
+  topicSummary: string;
   overallSentiment: AudioInsights["overallSentiment"];
   speakerDynamics?: AudioInsights["speakerDynamics"];
   segments: Array<{
@@ -189,6 +225,10 @@ type GeminiAudioInsightsPayload = {
   participants: {
     agentName: string;
     prospectName: string;
+    agentNameConfidence: number;
+    prospectNameConfidence: number;
+    agentNameFirstMentionTimestamp: string;
+    prospectNameFirstMentionTimestamp: string;
   };
   conversationStats: {
     talkRatioPercent: number;
@@ -203,7 +243,17 @@ type GeminiAudioInsightsPayload = {
   };
 };
 
-function buildAudioInsightsPrompt(transcript?: TranscriptSegment[]): string {
+export type AudioInsightsRubricContext = {
+  name: string;
+  sessionType: string;
+  criteria: string[];
+  analysisInstructions?: string | null;
+};
+
+function buildAudioInsightsPrompt(
+  transcript?: TranscriptSegment[],
+  rubricContext?: AudioInsightsRubricContext,
+): string {
   const lines = [
     "Analyze this leasing tour or phone shop recording for coaching insights.",
     "Use the audio directly — tone, pacing, pauses, enthusiasm, and non-speech ambience matter.",
@@ -215,11 +265,20 @@ function buildAudioInsightsPrompt(transcript?: TranscriptSegment[]): string {
     "4. Note non-speech ambience cues (background noise, doors, music, HVAC, etc.).",
     "5. Flag 3-6 coaching highlights (rapport wins, hesitation, objections, missed closes).",
     "6. Summarize overall sentiment for the interaction.",
-    "7. Extract participant names from audio understanding:",
+    "7. Return topicSummary as a concise 1-4 word subject:",
+    "   - For a tour, prefer the unit type or types discussed (for example, \"Studio and 1-Bedroom\").",
+    "   - For a call, state the purpose (for example, \"Availability Inquiry\" or \"Application Follow-Up\").",
+    "   - Avoid generic labels like \"Tour\" or \"Call\" when the audio supports something more specific.",
+    "   - Use an empty string when no specific topic is supported by the recording.",
+    "8. Extract participant names from audio understanding:",
     "   - agentName: leasing agent or staff member conducting the tour/call; use empty string if unknown",
     "   - prospectName: prospect, customer, visitor, or shopper; use empty string if unknown",
+    "   - agentNameConfidence and prospectNameConfidence: whole-number confidence from 0-100; use 0 when the corresponding name is unknown",
+    "   - Use 90-100 only for an explicit introduction or repeated unambiguous address; 60-89 for strong contextual evidence; below 60 for a tentative phonetic/contextual reading.",
+    "   - Return names without confidence symbols or prefixes; the application adds its own low-confidence marker.",
+    "   - agentNameFirstMentionTimestamp and prospectNameFirstMentionTimestamp: earliest point where the corresponding returned name is audibly spoken by anyone, in MM:SS; use empty string if the name is unknown or is never audibly spoken.",
     "   - Prefer spoken introductions and how speakers address each other. Do not infer names from tool/schema text.",
-    "8. Compute conversationStats from the audio:",
+    "9. Compute conversationStats from the audio:",
     "   - talkRatioPercent: rep/agent talk time ÷ total talk time × 100",
     "   - repTalkTimeSeconds: total rep/agent speaking time",
     "   - longestProspectTalkSeconds: longest uninterrupted prospect/customer monologue",
@@ -232,6 +291,23 @@ function buildAudioInsightsPrompt(transcript?: TranscriptSegment[]): string {
     "Return complete structured JSON matching the provided schema. Use empty strings or empty arrays when unknown/not present.",
     "Use MM:SS timestamps. interactivityTotal must be 5.",
   ];
+
+  if (rubricContext) {
+    lines.push(
+      "",
+      "Rubric context for this recording:",
+      `- Rubric: ${rubricContext.name}`,
+      `- Session type: ${rubricContext.sessionType}`,
+      "- Use the criteria below to prioritize coaching highlights and the summary. Do not invent evidence and do not change the quantitative metric definitions above.",
+      ...rubricContext.criteria.slice(0, 80).map((criterion) => `  - ${criterion}`),
+    );
+    if (rubricContext.analysisInstructions?.trim()) {
+      lines.push(
+        "- Additional rubric analysis instructions:",
+        rubricContext.analysisInstructions.trim().slice(0, 4_000),
+      );
+    }
+  }
 
   if (transcript?.length) {
     lines.push(
@@ -252,11 +328,24 @@ function formatMmSs(seconds: number): string {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+function parseOptionalMentionTimestamp(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const match = value.trim().match(/^(\d+):([0-5]\d)$/);
+  if (!match) return null;
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  const totalSeconds = minutes * 60 + seconds;
+  return Number.isSafeInteger(minutes) && Number.isSafeInteger(totalSeconds)
+    ? totalSeconds
+    : null;
+}
+
 export async function generateAudioInsights(params: {
   audioBuffer: Buffer;
   mimeType: string;
   fileName?: string;
   transcript?: TranscriptSegment[];
+  rubricContext?: AudioInsightsRubricContext;
 }): Promise<AudioInsights> {
   const { model } = getGeminiConfig();
   const uploadedFile = await uploadGeminiAudioFile(
@@ -266,7 +355,7 @@ export async function generateAudioInsights(params: {
   );
 
   const payload = await geminiGenerateJson<GeminiAudioInsightsPayload>({
-    prompt: buildAudioInsightsPrompt(params.transcript),
+    prompt: buildAudioInsightsPrompt(params.transcript, params.rubricContext),
     schema: AUDIO_INSIGHTS_SCHEMA,
     audioBuffer: params.audioBuffer,
     mimeType: params.mimeType,
@@ -279,6 +368,7 @@ export async function generateAudioInsights(params: {
     provider: "gemini",
     model,
     summary: payload.summary,
+    topicSummary: payload.topicSummary,
     overallSentiment: payload.overallSentiment,
     audioFile: buildGeminiAudioFileRef(uploadedFile),
     speakerDynamics: (payload.speakerDynamics ?? []).map((item) => ({
@@ -321,6 +411,16 @@ export async function generateAudioInsights(params: {
     participants: {
       agentName: normalizeParticipantName(payload.participants?.agentName),
       prospectName: normalizeParticipantName(payload.participants?.prospectName),
+      agentNameConfidence:
+        normalizeParticipantNameConfidence(payload.participants?.agentNameConfidence) ?? 0,
+      prospectNameConfidence:
+        normalizeParticipantNameConfidence(payload.participants?.prospectNameConfidence) ?? 0,
+      agentNameFirstMentionSeconds: parseOptionalMentionTimestamp(
+        payload.participants?.agentNameFirstMentionTimestamp
+      ),
+      prospectNameFirstMentionSeconds: parseOptionalMentionTimestamp(
+        payload.participants?.prospectNameFirstMentionTimestamp
+      ),
     },
     conversationStats: {
       talkRatioPercent: payload.conversationStats.talkRatioPercent,

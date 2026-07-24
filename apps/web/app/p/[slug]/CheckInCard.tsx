@@ -36,6 +36,8 @@ type CheckInCardProps = {
   offlineQrUrl: string;
   /** Open check-in form immediately (e.g. QR `?check-in=true`). */
   initialSheet?: "none" | "contact";
+  /** Explicit session binding carried by a session check-in QR. */
+  sessionId?: string | null;
 };
 
 type Sheet = "none" | "qr" | "contact" | "questions" | "done";
@@ -128,6 +130,7 @@ export function CheckInCard({
   vCardUrl,
   offlineQrUrl,
   initialSheet = "none",
+  sessionId = null,
 }: CheckInCardProps) {
   const { rep, property, questions } = card;
   const [sheet, setSheet] = useState<Sheet>(initialSheet === "contact" ? "contact" : "none");
@@ -312,6 +315,7 @@ export function CheckInCard({
           <ContactSheet
             card={card}
             initialAnswers={sharedCheckInAnswers}
+            sessionId={sessionId}
             onClose={() => setSheet("none")}
             onDone={(answers) => {
               const sharedQuestionIds = new Set(
@@ -381,11 +385,13 @@ function QrSheet({ name, qrSvg, onClose }: { name: string; qrSvg: string; onClos
 function ContactSheet({
   card,
   initialAnswers,
+  sessionId,
   onClose,
   onDone
 }: {
   card: RepCard;
   initialAnswers: Record<string, string>;
+  sessionId: string | null;
   onClose: () => void;
   onDone: (answers: Record<string, string>) => void;
 }) {
@@ -431,6 +437,7 @@ function ContactSheet({
           repName: rep.name,
           propertyName: property.name,
           propertyId: property.id ?? null,
+          sessionId,
         })
       });
       if (!res.ok) {

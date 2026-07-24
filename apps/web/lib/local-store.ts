@@ -86,6 +86,7 @@ export async function listLocalSessions(): Promise<SessionSummary[]> {
 }
 
 export async function createLocalSession(input: {
+  id?: string;
   title: string;
   status?: SessionStatus;
   scheduledAt?: string | null;
@@ -102,7 +103,7 @@ export async function createLocalSession(input: {
 }): Promise<SessionSummary> {
   const store = await loadStore();
   const session: SessionDetail = {
-    id: randomUUID(),
+    id: input.id ?? randomUUID(),
     title: input.title,
     prospectName: normalizeParticipantName(input.prospectName),
     agentName: normalizeParticipantName(input.agentName),
@@ -276,35 +277,6 @@ export async function setLocalSessionStatus(
     session.overallScore = overallScore;
   }
   await saveStore(store);
-}
-
-export async function findOpenLocalQrSession(
-  cutoffIso: string,
-  propertyId?: string | null,
-  agentId?: string | string[] | null
-): Promise<SessionSummary | null> {
-  const store = await loadStore();
-  const agentIds = Array.isArray(agentId)
-    ? agentId.map((value) => value.trim()).filter(Boolean)
-    : agentId?.trim()
-      ? [agentId.trim()]
-      : [];
-  return (
-    store.sessions
-      .filter((session) => {
-        if (
-          session.source !== "qr" ||
-          session.status !== "in_progress" ||
-          (session.propertyId ?? null) !== (propertyId ?? null) ||
-          session.createdAt < cutoffIso
-        ) {
-          return false;
-        }
-        if (agentIds.length === 0) return (session.agentId ?? null) === null;
-        return session.agentId != null && agentIds.includes(session.agentId);
-      })
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
-  );
 }
 
 export async function addLocalSessionLead(sessionId: string, lead: SessionLead) {

@@ -277,7 +277,7 @@ export async function createRubric(input: CreateRubricInput): Promise<Rubric> {
   const definition = normalizeRubricDefinition(input.definition);
   const analysisModel = normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId());
   const transcribeProvider = normalizeTranscribeProviderId(input.transcribeProvider);
-  const audioUnderstandingEnabled = transcribeProvider === "gemini" && Boolean(input.audioUnderstandingEnabled);
+  const audioUnderstandingEnabled = Boolean(input.audioUnderstandingEnabled);
   const now = new Date().toISOString();
   const payload = {
     name: input.name.trim(),
@@ -358,7 +358,7 @@ export async function updateRubric(rubricId: string, input: Partial<CreateRubric
       ? existing.analysisModel
       : normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId()),
     transcribe_provider: nextTranscribeProvider,
-    audio_understanding_enabled: nextTranscribeProvider === "gemini" && nextAudioUnderstanding,
+    audio_understanding_enabled: nextAudioUnderstanding,
     session_type: input.sessionType === undefined
       ? existing.sessionType
       : normalizeSessionType(input.sessionType),

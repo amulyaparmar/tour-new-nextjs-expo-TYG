@@ -4347,6 +4347,357 @@ button { border: 0; font: inherit; cursor: pointer; }
   }
 }
 
+/* ── Unified recording upload ───────────────────────── */
+.recording-upload-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.recording-upload-page-header .btn,
+.recording-upload-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.recording-upload-shared-card {
+  margin-bottom: 12px;
+}
+
+.recording-upload-shared-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, .85fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.recording-upload-shared-controls .bulk-upload-agent-check {
+  margin: 0;
+}
+
+.recording-upload-shared-rubric {
+  display: grid;
+  gap: 4px;
+}
+
+.recording-upload-shared-rubric > small {
+  color: var(--slate-500);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.recording-upload-list {
+  display: grid;
+  gap: 10px;
+}
+
+.recording-upload-item {
+  display: grid;
+  gap: 8px;
+}
+
+.recording-upload-item-actions {
+  min-width: 0;
+  margin: -2px 4px 2px;
+}
+
+.recording-upload-card {
+  position: relative;
+  border: 1px solid var(--slate-200);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
+}
+
+.recording-upload-card-header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 14px 14px 8px;
+}
+
+.recording-upload-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--indigo-600);
+  background: var(--indigo-50);
+}
+
+.recording-upload-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.recording-upload-title-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.recording-upload-title-row > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--slate-900);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.recording-upload-inferred {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--indigo-50);
+  color: var(--indigo-600);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.recording-upload-file {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--slate-500);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.recording-upload-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.recording-upload-menu > summary {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--slate-500);
+  cursor: pointer;
+  list-style: none;
+}
+
+.recording-upload-menu > summary::-webkit-details-marker,
+.recording-upload-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.recording-upload-menu > summary:hover,
+.recording-upload-menu[open] > summary {
+  background: var(--slate-100);
+  color: var(--slate-800);
+}
+
+.recording-upload-menu-popover {
+  position: absolute;
+  z-index: 20;
+  top: 36px;
+  right: 0;
+  width: 190px;
+  padding: 5px;
+  border: 1px solid var(--slate-200);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, .14);
+}
+
+.recording-upload-menu-popover button,
+.recording-upload-menu-popover a {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  border-radius: 7px;
+  color: var(--slate-700);
+  font-size: 12px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.recording-upload-menu-popover button:hover,
+.recording-upload-menu-popover a:hover {
+  background: var(--slate-50);
+}
+
+.recording-upload-menu-popover .danger {
+  color: var(--red-700);
+}
+
+.recording-upload-media-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 14px 10px 59px;
+}
+
+.recording-upload-media-row.is-audio {
+  height: 52px;
+  min-height: 52px;
+  max-height: 52px;
+  overflow: hidden;
+}
+
+.recording-upload-player {
+  width: 100%;
+  min-width: 0;
+  max-height: 190px;
+  border-radius: 9px;
+}
+
+audio.recording-upload-player {
+  display: block;
+  flex: 1 1 auto;
+  width: auto;
+  height: 38px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.recording-upload-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex: 0 0 auto;
+  color: var(--slate-500);
+}
+
+.recording-upload-download:hover {
+  color: var(--indigo-600);
+  background: var(--indigo-50);
+}
+
+.recording-upload-card > .bulk-upload-progress,
+.recording-upload-card > .bulk-upload-error {
+  margin: 0 14px 10px 59px;
+}
+
+.recording-upload-accordion {
+  border-top: 1px solid var(--slate-100);
+}
+
+.recording-upload-accordion > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  color: var(--slate-600);
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.recording-upload-accordion > summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.recording-upload-summary-meta {
+  color: var(--slate-400);
+  font-size: 11px;
+}
+
+.recording-upload-accordion[open] .recording-upload-summary-meta svg {
+  transform: rotate(180deg);
+}
+
+.recording-upload-details {
+  padding: 2px 14px 14px;
+}
+
+.recording-upload-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--slate-50);
+}
+
+.recording-upload-field-wide {
+  grid-column: 1 / -1;
+}
+
+.recording-upload-fields .form-label span {
+  color: var(--slate-400);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.recording-upload-fields .form-group > small {
+  color: var(--slate-500);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.recording-upload-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.recording-upload-text-button {
+  color: var(--indigo-600);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.recording-upload-rubric {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.recording-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+@media (max-width: 720px) {
+  .recording-upload-page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .recording-upload-shared-controls,
+  .recording-upload-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .recording-upload-field-wide {
+    grid-column: auto;
+  }
+
+  .recording-upload-media-row {
+    padding-left: 14px;
+  }
+}
+
 .create-action-icon {
   width: 46px;
   height: 46px;

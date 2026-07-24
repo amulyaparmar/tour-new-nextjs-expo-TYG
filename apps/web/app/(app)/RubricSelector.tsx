@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Building2, Check, ChevronDown, ClipboardList, ListChecks, Loader2, Star, X } from "lucide-react";
 
 import type { Rubric } from "@tour/shared";
@@ -30,6 +30,11 @@ export function RubricSelector({
   const [previewId, setPreviewId] = useState(value ?? "");
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const onChangeRef = useRef(onChange);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,7 +53,7 @@ export function RubricSelector({
           const defaultRubric = list.find((r) => r.isDefault) ?? list[0]!;
           setSelected(defaultRubric.id);
           setPreviewId(defaultRubric.id);
-          onChange?.(defaultRubric.id);
+          onChangeRef.current?.(defaultRubric.id);
         }
       } catch (err) {
         if (!cancelled) {
@@ -61,7 +66,7 @@ export function RubricSelector({
 
     void load();
     return () => { cancelled = true; };
-  }, [value, onChange]);
+  }, [value]);
 
   useEffect(() => {
     if (!open) return;

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { AnalysisModelId, AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, SessionParticipants } from "@tour/shared";
+import type { AnalysisModelId, AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, SessionParticipants, TranscriptConversationStats } from "@tour/shared";
 import { Activity, CheckCircle2, ExternalLink, MessageSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
@@ -26,6 +26,7 @@ export function SessionDetailSidebar({
   phases,
   initialAudioInsightsStatus,
   initialAudioInsights,
+  fallbackConversationStats,
   participants,
   duration,
   tab,
@@ -49,6 +50,7 @@ export function SessionDetailSidebar({
   phases: ConversationPhaseSegmentation | null;
   initialAudioInsightsStatus: AudioInsightsStatus;
   initialAudioInsights: AudioInsights | null;
+  fallbackConversationStats: TranscriptConversationStats | null;
   participants: SessionParticipants;
   duration: number;
   tab: SidebarTab;
@@ -154,6 +156,7 @@ export function SessionDetailSidebar({
             sessionId={sessionId}
             initialStatus={initialAudioInsightsStatus}
             initialInsights={initialAudioInsights}
+            fallbackConversationStats={fallbackConversationStats}
             participants={participants}
             duration={duration}
             currentTime={currentTime}

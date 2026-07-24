@@ -95,6 +95,7 @@ export function CheckInSheet({
   propertyId,
   agentName,
   repSlug,
+  sessionId,
   checkInUrl: checkInUrlProp,
   onCheckedIn,
 }: {
@@ -104,6 +105,8 @@ export function CheckInSheet({
   propertyId?: string | null;
   agentName?: string | null;
   repSlug?: string | null;
+  /** Exact remote session that both QR and native check-in add to. */
+  sessionId: string;
   /** Personalized public check-in URL from property/member aliases. */
   checkInUrl?: string | null;
   /** After check-in, open the session and start recording. */
@@ -120,8 +123,8 @@ export function CheckInSheet({
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "property";
-    return `https://tour.you/p/${encodeURIComponent(propertySlug)}/${encodeURIComponent(resolvedRepSlug)}?check-in=true`;
-  }, [checkInUrlProp, property, resolvedRepSlug]);
+    return `https://tour.you/p/${encodeURIComponent(propertySlug)}/${encodeURIComponent(resolvedRepSlug)}?check-in=true&sessionId=${encodeURIComponent(sessionId)}`;
+  }, [checkInUrlProp, property, resolvedRepSlug, sessionId]);
   const checkInQrUrl = useMemo(
     () =>
       `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=12&format=png&data=${encodeURIComponent(checkInUrl)}`,
@@ -178,6 +181,7 @@ export function CheckInSheet({
         repName: agentName?.trim() || null,
         propertyName: property,
         propertyId: propertyId ?? null,
+        sessionId,
       });
       setResultSessionId(result.sessionId ?? null);
       setStep("done");

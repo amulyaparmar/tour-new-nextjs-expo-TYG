@@ -25,7 +25,9 @@ export type SessionCardFields = {
 
 /** Display casing for a single name token: `amulya` → `Amulya`, `MARY-JANE` → `Mary-Jane`. */
 function formatNamePart(value: string): string {
-  return value
+  const uncertaintyMarker = value.startsWith("~") ? "~" : "";
+  const name = value.replace(/^~+/, "");
+  const formatted = name
     .split(/([-'])/)
     .map((part) => {
       if (part === "-" || part === "'") return part;
@@ -33,6 +35,7 @@ function formatNamePart(value: string): string {
       return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
     })
     .join("");
+  return `${uncertaintyMarker}${formatted}`;
 }
 
 /** Title-case a person name for UI: `joseph smith` → `Joseph Smith`. */
@@ -64,6 +67,90 @@ function isParticipantOnlyTourTitle(
   return participantTitles.includes(normalized);
 }
 
+const RECORDING_UPLOAD_TITLE_RE =
+  /^(?:Tour|Call) [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M(?:(?: · .+)|(?: \([^)]*\)))?$/;
+
+/** Short title label derived from the rubric's session type. */
+export function sessionTypeTitleLabel(sessionType?: string | null): "Tour" | "Call" {
+  const normalized = sessionType?.trim().toLowerCase().replace(/[\s-]+/g, "_") ?? "";
+  return normalized.includes("call") || normalized.includes("phone") || normalized.includes("shop")
+    ? "Call"
+    : "Tour";
+}
+
+/** Default title for an uploaded recording: `Tour Jul 22, 4:18 PM`. */
+export function formatRecordingUploadTitle(date: Date, sessionType?: string | null): string {
+  const day = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const time = date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).replace(/\u202f/g, " ");
+  return `${sessionTypeTitleLabel(sessionType)} ${day}, ${time}`;
+}
+
+export function isRecordingUploadTitle(title: string | null | undefined): boolean {
+  return RECORDING_UPLOAD_TITLE_RE.test(title?.trim() ?? "");
+}
+
+/** Normalize a model-authored session topic to a title-safe one-to-four-word label. */
+export function normalizeSessionTopicSummary(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value
+    .replace(/×/g, "x")
+    .replace(/[·|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[,.:;!?()[\]{}"'`]+|[,.:;!?()[\]{}"'`]+$/g, "");
+  if (
+    !cleaned
+    || /^(unknown|n\/a|na|null|none|not provided|tour|call|phone call|leasing tour|apartment tour|conversation|session)$/i.test(cleaned)
+  ) {
+    return null;
+  }
+  return cleaned.split(/\s+/).slice(0, 4).join(" ").slice(0, 60).trim() || null;
+}
+
+/**
+ * Adds known participants and an optional topic to an inferred upload title.
+ * Existing topics survive participant-only updates.
+ * Custom titles are returned unchanged.
+ */
+export function withRecordingParticipants(
+  title: string,
+  agentName?: string | null,
+  prospectName?: string | null,
+  sessionType?: string | null,
+  topicSummary?: string | null,
+): string {
+  const trimmed = title.trim();
+  if (!isRecordingUploadTitle(trimmed)) return trimmed;
+
+  const withoutLegacyParticipants = trimmed.replace(/ \([^)]*\)$/, "");
+  const [withoutParticipants = "", ...existingSuffixes] = withoutLegacyParticipants.split(" · ");
+  const existingTopic = existingSuffixes.length > 1
+    ? normalizeSessionTopicSummary(existingSuffixes.at(-1))
+    : existingSuffixes[0]?.includes(" × ")
+      ? null
+      : normalizeSessionTopicSummary(existingSuffixes[0]);
+  const topic = topicSummary === undefined
+    ? existingTopic
+    : normalizeSessionTopicSummary(topicSummary);
+  const titleType = sessionType
+    ? sessionTypeTitleLabel(sessionType)
+    : withoutParticipants.startsWith("Call ")
+      ? "Call"
+      : "Tour";
+  const base = withoutParticipants.replace(/^(?:Tour|Call)\s+/, `${titleType} `);
+  const agent = firstName(agentName);
+  const prospect = firstName(prospectName);
+  const participants = agent || prospect
+    ? `${agent ?? "Agent"} × ${prospect ?? "Prospect"}`
+    : null;
+
+  return [base, participants, topic].filter(Boolean).join(" · ");
+}
+
 function leadName(fields: SessionCardFields): string | null {
   return (
     fields.prospectName?.trim() ||
@@ -85,7 +172,7 @@ export function isGenericSessionTitle(title: string | null | undefined): boolean
 }
 
 /**
- * Default future session name: `Amulya x Laura Tour` (prospect x agent).
+ * Default future session name: `Laura x Amulya Tour` (agent x prospect).
  * Used when callers don't provide a custom title.
  */
 export function buildSessionTourTitle(input: {
@@ -99,7 +186,7 @@ export function buildSessionTourTitle(input: {
   const prospect = firstName(input.prospectName);
   const peopleTitle =
     agent && prospect
-      ? `${prospect} x ${agent} Tour`
+      ? `${agent} x ${prospect} Tour`
       : prospect
         ? `${prospect} Tour`
         : agent

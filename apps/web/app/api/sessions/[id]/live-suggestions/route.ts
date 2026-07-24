@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 import { NextResponse } from "next/server";
 
+import { participantNameWithoutConfidenceMarker } from "@tour/shared";
 import { getBedrockLanguageModelForAnalysis } from "@/lib/bedrock-language-model";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 import { getSessionById } from "@/lib/sessions";
@@ -94,7 +95,7 @@ Each suggestion must be under 36 characters, practical, and Fair Housing safe.
 No numbering, no quotes, one suggestion per line.
 
 Community: ${communityName || session.location || "Unknown"}
-Prospect: ${session.prospectName || "Unknown"}
+Prospect: ${participantNameWithoutConfidenceMarker(session.prospectName) || "Unknown"}
 Property context: ${propertyContext || "None"}
 Live transcript:
 ${liveTranscript || "None yet"}`,

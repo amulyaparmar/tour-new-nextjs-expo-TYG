@@ -1,4 +1,8 @@
-import type { AudioInsights } from "@tour/shared";
+import type {
+  AudioConversationStats,
+  AudioInsights,
+  TranscriptConversationStats,
+} from "@tour/shared";
 import { formatSpeakerAnnotation } from "@tour/shared";
 import { Activity, BarChart3, Mic2, Sparkles } from "lucide-react-native";
 import React, { useState } from "react";
@@ -31,12 +35,21 @@ function fmtSec(seconds: number) {
 
 export function SessionAudioInsightsPanel({
   insights,
+  fallbackConversationStats = null,
+  fallbackConversationStatsSource = null,
   onSeek,
 }: {
   insights: AudioInsights;
+  fallbackConversationStats?: TranscriptConversationStats | null;
+  fallbackConversationStatsSource?: "transcript" | null;
   onSeek: (seconds: number) => void;
 }) {
   const participants = insights.participants;
+  const conversationStats =
+    insights.conversationStats ?? fallbackConversationStats;
+  const conversationStatsSource = insights.conversationStats
+    ? "gemini"
+    : fallbackConversationStatsSource;
   const labelFor = (speaker: string) =>
     participants ? formatSpeakerAnnotation(speaker, participants) : speaker;
 
@@ -66,18 +79,11 @@ export function SessionAudioInsightsPanel({
         <MetaPill icon={Mic2} label={`${insights.segments.length} segments`} />
       </View>
 
-      {insights.conversationStats ? (
-        <Section title="Conversation stats" icon={BarChart3}>
-          <View style={styles.statsGrid}>
-            <Stat label="Talk ratio" value={`${Math.round(insights.conversationStats.talkRatioPercent)}%`} />
-            <Stat label="Patience" value={`${insights.conversationStats.patienceSeconds.toFixed(1)}s`} />
-            <Stat
-              label="Interactivity"
-              value={`${insights.conversationStats.interactivityScore}/${insights.conversationStats.interactivityTotal}`}
-            />
-            <Stat label="Talk speed" value={`${Math.round(insights.conversationStats.talkSpeedWordsPerMinute)} wpm`} />
-          </View>
-        </Section>
+      {conversationStats ? (
+        <ConversationStatsSection
+          stats={conversationStats}
+          source={conversationStatsSource}
+        />
       ) : null}
 
       {insights.speakerDynamics.length > 0 ? (
@@ -124,6 +130,82 @@ export function SessionAudioInsightsPanel({
       ) : null}
     </ScrollView>
   );
+}
+
+export function ConversationStatsSection({
+  stats,
+  source,
+}: {
+  stats: AudioConversationStats | TranscriptConversationStats;
+  source: "gemini" | "transcript" | null;
+}) {
+  const items = [
+    {
+      label: "Talk ratio",
+      value: stats.talkRatioPercent == null
+        ? null
+        : `${Math.round(stats.talkRatioPercent)}%`,
+    },
+    {
+      label: "Rep talk time",
+      value: stats.repTalkTimeSeconds == null
+        ? null
+        : fmtSec(stats.repTalkTimeSeconds),
+    },
+    {
+      label: "Longest prospect",
+      value: stats.longestProspectTalkSeconds == null
+        ? null
+        : fmtSec(stats.longestProspectTalkSeconds),
+    },
+    {
+      label: "Longest talk",
+      value: stats.longestTalkSeconds == null
+        ? null
+        : fmtSec(stats.longestTalkSeconds),
+    },
+    {
+      label: "Patience",
+      value: stats.patienceSeconds == null
+        ? null
+        : `${stats.patienceSeconds.toFixed(1)}s`,
+    },
+    {
+      label: "Talk speed",
+      value: stats.talkSpeedWordsPerMinute == null
+        ? null
+        : `${Math.round(stats.talkSpeedWordsPerMinute)} wpm`,
+    },
+    {
+      label: "Interactivity",
+      value: isGeminiConversationStats(stats)
+        ? `${stats.interactivityScore}/${stats.interactivityTotal}`
+        : null,
+    },
+  ].filter((item): item is { label: string; value: string } =>
+    item.value !== null
+  );
+
+  return (
+    <Section title="Conversation stats" icon={BarChart3}>
+      <View style={styles.statsGrid}>
+        {items.map((item) => (
+          <Stat key={item.label} label={item.label} value={item.value} />
+        ))}
+      </View>
+      <Text style={styles.statsSource}>
+        {source === "transcript"
+          ? "Transcript estimate · Gemini may replace these measurements after listening to the recording."
+          : "Measured by Gemini from the recording."}
+      </Text>
+    </Section>
+  );
+}
+
+function isGeminiConversationStats(
+  stats: AudioConversationStats | TranscriptConversationStats,
+): stats is AudioConversationStats {
+  return "interactivityScore" in stats;
 }
 
 function Section({
@@ -265,6 +347,12 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#101828",
     fontVariant: ["tabular-nums"],
+  },
+  statsSource: {
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "600",
+    color: "#667085",
   },
   speakerList: {
     gap: 10,

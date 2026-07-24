@@ -2,7 +2,13 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ExternalLink, Globe2, Mail, MessageCircle, Phone, Play, UserRound } from "lucide-react";
 
-import type { AnalysisResult, FollowUpAction, SessionDetail, SessionLead } from "@tour/shared";
+import {
+  participantNameWithoutConfidenceMarker,
+  type AnalysisResult,
+  type FollowUpAction,
+  type SessionDetail,
+  type SessionLead,
+} from "@tour/shared";
 import { listVisibleMaterials, type Material } from "@/lib/materials";
 import { getRepCard, type RepCard } from "@/lib/reps";
 import { getAnalysisBySessionId, getSessionById, listFollowUpActions } from "@/lib/sessions";
@@ -33,7 +39,8 @@ export async function generateMetadata({ params }: FollowUpPageProps): Promise<M
   const repCard = getSessionRepCard(session);
   const propertyName = repCard?.property.name ?? session.location ?? "your tour";
   const title = `${propertyName} follow-up`;
-  const description = `Your tour recap, helpful links, and next steps${session.prospectName ? ` for ${session.prospectName}` : ""}.`;
+  const prospectName = participantNameWithoutConfidenceMarker(session.prospectName);
+  const description = `Your tour recap, helpful links, and next steps${prospectName ? ` for ${prospectName}` : ""}.`;
 
   return {
     title,
@@ -355,7 +362,7 @@ function buildSteps(actions: FollowUpAction[]) {
 }
 
 function firstToken(value?: string | null) {
-  return value?.trim().split(/\s+/)[0] ?? null;
+  return participantNameWithoutConfidenceMarker(value)?.split(/\s+/)[0] ?? null;
 }
 
 function formatDate(value: string | null) {

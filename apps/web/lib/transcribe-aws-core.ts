@@ -186,8 +186,8 @@ export function parseTranscript(sessionId: string, output: TranscribeOutput): Tr
   return turns.map((turn, i) => ({
     id: `${sessionId}-t${i}`,
     speaker: labels.get(turn.speaker) ?? turn.speaker,
-    startTime: Math.round(turn.start),
-    endTime: Math.round(turn.end),
+    startTime: Math.round(turn.start * 1000) / 1000,
+    endTime: Math.round(turn.end * 1000) / 1000,
     text: joinWords(turn.words)
   }));
 }

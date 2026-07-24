@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import type { AudioInsights, SessionParticipants } from "@tour/shared";
+import type {
+  AudioConversationStats,
+  AudioInsights,
+  SessionParticipants,
+  TranscriptConversationStats,
+} from "@tour/shared";
 import { formatSpeakerAnnotation } from "@tour/shared";
 import { Activity, BarChart3, ChevronDown, MessageCircle, Mic2, Sparkles, Volume2 } from "lucide-react";
 
@@ -27,6 +32,7 @@ const EMOTION_COLORS: Record<string, string> = {
 export function SessionAudioInsightsPanel({
   sessionId,
   insights,
+  fallbackConversationStats = null,
   participants,
   duration,
   currentTime,
@@ -34,11 +40,19 @@ export function SessionAudioInsightsPanel({
 }: {
   sessionId: string;
   insights: AudioInsights;
+  fallbackConversationStats?: TranscriptConversationStats | null;
   participants: SessionParticipants;
   duration: number;
   currentTime: number;
   onSeek: (seconds: number) => void;
 }) {
+  const conversationStats =
+    insights.conversationStats ?? fallbackConversationStats;
+  const conversationStatsSource = insights.conversationStats
+    ? "gemini"
+    : conversationStats
+      ? "transcript"
+      : null;
   const labelFor = (speaker: string) => formatSpeakerAnnotation(speaker, participants);
   const activeSegmentIndex = insights.segments.findIndex(
     (segment) => currentTime >= segment.startTime && currentTime <= segment.endTime
@@ -61,20 +75,25 @@ export function SessionAudioInsightsPanel({
 
       <div className={styles.audioPanelScroll}>
         <div className={styles.audioAccordionStack}>
-          {insights.conversationStats && (
+          {conversationStats && (
             <AudioAccordion
               title="Stats"
               icon={<BarChart3 size={14} aria-hidden />}
               defaultOpen
-              preview={`${Math.round(insights.conversationStats.talkRatioPercent)}% talk ratio`}
+              preview={conversationStats.talkRatioPercent == null
+                ? "Conversation measurements"
+                : `${Math.round(conversationStats.talkRatioPercent)}% talk ratio`}
             >
-              <AudioStatsGrid stats={insights.conversationStats} />
+              <AudioStatsGrid
+                stats={conversationStats}
+                source={conversationStatsSource}
+              />
             </AudioAccordion>
           )}
 
           <AudioAccordion
             title="Overview"
-            defaultOpen={!insights.conversationStats}
+            defaultOpen={!conversationStats}
             preview={truncate(insights.summary, 72)}
           >
             <p className={styles.audioSummary}>{insights.summary}</p>
@@ -280,49 +299,67 @@ export function SessionAudioInsightsPanel({
   );
 }
 
-function AudioStatsGrid({
+export function AudioStatsGrid({
   stats,
+  source = null,
 }: {
-  stats: NonNullable<AudioInsights["conversationStats"]>;
+  stats: AudioConversationStats | TranscriptConversationStats;
+  source?: "gemini" | "transcript" | null;
 }) {
-  const interactivityScore = formatInteractivityScore(stats);
+  const interactivityScore = isGeminiConversationStats(stats)
+    ? formatInteractivityScore(stats)
+    : null;
   const items = [
     {
       label: "Talk ratio",
-      value: `${Math.round(stats.talkRatioPercent)}%`,
+      value: stats.talkRatioPercent == null
+        ? null
+        : `${Math.round(stats.talkRatioPercent)}%`,
       hint: "Rep share of total talk time",
     },
     {
       label: "Longest prospect talk",
-      value: formatStatDuration(stats.longestProspectTalkSeconds),
+      value: stats.longestProspectTalkSeconds == null
+        ? null
+        : formatStatDuration(stats.longestProspectTalkSeconds),
       hint: "Longest uninterrupted prospect monologue",
     },
     {
       label: "Longest talk",
-      value: formatStatDuration(stats.longestTalkSeconds),
+      value: stats.longestTalkSeconds == null
+        ? null
+        : formatStatDuration(stats.longestTalkSeconds),
       hint: "Longest uninterrupted monologue",
     },
     {
       label: "Rep talk time",
-      value: formatStatDuration(stats.repTalkTimeSeconds),
+      value: stats.repTalkTimeSeconds == null
+        ? null
+        : formatStatDuration(stats.repTalkTimeSeconds),
       hint: "Total rep speaking time",
     },
     {
       label: "Interactivity",
-      value: `${interactivityScore}/5`,
+      value: interactivityScore == null ? null : `${interactivityScore}/5`,
       hint: "Meaningful back-and-forth quality",
     },
     {
       label: "Patience",
-      value: formatPatience(stats.patienceSeconds),
+      value: stats.patienceSeconds == null
+        ? null
+        : formatPatience(stats.patienceSeconds),
       hint: "Avg pause after prospect before rep responds",
     },
     {
       label: "Talk speed",
-      value: `${Math.round(stats.talkSpeedWordsPerMinute)} wpm`,
+      value: stats.talkSpeedWordsPerMinute == null
+        ? null
+        : `${Math.round(stats.talkSpeedWordsPerMinute)} wpm`,
       hint: "Rep words per minute",
     },
-  ];
+  ].filter((item): item is { label: string; value: string; hint: string } =>
+    item.value !== null
+  );
 
   return (
     <div className={styles.audioStatsSection}>
@@ -334,14 +371,24 @@ function AudioStatsGrid({
           </article>
         ))}
       </div>
-      {stats.interactivityNotes ? (
-        <p className={styles.audioStatsNote}>{stats.interactivityNotes}</p>
-      ) : null}
+      <p className={styles.audioStatsNote}>
+        {source === "transcript"
+          ? "Transcript estimate calculated from speaker timestamps. Gemini may replace these measurements after listening to the recording."
+          : isGeminiConversationStats(stats) && stats.interactivityNotes
+            ? stats.interactivityNotes
+            : "Measured by Gemini from the recording."}
+      </p>
     </div>
   );
 }
 
-function formatInteractivityScore(stats: NonNullable<AudioInsights["conversationStats"]>): number {
+function isGeminiConversationStats(
+  stats: AudioConversationStats | TranscriptConversationStats,
+): stats is AudioConversationStats {
+  return "interactivityScore" in stats;
+}
+
+function formatInteractivityScore(stats: AudioConversationStats): number {
   if (stats.interactivityTotal > 5) {
     return Math.round(Math.max(0, Math.min(5, (stats.interactivityScore / stats.interactivityTotal) * 5)));
   }
@@ -365,7 +412,7 @@ function formatPatience(seconds: number): string {
   return `${Math.round(seconds)}s`;
 }
 
-function AudioAccordion({
+export function AudioAccordion({
   title,
   icon,
   count,

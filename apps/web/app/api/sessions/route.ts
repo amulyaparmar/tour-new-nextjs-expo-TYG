@@ -11,6 +11,13 @@ import {
 } from "@/lib/admin-auth";
 import { listTeamAgents } from "@/lib/agents";
 import { createSession, listSessionsPaginated } from "@/lib/sessions";
+import {
+  buildSessionTourTitle,
+  formatRecordingUploadTitle,
+  isRecordingUploadTitle,
+  withRecordingParticipants,
+} from "@tour/shared";
+import { getRubricForSession } from "@/lib/rubrics";
 
 const VALID_STATUSES: SessionStatus[] = [
   "scheduled", "in_progress", "uploaded", "transcribing", "segmenting",
@@ -104,6 +111,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       title?: string;
       sourceFileName?: string | null;
+      titleIsAuto?: boolean;
       scheduledAt?: string | null;
       location?: string | null;
       prospectName?: string | null;
@@ -114,6 +122,8 @@ export async function POST(request: Request) {
       agentId?: string | null;
       propertyId?: string | null;
       unitLabel?: string | null;
+      source?: "manual" | "qr";
+      status?: SessionStatus;
     };
 
     if (!body.title?.trim() && !body.sourceFileName?.trim() && !body.prospectName?.trim() && !body.agentName?.trim() && !body.uploaderIsAgent) {
@@ -127,15 +137,44 @@ export async function POST(request: Request) {
 
     const agentName = body.agentName ?? (body.uploaderIsAgent ? workspace.user.fullName : null);
     const prospectName = body.prospectName ?? null;
+    const scheduledAt = body.scheduledAt ?? null;
+    const scheduledDate = scheduledAt ? new Date(scheduledAt) : new Date();
+    const rubric = await getRubricForSession(body.rubricId, requestedPropertyId);
+    const automaticTitle = body.title?.trim()
+      || formatRecordingUploadTitle(
+        Number.isNaN(scheduledDate.getTime()) ? new Date() : scheduledDate,
+        rubric.sessionType,
+      );
+    const source = body.source === "qr" ? "qr" : "manual";
+    const status = source === "qr" && body.status === "in_progress"
+      ? "in_progress"
+      : undefined;
+    const titleIsAuto =
+      !body.title?.trim()
+      || body.titleIsAuto === true
+      || isRecordingUploadTitle(body.title);
     const session = await createSession({
-      title: body.title ?? null,
+      title: titleIsAuto
+        ? withRecordingParticipants(
+            automaticTitle,
+            agentName,
+            prospectName,
+            rubric.sessionType,
+          )
+        : buildSessionTourTitle({
+            title: body.title,
+            agentName,
+            prospectName,
+          }),
       sourceFileName: body.sourceFileName ?? null,
-      scheduledAt: body.scheduledAt ?? null,
+      status,
+      scheduledAt,
       location: body.location ?? null,
       prospectName,
       agentName,
       notes: body.notes ?? null,
-      rubricId: body.rubricId ?? null,
+      source,
+      rubricId: rubric.id,
       agentId: body.agentId ?? `user:${workspace.user.id}`,
       propertyId: requestedPropertyId,
       unitLabel: body.unitLabel ?? null

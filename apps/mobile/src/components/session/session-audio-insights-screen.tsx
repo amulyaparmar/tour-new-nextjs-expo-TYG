@@ -1,15 +1,31 @@
-import type { AudioInsights, AudioInsightsStatus } from "@tour/shared";
-import { AUDIO_INSIGHTS_STATUS_LABELS } from "@tour/shared";
+import type {
+  AudioInsights,
+  AudioInsightsStatus,
+  TranscriptConversationStats,
+} from "@tour/shared";
+import {
+  AUDIO_INSIGHTS_STATUS_LABELS,
+  calculateTranscriptConversationStats,
+} from "@tour/shared";
 import { Activity, RefreshCw } from "lucide-react-native";
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 
-import { fetchAudioInsights, startAudioInsights } from "@/api";
+import { fetchAudioInsights, fetchTranscript, startAudioInsights } from "@/api";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
 import { useSessionPlayback } from "@/hooks/use-session-playback";
 
-import { SessionAudioInsightsPanel } from "./session-audio-insights-panel";
+import {
+  ConversationStatsSection,
+  SessionAudioInsightsPanel,
+} from "./session-audio-insights-panel";
 import { SessionPlayer } from "./session-player";
 import { TourScreenHeader } from "./tour-screen-header";
 
@@ -30,6 +46,8 @@ export function SessionAudioInsightsScreen({
 }) {
   const [status, setStatus] = useState(initialStatus);
   const [insights, setInsights] = useState(initialInsights);
+  const [transcriptConversationStats, setTranscriptConversationStats] =
+    useState<TranscriptConversationStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const playback = useSessionPlayback(sessionId);
@@ -46,11 +64,37 @@ export function SessionAudioInsightsScreen({
   }, [sessionId]);
 
   useEffect(() => {
-    if (!POLLING.has(status)) return;
     void refresh();
+    if (!POLLING.has(status)) return;
     const interval = setInterval(() => void refresh(), 3000);
     return () => clearInterval(interval);
   }, [refresh, status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchTranscript(sessionId)
+      .then(({ transcript }) => {
+        if (!cancelled) {
+          setTranscriptConversationStats(
+            calculateTranscriptConversationStats(transcript),
+          );
+        }
+      })
+      .catch(() => {
+        // The Gemini status and retry controls remain usable without a transcript.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  const conversationStats =
+    insights?.conversationStats ?? transcriptConversationStats;
+  const conversationStatsSource = insights?.conversationStats
+    ? "gemini"
+    : transcriptConversationStats
+      ? "transcript"
+      : null;
 
   async function handleStart() {
     setStarting(true);
@@ -75,6 +119,8 @@ export function SessionAudioInsightsScreen({
         <>
           <SessionAudioInsightsPanel
             insights={insights}
+            fallbackConversationStats={transcriptConversationStats}
+            fallbackConversationStatsSource={transcriptConversationStats ? "transcript" : null}
             onSeek={(seconds) => void playback.seekToSeconds(seconds, true)}
           />
           <SessionPlayer
@@ -95,44 +141,55 @@ export function SessionAudioInsightsScreen({
           ) : null}
         </>
       ) : (
-        <View style={styles.empty}>
-          {POLLING.has(status) ? (
-            <>
-              <ActivityIndicator size="large" color="#006ce5" />
-              <Text style={styles.emptyTitle}>{AUDIO_INSIGHTS_STATUS_LABELS[status]}</Text>
-              <Text style={styles.emptyHint}>
-                Gemini is analyzing sentiment, speaker dynamics, and ambience from the recording.
-              </Text>
-            </>
-          ) : (
-            <>
-              <Icon as={Activity} size={28} color="#667085" />
-              <Text style={styles.emptyTitle}>
-                {status === "failed"
-                  ? "Audio insights could not be generated"
-                  : status === "unavailable"
-                    ? "Audio insights are not configured"
-                    : "No audio insights yet"}
-              </Text>
-              <Text style={styles.emptyHint}>
-                {error ??
-                  (status === "unavailable"
-                    ? "Set GEMINI_API_KEY on the server to enable audio analysis."
-                    : "Run analysis to extract sentiment and speaker dynamics from the recording.")}
-              </Text>
-            </>
-          )}
-          <Pressable disabled={starting} onPress={() => void handleStart()} style={styles.actionBtn}>
-            {starting ? (
-              <ActivityIndicator color="#fff" size="small" />
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.enrichmentBody}
+        >
+          {conversationStats ? (
+            <ConversationStatsSection
+              stats={conversationStats}
+              source={conversationStatsSource}
+            />
+          ) : null}
+          <View style={[styles.empty, conversationStats ? styles.emptyCompact : null]}>
+            {POLLING.has(status) ? (
+              <>
+                <ActivityIndicator size="large" color="#006ce5" />
+                <Text style={styles.emptyTitle}>{AUDIO_INSIGHTS_STATUS_LABELS[status]}</Text>
+                <Text style={styles.emptyHint}>
+                  Gemini is adding sentiment, speaker dynamics, ambience, and semantic interactivity.
+                </Text>
+              </>
             ) : (
               <>
-                <Icon as={RefreshCw} size={14} color="#fff" />
-                <Text style={styles.actionText}>Run audio insights</Text>
+                <Icon as={Activity} size={28} color="#667085" />
+                <Text style={styles.emptyTitle}>
+                  {status === "failed"
+                    ? "Gemini enrichment could not be generated"
+                    : status === "unavailable"
+                      ? "Gemini enrichment is not configured"
+                      : "No Gemini enrichment yet"}
+                </Text>
+                <Text style={styles.emptyHint}>
+                  {error ??
+                    (status === "unavailable"
+                      ? "Transcript measurements remain available. Configure GEMINI_API_KEY to add audio understanding."
+                      : "Run audio insights to add sentiment and speaker dynamics.")}
+                </Text>
               </>
             )}
-          </Pressable>
-        </View>
+            <Pressable disabled={starting} onPress={() => void handleStart()} style={styles.actionBtn}>
+              {starting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Icon as={RefreshCw} size={14} color="#fff" />
+                  <Text style={styles.actionText}>Run audio insights</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </ScrollView>
       )}
     </View>
   );
@@ -151,6 +208,17 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 28,
     paddingBottom: 80,
+  },
+  enrichmentBody: {
+    flexGrow: 1,
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 40,
+  },
+  emptyCompact: {
+    justifyContent: "flex-start",
+    paddingTop: 20,
   },
   emptyTitle: {
     fontSize: 16,

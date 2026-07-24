@@ -4,7 +4,10 @@ export type TranscribeProvider = {
   id: TranscribeProviderId;
   label: string;
   description: string;
-  /** Supports Gemini multimodal audio understanding (sentiment, emotion, ambience). */
+  /**
+   * The transcription provider can natively do multimodal audio understanding.
+   * Separate Gemini enrichment can still run after any transcription provider.
+   */
   supportsAudioUnderstanding: boolean;
 };
 

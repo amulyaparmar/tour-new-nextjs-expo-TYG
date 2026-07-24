@@ -1,5 +1,10 @@
 import { FatalError } from "workflow";
 
+import {
+  decorateParticipantNameByConfidence,
+  withRecordingParticipants,
+} from "@tour/shared";
+
 import { generateAudioInsights } from "@/lib/audio-insights";
 import { isGeminiConfigured } from "@/lib/gemini-client";
 import { getRubricForSession } from "@/lib/rubrics";
@@ -68,21 +73,54 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
     mimeType: file.mimeType,
     fileName: file.fileName,
     transcript,
+    rubricContext: {
+      name: rubric.name,
+      sessionType: rubric.sessionType,
+      criteria: rubric.definition.sections.flatMap((section) =>
+        section.items.map((item) => `${section.name}: ${item.text}`)
+      ),
+      analysisInstructions: rubric.analysisPrompt,
+    },
   });
   await saveAudioInsights(sessionId, insights);
-  const nameUpdates: { agentName?: string; prospectName?: string; title?: string } = {};
-  if (!session.agentName && insights.participants?.agentName) {
-    nameUpdates.agentName = insights.participants.agentName;
+  const nameUpdates: { title?: string; agentName?: string; prospectName?: string } = {};
+  const extractedAgentName = decorateParticipantNameByConfidence(
+    insights.participants?.agentName,
+    insights.participants?.agentNameConfidence,
+  );
+  const extractedProspectName = decorateParticipantNameByConfidence(
+    insights.participants?.prospectName,
+    insights.participants?.prospectNameConfidence,
+  );
+  if (
+    extractedAgentName
+    && extractedAgentName !== session.agentName
+  ) {
+    nameUpdates.agentName = extractedAgentName;
   }
-  if (!session.prospectName && insights.participants?.prospectName) {
-    nameUpdates.prospectName = insights.participants.prospectName;
+  if (
+    extractedProspectName
+    && extractedProspectName !== session.prospectName
+  ) {
+    nameUpdates.prospectName = extractedProspectName;
   }
-  const derivedTitle = deriveSessionTitleFromParticipants({
-    currentTitle: session.title,
-    agentName: nameUpdates.agentName ?? session.agentName,
-    prospectName: nameUpdates.prospectName ?? session.prospectName,
-  });
-  if (derivedTitle) nameUpdates.title = derivedTitle;
+  const updatedTitle = withRecordingParticipants(
+    session.title,
+    nameUpdates.agentName ?? session.agentName,
+    nameUpdates.prospectName ?? session.prospectName,
+    rubric.sessionType,
+    insights.topicSummary,
+  );
+  if (updatedTitle !== session.title) {
+    nameUpdates.title = updatedTitle;
+  } else {
+    const derivedTitle = deriveSessionTitleFromParticipants({
+      currentTitle: session.title,
+      agentName: nameUpdates.agentName ?? session.agentName,
+      prospectName: nameUpdates.prospectName ?? session.prospectName,
+    });
+    if (derivedTitle) nameUpdates.title = derivedTitle;
+  }
   if (Object.keys(nameUpdates).length > 0) {
     await updateSession(sessionId, nameUpdates);
   }

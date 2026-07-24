@@ -1,4 +1,5 @@
 import type { AudioInsightsStatus } from "./audio-insights-status";
+import type { SessionParticipants } from "./speaker-labels";
 
 export type SessionStatus =
   | "scheduled"
@@ -88,6 +89,8 @@ export type SessionDetail = SessionSummary & {
 };
 
 export type CreateSessionInput = {
+  /** Optional preallocated UUID, used by URL-bound check-in initiations. */
+  id?: string;
   title?: string | null;
   sourceFileName?: string | null;
   status?: SessionStatus;
@@ -119,6 +122,8 @@ export type AnalysisResult = {
   totalPointsEarned: number;
   totalPointsPossible: number;
   summary: string;
+  /** One-to-four-word interaction topic used in inferred session titles. */
+  topicSummary?: string | null;
   /** Exactly ~9 words for session list cards. */
   cardSummary: string;
   /** One short coaching improvement line for session list cards. */
@@ -134,6 +139,8 @@ export type AnalysisResult = {
     questions: QuestionScore[];
   }>;
   fairHousingFlags?: string[];
+  /** Participant names and extraction confidence captured during rubric analysis. */
+  participantNames?: SessionParticipants;
   exactMoments: Array<{
     timestamp: string;
     transcriptQuote: string;

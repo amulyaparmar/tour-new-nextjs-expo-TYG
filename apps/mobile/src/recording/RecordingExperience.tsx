@@ -28,7 +28,12 @@ import Reanimated, {
   SlideOutRight,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { SessionAttachment, SessionLead } from "@tour/shared";
+import {
+  formatRecordingUploadTitle,
+  isRecordingUploadTitle,
+  type SessionAttachment,
+  type SessionLead,
+} from "@tour/shared";
 import type { LiveSessionChatMessage, Material } from "../api";
 import {
   addSessionAttachment,
@@ -750,8 +755,12 @@ export function RecordingExperience({
     ensuringSessionRef.current = (async () => {
       try {
         if (!(await isOnline())) return null;
+        const automaticTitle = formatRecordingUploadTitle(new Date());
+        const resolvedTitle = title?.trim() || automaticTitle;
         const created = await createSession({
-          title: title?.trim() || null,
+          title: resolvedTitle,
+          titleIsAuto: isRecordingUploadTitle(resolvedTitle),
+          scheduledAt: new Date().toISOString(),
           prospectName: prospectName ?? null,
           agentName: agentName ?? null,
           location: propertyName ?? null,

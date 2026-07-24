@@ -29,8 +29,8 @@ export async function transcribeWithWhisper(
   return diarized.map((seg, i) => ({
     id: `${sessionId}-t${i}`,
     speaker: seg.speaker,
-    startTime: Math.round(seg.start),
-    endTime: Math.round(seg.end),
+    startTime: Math.round(seg.start * 1000) / 1000,
+    endTime: Math.round(seg.end * 1000) / 1000,
     text: seg.text.trim()
   }));
 }

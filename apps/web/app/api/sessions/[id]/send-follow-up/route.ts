@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import type { SessionDetail } from "@tour/shared";
+import {
+  participantNameWithoutConfidenceMarker,
+  type SessionDetail,
+} from "@tour/shared";
 import { getRepCard } from "@/lib/reps";
 import { getSessionById } from "@/lib/sessions";
 import { normalizePhoneE164, sendSms, TwilioConfigError } from "@/lib/twilio";
@@ -76,7 +79,7 @@ function getSessionRepCard(session: SessionDetail) {
 }
 
 function firstToken(value?: string | null) {
-  return value?.trim().split(/\s+/)[0] ?? null;
+  return participantNameWithoutConfidenceMarker(value)?.split(/\s+/)[0] ?? null;
 }
 
 function getBaseUrl(request: Request) {

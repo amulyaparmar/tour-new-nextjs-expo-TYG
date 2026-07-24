@@ -12,6 +12,8 @@ type PropertyMemberPageProps = {
   }>;
   searchParams: Promise<{
     "check-in"?: string | string[];
+    session?: string | string[];
+    sessionId?: string | string[];
   }>;
 };
 
@@ -21,6 +23,10 @@ function wantsCheckIn(value: string | string[] | undefined) {
   const raw = Array.isArray(value) ? value[0] : value;
   const normalized = (raw ?? "").trim().toLowerCase();
   return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
+function firstQueryValue(value: string | string[] | undefined) {
+  return (Array.isArray(value) ? value[0] : value)?.trim() || null;
 }
 
 export async function generateMetadata({ params }: PropertyMemberPageProps): Promise<Metadata> {
@@ -64,6 +70,7 @@ export default async function PropertyMemberPage({ params, searchParams }: Prope
       vCardUrl={vCardDownloadUrl(card.rep)}
       offlineQrUrl={offlineContactQrUrl(card.rep)}
       initialSheet={wantsCheckIn(query["check-in"]) ? "contact" : "none"}
+      sessionId={firstQueryValue(query.sessionId ?? query.session)}
     />
   );
 }

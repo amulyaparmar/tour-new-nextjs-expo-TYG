@@ -65,8 +65,8 @@ export async function transcribeWithDeepgram(
   return parsed.map((u, i) => ({
     id: `${sessionId}-t${i}`,
     speaker: labels.get(u.speaker) ?? "Unknown",
-    startTime: Math.round(u.start),
-    endTime: Math.round(u.end),
+    startTime: Math.round(u.start * 1000) / 1000,
+    endTime: Math.round(u.end * 1000) / 1000,
     text: u.transcript.trim()
   }));
 }

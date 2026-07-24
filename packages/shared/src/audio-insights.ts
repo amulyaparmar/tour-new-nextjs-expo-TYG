@@ -1,7 +1,9 @@
 import {
   normalizeParticipantName,
+  normalizeParticipantNameConfidence,
   type SessionParticipants,
 } from "./speaker-labels";
+import { normalizeSessionTopicSummary } from "./session-card";
 
 export type AudioEmotion = "happy" | "sad" | "angry" | "neutral" | "excited" | "concerned";
 
@@ -76,6 +78,8 @@ export type AudioInsights = {
   provider: "gemini";
   model: string;
   summary: string;
+  /** Concise 1-4 word unit-type or call-purpose summary. */
+  topicSummary?: string;
   overallSentiment: AudioSentiment;
   speakerDynamics: AudioSpeakerDynamic[];
   segments: AudioInsightSegment[];
@@ -106,6 +110,7 @@ export function normalizeAudioInsights(value: unknown): AudioInsights | null {
     provider: "gemini",
     model: raw.model,
     summary: raw.summary,
+    topicSummary: normalizeSessionTopicSummary(raw.topicSummary) ?? undefined,
     overallSentiment: raw.overallSentiment,
     speakerDynamics: Array.isArray(raw.speakerDynamics)
       ? raw.speakerDynamics
@@ -135,7 +140,28 @@ function normalizeAudioParticipants(value: unknown): SessionParticipants | undef
   const agentName = normalizeParticipantName(raw.agentName);
   const prospectName = normalizeParticipantName(raw.prospectName);
   if (!agentName && !prospectName) return undefined;
-  return { agentName, prospectName };
+  return {
+    agentName,
+    prospectName,
+    agentNameConfidence: agentName
+      ? normalizeParticipantNameConfidence(raw.agentNameConfidence)
+      : null,
+    prospectNameConfidence: prospectName
+      ? normalizeParticipantNameConfidence(raw.prospectNameConfidence)
+      : null,
+    agentNameFirstMentionSeconds: agentName
+      ? normalizeFirstMentionSeconds(raw.agentNameFirstMentionSeconds)
+      : null,
+    prospectNameFirstMentionSeconds: prospectName
+      ? normalizeFirstMentionSeconds(raw.prospectNameFirstMentionSeconds)
+      : null,
+  };
+}
+
+function normalizeFirstMentionSeconds(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  const seconds = Math.floor(value);
+  return Number.isSafeInteger(seconds) ? seconds : null;
 }
 
 function normalizeAudioFileRef(value: unknown): GeminiAudioFileRef | undefined {

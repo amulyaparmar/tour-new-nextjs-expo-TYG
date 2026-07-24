@@ -1,6 +1,7 @@
 import { generateText, streamText, type ModelMessage } from "ai";
 import { NextResponse } from "next/server";
 
+import { participantNameWithoutConfidenceMarker } from "@tour/shared";
 import { getBedrockLanguageModelForAnalysis } from "@/lib/bedrock-language-model";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 import { getSessionById } from "@/lib/sessions";
@@ -96,6 +97,7 @@ function buildLiveChatInstructions({
   propertyContext: string;
   liveTranscript: string;
 }) {
+  const promptTitle = session.title.replace(/([·×]\s*)~(?=\S)/g, "$1");
   return `You are Tour AI, a live in-tour assistant for a multifamily leasing agent.
 
 Help the agent while they are actively touring with a prospect. Be concise, calm, and practical. Use the property/session context and live transcript if available. Prefer short bullets or one clear next line the agent can say out loud.
@@ -105,9 +107,9 @@ Format replies in lightweight Markdown when helpful (short bullets, **bold** for
 Never suggest discriminatory screening or anything that could create a Fair Housing issue. If the agent asks for risky guidance, redirect to neutral, policy-safe language.
 
 ## Current session
-Title: ${session.title}
-Prospect: ${session.prospectName || "Unknown"}
-Agent: ${session.agentName || "Unknown"}
+Title: ${promptTitle}
+Prospect: ${participantNameWithoutConfidenceMarker(session.prospectName) || "Unknown"}
+Agent: ${participantNameWithoutConfidenceMarker(session.agentName) || "Unknown"}
 Location/unit: ${session.location || session.unitLabel || "Not provided"}
 Session notes: ${session.notes || "None yet"}
 

@@ -87,8 +87,8 @@ export async function transcribeWithElevenLabs(
   return grouped.map((segment, i) => ({
     id: `${sessionId}-t${i}`,
     speaker: labels.get(segment.speakerId) ?? "Unknown",
-    startTime: Math.round(segment.start),
-    endTime: Math.round(segment.end),
+    startTime: Math.round(segment.start * 1000) / 1000,
+    endTime: Math.round(segment.end * 1000) / 1000,
     text: segment.text.trim()
   }));
 }

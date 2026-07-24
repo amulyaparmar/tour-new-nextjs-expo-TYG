@@ -178,7 +178,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
         </div>
       </div>
 
-      {session.source === "qr" && session.leads.length > 0 && (
+      {session.leads.length > 0 && (
         <section className="card" style={{ marginBottom: 16 }} aria-labelledby="checked-in-heading">
           <div className="card-header">
             <div>

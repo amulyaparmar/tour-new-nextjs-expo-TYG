@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 import type { AnalysisModelId, AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, SessionParticipants } from "@tour/shared";
-import { buildPhaseTracks } from "@tour/shared";
+import { buildPhaseTracks, calculateTranscriptConversationStats } from "@tour/shared";
 
 import { FloatingSessionPlayer } from "./FloatingSessionPlayer";
 import { SessionDetailSidebar, type SidebarTab } from "./SessionDetailSidebar";
@@ -135,6 +135,10 @@ export function SessionDetailExperience({
     [transcript]
   );
   const effectiveDuration = loadedDuration || duration || transcriptEnd;
+  const fallbackConversationStats = useMemo(
+    () => calculateTranscriptConversationStats(transcript),
+    [transcript],
+  );
 
   const moments = useMemo(() => {
     const base = buildSessionMoments(analysis, transcript, phases);
@@ -442,6 +446,7 @@ export function SessionDetailExperience({
         phases={phases}
         initialAudioInsightsStatus={initialAudioInsightsStatus}
         initialAudioInsights={initialAudioInsights}
+        fallbackConversationStats={fallbackConversationStats}
         participants={participants}
         duration={effectiveDuration}
         tab={sidebarTab}

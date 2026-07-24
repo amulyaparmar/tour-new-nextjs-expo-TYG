@@ -81,7 +81,10 @@ export async function fetchSampleSession(sessionId: string): Promise<SampleSessi
 }
 
 export async function createSession(payload: {
-  title?: string | null;
+  title: string;
+  titleIsAuto?: boolean;
+  status?: "scheduled" | "in_progress";
+  source?: "manual" | "qr";
   sourceFileName?: string | null;
   scheduledAt?: string | null;
   prospectName?: string | null;
@@ -141,6 +144,29 @@ export async function submitCheckInLead(payload: CheckInLeadPayload) {
     throw new Error(body?.error ?? "Check-in failed.");
   }
   return body ?? { sessionId: undefined, grouped: false, startRecording: false };
+}
+
+export async function createCheckInLink(payload: {
+  sessionId?: string;
+  path?: string;
+} = {}) {
+  const res = await authenticatedFetch("/api/check-in-links", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => null) as {
+    sessionId?: string;
+    url?: string;
+    error?: string;
+  } | null;
+  if (!res.ok || !body?.sessionId || !body.url) {
+    throw new Error(body?.error ?? "Could not create a session check-in link.");
+  }
+  return {
+    sessionId: body.sessionId,
+    url: body.url,
+  };
 }
 
 export type ProfileUpdatePayload = {

@@ -1,7 +1,15 @@
 import "server-only";
 
 import type { AnalysisResult, AnalysisModelId, RubricDefinition } from "@tour/shared";
-import { buildRubricAnalysisPrompt, cardFieldsFromAnalysis, rubricSessionTypeLabel, rubricTotalPoints } from "@tour/shared";
+import {
+  buildRubricAnalysisPrompt,
+  cardFieldsFromAnalysis,
+  normalizeParticipantName,
+  normalizeParticipantNameConfidence,
+  normalizeSessionTopicSummary,
+  rubricSessionTypeLabel,
+  rubricTotalPoints,
+} from "@tour/shared";
 import { DEFAULT_RBG_RUBRIC_DEFINITION } from "./default-rubric";
 import type { TranscriptSegment } from "./transcribe";
 import { type ClaudeTool } from "./bedrock";
@@ -10,6 +18,10 @@ import { invokeAnalysisTool } from "./analysis-model-invoke";
 export type AnalysisParticipantNames = {
   agentName: string | null;
   prospectName: string | null;
+  agentNameConfidence: number | null;
+  prospectNameConfidence: number | null;
+  agentNameFirstMentionSeconds: number | null;
+  prospectNameFirstMentionSeconds: number | null;
 };
 
 export type AnalysisWithParticipantNames = AnalysisResult & {
@@ -48,7 +60,19 @@ export async function generateAnalysis(params: {
     "Also identify participant names from the transcript before scoring:",
     "- identifiedAgentName: the leasing agent or staff member conducting the tour/call; null if unknown",
     "- identifiedProspectName: the prospect, customer, visitor, or shopper; null if unknown",
+    "- identifiedAgentNameConfidence: confidence from 0-100 that identifiedAgentName is correct; 0 when unknown",
+    "- identifiedProspectNameConfidence: confidence from 0-100 that identifiedProspectName is correct; 0 when unknown",
+    "- identifiedAgentNameFirstMentionTimestamp: earliest transcript timestamp where identifiedAgentName is actually spoken by anyone, in MM:SS; null when unknown or never spoken",
+    "- identifiedProspectNameFirstMentionTimestamp: earliest transcript timestamp where identifiedProspectName is actually spoken by anyone, in MM:SS; null when unknown or never spoken",
+    "- A first-mention timestamp is about the name being spoken, not merely the first time that participant talks.",
+    "- Use 90-100 only for an explicit introduction or repeated unambiguous address; 60-89 for strong contextual evidence; below 60 for a tentative phonetic/contextual reading.",
+    "- Return names without confidence symbols or prefixes; the application adds its own low-confidence marker.",
     "- Prefer spoken introductions and direct address. Do not infer names from schema text.",
+    "",
+    "Also return topicSummary as a concise 1-4 word title label grounded in the transcript:",
+    "- For tours, prefer the unit type or unit types discussed (for example: Studio + 2BR). If no unit type is supported, use the primary tour focus.",
+    "- For calls, state the purpose of the call (for example: Pricing Inquiry or Application Follow-up), not a generic label such as Phone Call.",
+    "- Return null when no specific topic is supported.",
     "",
     "=== TRANSCRIPT ===",
     transcriptText
@@ -95,6 +119,26 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
       identifiedProspectName: {
         type: ["string", "null"],
         description: "Prospect/customer/visitor/shopper name from transcript evidence; null if unknown",
+      },
+      identifiedAgentNameConfidence: {
+        type: "number",
+        description: "0-100 confidence the extracted agent name is correct; 0 when agent name is null",
+      },
+      identifiedProspectNameConfidence: {
+        type: "number",
+        description: "0-100 confidence the extracted prospect name is correct; 0 when prospect name is null",
+      },
+      identifiedAgentNameFirstMentionTimestamp: {
+        type: ["string", "null"],
+        description: "Earliest MM:SS timestamp where the extracted agent name is spoken; null when unknown or never spoken",
+      },
+      identifiedProspectNameFirstMentionTimestamp: {
+        type: ["string", "null"],
+        description: "Earliest MM:SS timestamp where the extracted prospect name is spoken; null when unknown or never spoken",
+      },
+      topicSummary: {
+        type: ["string", "null"],
+        description: "Transcript-grounded 1-4 word topic: unit type(s) for tours, call purpose for calls; null if unsupported",
       },
       strengths: { type: "array", items: { type: "string" } },
       opportunities: { type: "array", items: { type: "string" } },
@@ -151,6 +195,11 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
       "needsImprovement",
       "identifiedAgentName",
       "identifiedProspectName",
+      "identifiedAgentNameConfidence",
+      "identifiedProspectNameConfidence",
+      "identifiedAgentNameFirstMentionTimestamp",
+      "identifiedProspectNameFirstMentionTimestamp",
+      "topicSummary",
       "strengths",
       "opportunities",
       "suggestedRewrite",
@@ -336,6 +385,7 @@ function safeParseAnalysis(parsed: Record<string, unknown>): AnalysisWithPartici
       totalPointsEarned: totalEarned,
       totalPointsPossible: totalPossible,
       summary: String(parsed.summary ?? ""),
+      topicSummary: normalizeSessionTopicSummary(parsed.topicSummary),
       cardSummary: cardFields.cardSummary ?? "",
       needsImprovement: cardFields.needsImprovement ?? "",
       strengths: parsed.strengths as string[],
@@ -355,13 +405,30 @@ function normalizeAnalysisParticipantNames(parsed: Record<string, unknown>): Ana
   const agentName = normalizeParticipantName(parsed.identifiedAgentName);
   const prospectName = normalizeParticipantName(parsed.identifiedProspectName);
   if (!agentName && !prospectName) return null;
-  return { agentName, prospectName };
+  return {
+    agentName,
+    prospectName,
+    agentNameConfidence: agentName
+      ? normalizeParticipantNameConfidence(parsed.identifiedAgentNameConfidence) ?? 0
+      : null,
+    prospectNameConfidence: prospectName
+      ? normalizeParticipantNameConfidence(parsed.identifiedProspectNameConfidence) ?? 0
+      : null,
+    agentNameFirstMentionSeconds: agentName
+      ? normalizeFirstMentionTimestamp(parsed.identifiedAgentNameFirstMentionTimestamp)
+      : null,
+    prospectNameFirstMentionSeconds: prospectName
+      ? normalizeFirstMentionTimestamp(parsed.identifiedProspectNameFirstMentionTimestamp)
+      : null,
+  };
 }
 
-function normalizeParticipantName(value: unknown): string | null {
+function normalizeFirstMentionTimestamp(value: unknown): number | null {
   if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (/^(unknown|n\/a|na|null|none|not provided)$/i.test(trimmed)) return null;
-  return trimmed.replace(/\s+/g, " ").slice(0, 120);
+  const match = value.trim().match(/^(\d+):([0-5]\d)$/);
+  if (!match) return null;
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  if (!Number.isSafeInteger(minutes) || !Number.isSafeInteger(seconds)) return null;
+  return minutes * 60 + seconds;
 }

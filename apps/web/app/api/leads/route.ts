@@ -1,13 +1,34 @@
+import { randomUUID } from "node:crypto";
+
 import { NextResponse } from "next/server";
 
 import type { SessionLead } from "@tour/shared";
-import { addSessionLead, createSession, findOpenQrSession, getSessionById, updateSession } from "@/lib/sessions";
+import {
+  formatRecordingUploadTitle,
+  withRecordingParticipants,
+} from "@tour/shared";
+import { getRubricForSession } from "@/lib/rubrics";
+import {
+  addSessionLead,
+  createSession,
+  getSessionById,
+  setSessionStatus,
+  updateSession,
+} from "@/lib/sessions";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
 type CheckInPropertyRow = {
   id: string;
   metadata: unknown;
 };
+
+const EXPLICIT_CHECK_IN_STATUSES = new Set(["scheduled", "in_progress"]);
+
+class CheckInRequestError extends Error {
+  constructor(message: string, public status: 400 | 403 | 404 | 409) {
+    super(message);
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -49,25 +70,14 @@ export async function POST(request: Request) {
       createdAt: new Date().toISOString()
     };
 
-    const targetSessionId = body.sessionId?.trim() || null;
-    if (targetSessionId) {
-      const existing = await getSessionById(targetSessionId);
-      if (!existing) {
-        return NextResponse.json({ error: "Session not found." }, { status: 404 });
-      }
-      await addSessionLead(targetSessionId, lead);
-      if (!existing.prospectName?.trim()) {
-        await updateSession(targetSessionId, { prospectName: lead.name });
-      }
-      return NextResponse.json({ sessionId: targetSessionId, grouped: true, startRecording: true }, { status: 200 });
+    const requestedSessionId = body.sessionId?.trim() || null;
+    if (requestedSessionId && !isUuid(requestedSessionId)) {
+      throw new CheckInRequestError("sessionId must be a UUID.", 400);
     }
 
-    // A second person scanning during the same tour joins the open session
-    // group instead of creating a duplicate session.
     const propertyId = body.propertyId?.trim() || null;
     let agentId = body.repSlug?.trim() || null;
     let agentName = body.repName?.trim() || null;
-    let agentMatchIds: string[] | null = agentId ? [agentId] : null;
 
     if (propertyId) {
       const { data, error } = await getSupabaseServiceClient()
@@ -104,46 +114,117 @@ export async function POST(request: Request) {
           ? `user:${authUserId}`
           : alias || memberId || emailLocal || agentId;
         agentName = cleanString(member.name) || agentName;
-
-        agentMatchIds = uniqueNonEmpty([
-          agentId,
-          alias,
-          authUserId ? `user:${authUserId}` : "",
-          authUserId,
-          memberId,
-          emailLocal,
-          body.repSlug?.trim() || "",
-        ]);
       }
     }
 
-    const openSession = await findOpenQrSession(propertyId, agentMatchIds ?? agentId);
-    if (openSession) {
-      await addSessionLead(openSession.id, lead);
-      return NextResponse.json({ sessionId: openSession.id, grouped: true, startRecording: true }, { status: 200 });
+    if (requestedSessionId) {
+      const existing = await getSessionById(requestedSessionId);
+      if (existing) {
+        validateExplicitSession(existing, propertyId);
+        const replaceProspectName = isPlaceholderProspectName(existing.prospectName);
+        const prospectName = replaceProspectName ? lead.name : existing.prospectName;
+        const title = withRecordingParticipants(
+          existing.title,
+          existing.agentName,
+          prospectName,
+        );
+
+        await addSessionLead(existing.id, lead);
+        const updates: Parameters<typeof updateSession>[1] = {};
+        if (replaceProspectName) {
+          updates.prospectName = lead.name;
+        }
+        if (title !== existing.title) {
+          updates.title = title;
+        }
+        if (Object.keys(updates).length) {
+          await updateSession(existing.id, updates);
+        }
+        if (existing.status === "scheduled") {
+          await setSessionStatus(existing.id, "in_progress");
+        }
+        notifySessionCheckIn(existing, lead.name);
+        return NextResponse.json(
+          {
+            sessionId: existing.id,
+            grouped: true,
+            startRecording: true,
+            binding: "explicit",
+          },
+          { status: 200 },
+        );
+      }
     }
 
     const property = body.propertyName?.trim() || "Property";
+    const scheduledAt = new Date();
+    const rubric = await getRubricForSession(null, propertyId);
     const session = await createSession({
-      title: null,
+      // A URL-provided UUID becomes the real row ID on first check-in. With no
+      // UUID, this submission starts a fresh session—there is no time-window match.
+      id: requestedSessionId ?? randomUUID(),
+      title: withRecordingParticipants(
+        formatRecordingUploadTitle(scheduledAt, rubric.sessionType),
+        agentName,
+        lead.name,
+        rubric.sessionType,
+      ),
       status: "in_progress",
-      scheduledAt: new Date().toISOString(),
+      scheduledAt: scheduledAt.toISOString(),
       prospectName: lead.name,
       agentName,
       agentId,
       location: property,
       source: "qr",
       leads: [lead],
+      rubricId: rubric.id,
       propertyId,
     });
 
     return NextResponse.json({ sessionId: session.id, grouped: false, startRecording: true }, { status: 201 });
   } catch (error) {
+    const status =
+      error instanceof CheckInRequestError
+        ? error.status
+        : 500;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to submit lead." },
-      { status: 500 }
+      { status }
     );
   }
+}
+
+function validateExplicitSession(
+  session: NonNullable<Awaited<ReturnType<typeof getSessionById>>>,
+  requestedPropertyId: string | null,
+) {
+  if (!EXPLICIT_CHECK_IN_STATUSES.has(session.status)) {
+    throw new CheckInRequestError(
+      "This session is no longer accepting check-ins.",
+      409,
+    );
+  }
+  if (!session.propertyId) {
+    throw new CheckInRequestError(
+      "This session is not assigned to a property.",
+      409,
+    );
+  }
+  if (requestedPropertyId && requestedPropertyId !== session.propertyId) {
+    throw new CheckInRequestError(
+      "This check-in link does not match the session property.",
+      403,
+    );
+  }
+}
+
+function isPlaceholderProspectName(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  return (
+    !normalized
+    || ["prospect", "guest", "visitor", "lead", "customer", "client", "unknown", "n/a"]
+      .includes(normalized)
+  );
 }
 
 function cleanString(value: unknown) {
@@ -154,14 +235,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function uniqueNonEmpty(values: string[]) {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const value of values) {
-    const trimmed = value.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-  return out;
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function notifySessionCheckIn(
+  session: {
+    id: string;
+    propertyId?: string | null;
+    agentId?: string | null;
+  },
+  leadName: string,
+) {
+  const propertyId = session.propertyId;
+  if (!propertyId) return;
+  void import("@/lib/push")
+    .then(({ notifyNewSession }) =>
+      notifyNewSession({
+        propertyId,
+        sessionId: session.id,
+        title: leadName,
+        agentId: session.agentId,
+        source: "qr",
+        autoStartRecording: true,
+      }),
+    )
+    .catch(() => {});
 }

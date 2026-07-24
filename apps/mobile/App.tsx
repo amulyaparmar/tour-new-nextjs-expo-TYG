@@ -66,6 +66,7 @@ import {
   formatSessionCardMeta,
   defaultMemberPublicAlias,
   defaultPropertyPublicAlias,
+  formatRecordingUploadTitle,
   rubricItemCount,
   rubricTotalPoints,
 } from "@tour/shared";
@@ -80,6 +81,7 @@ import {
   type TourLibraryLink,
   type PaginatedSessions,
   applyRubricToSession,
+  createCheckInLink,
   createSession,
   type CalendarEvent,
   type SessionComment,
@@ -1047,7 +1049,18 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
   const [switchingCommunityId, setSwitchingCommunityId] = useState<string | null>(null);
   const [tabTransitionDirection, setTabTransitionDirection] = useState<SlideDirection>("forward");
   const [checkInOpen, setCheckInOpen] = useState(false);
+  const checkInStartingRef = useRef(false);
+  const [checkInBinding, setCheckInBinding] = useState<{
+    sessionId: string;
+    url: string;
+  } | null>(null);
   const [materialsOpen, setMaterialsOpen] = useState(false);
+  const publicMemberAlias = defaultMemberPublicAlias({
+    alias: authSession.workspace.teamMember?.alias,
+    name: authSession.workspace.teamMember?.name || authSession.workspace.user.fullName,
+    email: authSession.workspace.user.email,
+    id: authSession.workspace.teamMember?.id || authSession.workspace.user.id,
+  });
   const tabIndicatorX = useSharedValue(
     (tabBarWidth / TAB_ITEMS.length) * Math.max(0, TAB_ITEMS.findIndex((item) => item.id === tab)),
   );
@@ -1070,6 +1083,11 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
     const next = getCurrentSession();
     if (next) onAuthSession(next);
   }, [profile, onAuthSession]);
+
+  useEffect(() => {
+    setCheckInOpen(false);
+    setCheckInBinding(null);
+  }, [authSession.workspace.community.id]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -1120,6 +1138,24 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
     setMaterialsOpen(false);
   }, []);
 
+  const openSessionCheckIn = useCallback(async () => {
+    if (checkInStartingRef.current) return;
+
+    checkInStartingRef.current = true;
+    try {
+      const binding = await createCheckInLink();
+      setCheckInBinding(binding);
+      setCheckInOpen(true);
+    } catch (caught) {
+      showToast(
+        caught instanceof Error ? caught.message : "Could not start this check-in session",
+        "error",
+      );
+    } finally {
+      checkInStartingRef.current = false;
+    }
+  }, []);
+
   return (
     <View style={st.flex1}>
       {showScrollView && (
@@ -1151,7 +1187,7 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
                 loading={loading}
                 onSession={onSession}
                 onProfile={onProfile}
-                onCheckIn={() => setCheckInOpen(true)}
+                onCheckIn={() => void openSessionCheckIn()}
                 onCreate={onCreate}
                 onAudioTest={onAudioTest}
                 onAssets={openMaterials}
@@ -1241,37 +1277,23 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
         }}
         onSelect={(communityId) => void chooseCommunity(communityId)}
       />
-      <CheckInSheet
-        visible={checkInOpen}
-        onClose={() => setCheckInOpen(false)}
-        property={property}
-        propertyId={authSession.workspace.community.propertyTygId || authSession.workspace.community.id}
-        agentName={agentName}
-        repSlug={defaultMemberPublicAlias({
-          alias: authSession.workspace.teamMember?.alias,
-          name: authSession.workspace.teamMember?.name || authSession.workspace.user.fullName,
-          email: authSession.workspace.user.email,
-          id: authSession.workspace.teamMember?.id || authSession.workspace.user.id,
-        })}
-        checkInUrl={`${getSiteBaseUrl().replace(/\/$/, "")}/p/${encodeURIComponent(
-          defaultPropertyPublicAlias({
-            alias: authSession.workspace.community.alias,
-            name: authSession.workspace.community.name,
-            propertyTygId: authSession.workspace.community.propertyTygId,
-          })
-        )}/${encodeURIComponent(
-          defaultMemberPublicAlias({
-            alias: authSession.workspace.teamMember?.alias,
-            name: authSession.workspace.teamMember?.name || authSession.workspace.user.fullName,
-            email: authSession.workspace.user.email,
-            id: authSession.workspace.teamMember?.id || authSession.workspace.user.id,
-          })
-        )}?check-in=true`}
-        onCheckedIn={(sessionId) => {
-          setCheckInOpen(false);
-          onSession(sessionId, { autoStartRecording: true });
-        }}
-      />
+      {checkInBinding ? (
+        <CheckInSheet
+          visible={checkInOpen}
+          onClose={() => setCheckInOpen(false)}
+          property={property}
+          propertyId={authSession.workspace.community.propertyTygId || authSession.workspace.community.id}
+          agentName={agentName}
+          repSlug={publicMemberAlias}
+          sessionId={checkInBinding.sessionId}
+          checkInUrl={checkInBinding.url}
+          onCheckedIn={(sessionId) => {
+            setCheckInOpen(false);
+            setCheckInBinding(null);
+            onSession(sessionId, { autoStartRecording: true });
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -1406,7 +1428,6 @@ function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrar
                       title: session.title,
                       agentName: session.agentName,
                       prospectName: session.prospectName ?? session.leads?.[0]?.name,
-                      preferPeopleTitle: session.source === "qr" || session.status === "in_progress",
                     })}
                   </Text>
                   <View style={homeSt.tourMetaRow}>
@@ -1620,7 +1641,7 @@ function SessionListSwipeRow({
   const swipeableRef = useRef<SwipeableMethods | null>(null);
   const needsReview = ["uploaded", "failed", "analysis_ready"].includes(session.status);
   const leads = session.leads ?? [];
-  const checkedInSummary = session.source === "qr" && leads.length
+  const checkedInSummary = leads.length
     ? `${leads.map((lead) => lead.name).join(", ")} · ${leads.length} checked in`
     : null;
   const badgeLabel = needsReview
@@ -2981,6 +3002,8 @@ function CreateSessionScreen({
     }
 
     try {
+      const automaticTitle = formatRecordingUploadTitle(new Date());
+      const hasCustomTitle = Boolean(title.trim());
       if (!sid) {
         if (!(await isOnline())) {
           showToast("Saved on device — will upload when online", "info");
@@ -2990,8 +3013,10 @@ function CreateSessionScreen({
           return;
         }
         const sessionData = await createSession({
-          title: title.trim() || null,
+          title: title.trim() || automaticTitle,
+          titleIsAuto: !hasCustomTitle,
           sourceFileName: name,
+          scheduledAt: new Date().toISOString(),
           prospectName: nextProspect.trim() || null,
           uploaderIsAgent: nextUploaderIsAgent,
           location: nextLocation.trim() || null,
@@ -3002,7 +3027,7 @@ function CreateSessionScreen({
         setSessionId(sid);
         if (localId) updateLocalSession(localId, { remoteSessionId: sid });
       }
-      if (!title.trim()) setTitle(name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "));
+      if (!hasCustomTitle) setTitle(automaticTitle);
       if (draftOverrides?.notes !== undefined) setNotes(draftOverrides.notes);
       if (draftOverrides?.prospect !== undefined) setProspect(draftOverrides.prospect);
       if (draftOverrides?.location !== undefined) setLocation(draftOverrides.location);
@@ -3089,7 +3114,7 @@ function CreateSessionScreen({
     rec.openExperience({
       meta: {
         sessionId: null,
-        title: title.trim() || "Tour conversation",
+        title: title.trim() || formatRecordingUploadTitle(new Date()),
         prospectName: prospect.trim() || null,
         propertyName: location.trim() || null,
         agentName: uploaderIsAgent ? agentName?.trim() || null : null,
@@ -3213,9 +3238,12 @@ function CreateSessionScreen({
     for (const item of bulkItems) {
       try {
         updateBulkItem(item.id, { status: "creating", error: null, progress: 0 });
+        const scheduledAt = new Date();
         const sessionData = await createSession({
+          title: formatRecordingUploadTitle(scheduledAt),
+          titleIsAuto: true,
           sourceFileName: item.name,
-          scheduledAt: new Date().toISOString(),
+          scheduledAt: scheduledAt.toISOString(),
           uploaderIsAgent,
           rubricId,
         });
@@ -3724,7 +3752,7 @@ function SessionDetailScreen({
           {session.location && <DetailMeta icon="location-outline" text={session.location} />}
         </View>
 
-        {session.source === "qr" && (session.leads?.length ?? 0) > 0 ? (
+        {(session.leads?.length ?? 0) > 0 ? (
           <CheckedInVisitorsCard
             leads={session.leads ?? []}
             description={`${session.leads?.length} ${(session.leads?.length ?? 0) === 1 ? "visitor" : "visitors"} ready for this tour`}
@@ -4191,7 +4219,7 @@ function SessionReviewExperience({
             </View>
           </View>
         ) : null}
-        {!readOnly && session.source === "qr" && session.leads?.length > 0 ? (
+        {!readOnly && session.leads?.length > 0 ? (
           <CheckedInVisitorsCard
             leads={session.leads}
             description={`${session.leads.length} ${session.leads.length === 1 ? "visitor" : "visitors"} joined this session`}

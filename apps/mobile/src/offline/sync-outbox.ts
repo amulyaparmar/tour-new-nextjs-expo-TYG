@@ -1,5 +1,6 @@
 import NetInfo from "@react-native-community/netinfo";
 import { AppState, type AppStateStatus } from "react-native";
+import { isRecordingUploadTitle } from "@tour/shared";
 
 import {
   createSession,
@@ -90,7 +91,8 @@ async function syncOne(session: LocalSessionMeta): Promise<LocalSessionMeta | nu
     const draft = session.draft;
     if (!remoteSessionId) {
       const created = await createSession({
-        title: session.title.trim() || null,
+        title: session.title.trim() || "Tour conversation",
+        titleIsAuto: isRecordingUploadTitle(session.title),
         sourceFileName: session.fileName,
         prospectName: draft?.prospect?.trim() || session.prospectName,
         agentName: session.agentName,

@@ -4,7 +4,6 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
-  CalendarDays,
   Camera,
   CirclePlus,
   ClipboardList,
@@ -13,29 +12,26 @@ import {
   Library,
   Loader2,
   Mic,
-  QrCode,
+  Plus,
   Square,
   Upload,
   UserRound
 } from "lucide-react";
 
+import { formatRecordingUploadTitle } from "@tour/shared";
+
 import { SmartSessionForm } from "../SmartSessionForm";
 import { RubricSelector } from "../RubricSelector";
 import { detectMediaDurationSeconds, uploadFileWithPresign } from "@/lib/client-upload";
+import {
+  SessionRecordingUploadCard,
+  type SessionUploadDraft,
+} from "./SessionRecordingUploadCard";
 
 type Phase = "choose" | "lead" | "recording" | "details" | "saving" | "bulk";
 type CreateTab = "session" | "content";
 type RecordingMode = "audio" | "video";
 type DraftType = "session" | "content";
-type BulkUploadStatus = "queued" | "creating" | "uploading" | "processing" | "done" | "error";
-type BulkUploadItem = {
-  id: string;
-  file: File;
-  status: BulkUploadStatus;
-  progress: number;
-  sessionId: string | null;
-  error: string | null;
-};
 
 function cleanDateTourTitle(date: Date) {
   const day = date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -75,9 +71,10 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [contentUploading, setContentUploading] = useState(false);
-  const [bulkItems, setBulkItems] = useState<BulkUploadItem[]>([]);
+  const [bulkItems, setBulkItems] = useState<SessionUploadDraft[]>([]);
   const [bulkProcessing, setBulkProcessing] = useState(false);
   const [uploaderIsAgent, setUploaderIsAgent] = useState(false);
+  const [sharedRubricId, setSharedRubricId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStage, setUploadStage] = useState<string | null>(null);
   const defaultSessionTitle = cleanDateTourTitle(new Date());
@@ -173,8 +170,17 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
     recorder.onstop = (e) => {
       if (typeof prev === "function") prev.call(recorder, e);
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
-      setRecordedBlob(blob);
-      setPhase("details");
+      if (draftType === "session") {
+        const ext = guessExtension(blob.type);
+        const file = new File([blob], `tour-recording-${Date.now()}.${ext}`, {
+          type: blob.type,
+          lastModified: Date.now(),
+        });
+        handleBulkFileSelect([file]);
+      } else {
+        setRecordedBlob(blob);
+        setPhase("details");
+      }
     };
     recorder.stop();
   }
@@ -188,24 +194,27 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
     setPhase("details");
   }
 
-  function handleBulkFileSelect(files: FileList | File[]) {
+  function handleBulkFileSelect(files: FileList | File[], append = false) {
     const selected = Array.from(files).filter((file) => file.type.startsWith("audio/") || file.type.startsWith("video/"));
     if (selected.length === 0) return;
-    setBulkItems(selected.map((file, index) => ({
-      id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
-      file,
-      status: "queued",
-      progress: 0,
-      sessionId: null,
-      error: null,
-    })));
+    const now = new Date();
+    const drafts = selected.map((file, index) => createUploadDraft(file, now, index));
+    setBulkItems((items) => append ? [...items, ...drafts] : drafts);
     setBulkProcessing(false);
     setErrorMsg(null);
     setPhase("bulk");
   }
 
-  function updateBulkItem(id: string, patch: Partial<BulkUploadItem>) {
-    setBulkItems((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
+  function updateBulkItem(id: string, patch: Partial<SessionUploadDraft>) {
+    setBulkItems((items) => items.map((item) => {
+      if (item.id !== id) return item;
+      const next = { ...item, ...patch };
+      if (patch.scheduledAt && item.titleIsAuto && patch.title === undefined) {
+        const nextDate = new Date(patch.scheduledAt);
+        if (!Number.isNaN(nextDate.getTime())) next.title = formatRecordingUploadTitle(nextDate);
+      }
+      return next;
+    }));
   }
 
   async function processBulkUploads(itemIds?: string[]) {
@@ -220,14 +229,24 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
       try {
         updateBulkItem(item.id, { status: "creating", error: null, progress: 0 });
         const durationSec = await detectMediaDurationSeconds(item.file);
+        const scheduledAt = new Date(item.scheduledAt);
+        const effectiveRubricId = item.usesRubricOverride
+          ? (item.rubricId ?? sharedRubricId)
+          : sharedRubricId;
         const createRes = await fetch("/api/sessions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            title: null,
+            title: item.title,
+            titleIsAuto: item.titleIsAuto,
             sourceFileName: item.file.name,
-            scheduledAt: new Date().toISOString(),
+            scheduledAt: Number.isNaN(scheduledAt.getTime()) ? new Date().toISOString() : scheduledAt.toISOString(),
+            agentName: item.agentName.trim() || null,
+            prospectName: item.prospectName.trim() || null,
             uploaderIsAgent,
+            location: item.location.trim() || null,
+            notes: item.notes.trim() || null,
+            rubricId: effectiveRubricId || null,
           }),
         });
         const createBody = await createRes.json().catch(() => null) as { session?: { id: string }; error?: string } | null;
@@ -456,8 +475,8 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
                 <Upload size={24} />
               </span>
               <span>
-                <span className="create-action-title">Upload a Recording</span>
-                <span className="create-action-copy">Add one or many Fireflies, Zoom, audio, or video files.</span>
+                <span className="create-action-title">Upload Recording</span>
+                <span className="create-action-copy">Upload one or multiple recordings from Fireflies, Zoom, or your device.</span>
               </span>
             </button>
 
@@ -467,20 +486,6 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
                 <span>
                   <span className="create-action-title">Capture Tour Lead</span>
                   <span className="create-action-copy">Log prospect details, then record or upload after.</span>
-                </span>
-              </button>
-              <button type="button" className="create-action-card" onClick={() => router.push("/calendar")}>
-                <CalendarDays size={20} />
-                <span>
-                  <span className="create-action-title">Choose an Upcoming Tour</span>
-                  <span className="create-action-copy">Start from a scheduled tour and keep it connected.</span>
-                </span>
-              </button>
-              <button type="button" className="create-action-card" onClick={() => router.push("/calendar")}>
-                <QrCode size={20} />
-                <span>
-                  <span className="create-action-title">Create a Check-In Link</span>
-                  <span className="create-action-copy">Group everyone from the same tour session.</span>
                 </span>
               </button>
             </div>
@@ -577,8 +582,7 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
           onChange={(e) => {
             const files = e.target.files;
             if (!files?.length) return;
-            if (files.length === 1) handleFileSelect(files[0]!, "session");
-            else handleBulkFileSelect(files);
+            handleBulkFileSelect(files);
             e.target.value = "";
           }}
         />
@@ -640,22 +644,28 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
     const doneCount = bulkItems.filter((item) => item.status === "done").length;
     const errorCount = bulkItems.filter((item) => item.status === "error").length;
     const readyCount = bulkItems.filter((item) => item.status === "queued" || item.status === "error").length;
+    const isSingle = bulkItems.length === 1;
     return (
       <>
         <button type="button" className="back-link" onClick={() => { setPhase("choose"); setBulkItems([]); }}>
           <ArrowLeft size={14} style={{ marginRight: 4 }} /> Back
         </button>
-        <div className="page-header">
-          <h1>Bulk upload sessions</h1>
-          <p>
-            {bulkProcessing
-              ? `${doneCount} of ${bulkItems.length} processing${errorCount ? `, ${errorCount} needs attention` : ""}`
-              : `${bulkItems.length} recording${bulkItems.length === 1 ? "" : "s"} ready for review`}
-          </p>
+        <div className="page-header recording-upload-page-header">
+          <div>
+            <h1>{isSingle ? "Upload recording" : "Upload recordings"}</h1>
+            <p>
+              {bulkProcessing
+                ? `${doneCount} of ${bulkItems.length} started${errorCount ? `, ${errorCount} needs attention` : ""}`
+                : `${bulkItems.length} recording${isSingle ? "" : "s"} ready. You can add more before processing.`}
+            </p>
+          </div>
+          <button type="button" className="btn btn-secondary" disabled={bulkProcessing} onClick={() => inputRef.current?.click()}>
+            <Plus size={16} /> Add more recordings
+          </button>
         </div>
 
-        <div className="card">
-          <div className="card-body bulk-upload-list">
+        <div className="card recording-upload-shared-card">
+          <div className="card-body recording-upload-shared-controls">
             <label className="form-check-row bulk-upload-agent-check">
               <input
                 type="checkbox"
@@ -665,58 +675,72 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
               />
               <span>
                 <strong>I am the leasing agent</strong>
-                <small>Use my profile name for these sessions. Leave unchecked to let AI identify the agent from audio.</small>
+                <small>Apply your profile name to every recording. Leave this off to let AI identify the agent.</small>
               </span>
             </label>
-            {bulkItems.map((item) => (
-              <div key={item.id} className="bulk-upload-row">
-                <div className="bulk-upload-icon"><Upload size={18} /></div>
-                <div className="bulk-upload-main">
-                  <div className="bulk-upload-title">{item.file.name}</div>
-                  <div className="bulk-upload-meta">
-                    {(item.file.size / 1024 / 1024).toFixed(1)} MB · {bulkStatusLabel(item.status)}
-                    {item.sessionId ? ` · session ${item.sessionId.slice(0, 8)}` : ""}
-                  </div>
-                  {item.status === "uploading" && (
-                    <div className="bulk-upload-progress">
-                      <span style={{ width: `${item.progress}%` }} />
-                    </div>
-                  )}
-                  {item.error && <div className="bulk-upload-error">{item.error}</div>}
-                </div>
-                <div className="bulk-upload-actions">
-                  {item.status === "done" && item.sessionId && (
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => router.push(`/sessions/${item.sessionId}`)}>
-                      Open
-                    </button>
-                  )}
+            <div className="recording-upload-shared-rubric">
+              <RubricSelector
+                name="shared-upload-rubric"
+                value={sharedRubricId}
+                onChange={setSharedRubricId}
+                showManageLink={false}
+                compact
+              />
+              <small>Applied to every recording unless you choose an override inside a recording.</small>
+            </div>
+          </div>
+        </div>
+
+        <div className="recording-upload-list" aria-label="Recordings ready to upload">
+          {bulkItems.map((item) => (
+            <div key={item.id} className="recording-upload-item">
+              <SessionRecordingUploadCard
+                item={item}
+                disabled={bulkProcessing}
+                sharedRubricId={sharedRubricId}
+                onChange={(patch) => updateBulkItem(item.id, patch)}
+                onRestoreAutomaticTitle={() => {
+                  const date = new Date(item.scheduledAt);
+                  updateBulkItem(item.id, {
+                    title: formatRecordingUploadTitle(Number.isNaN(date.getTime()) ? new Date() : date),
+                    titleIsAuto: true,
+                  });
+                }}
+                onRemove={() => {
+                  if (bulkItems.length === 1) setPhase("choose");
+                  setBulkItems((items) => items.filter((candidate) => candidate.id !== item.id));
+                }}
+              />
+              {(item.status === "error" || (item.status === "done" && item.sessionId)) && (
+                <div className="bulk-upload-actions recording-upload-item-actions">
                   {item.status === "error" && (
                     <button type="button" className="btn btn-secondary btn-sm" disabled={bulkProcessing} onClick={() => void processBulkUploads([item.id])}>
                       Retry
                     </button>
                   )}
-                  {(item.status === "queued" || item.status === "error") && <span className="badge badge-reviewed">Ready</span>}
-                  {(item.status === "creating" || item.status === "processing") && <span className="badge badge-processing">Started</span>}
-                  {item.status === "done" && <span className="badge badge-reviewed">Done</span>}
-                  {item.status === "error" && <span className="badge badge-failed">Failed</span>}
+                  {item.status === "done" && item.sessionId && (
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => router.push(`/sessions/${item.sessionId}`)}>
+                      Open
+                    </button>
+                  )}
                 </div>
-              </div>
-            ))}
-          </div>
+              )}
+            </div>
+          ))}
         </div>
 
-        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+        {errorMsg && <p className="create-error">{errorMsg}</p>}
+
+        <div className="recording-upload-actions">
           <button type="button" className="btn btn-primary" disabled={bulkProcessing || readyCount === 0} onClick={() => void processBulkUploads()}>
             {bulkProcessing ? (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                <Loader2 size={16} className="spin" /> Uploading...
+                <Loader2 size={16} className="spin" /> Uploading…
               </span>
-            ) : (
-              "Create & Process Ready"
-            )}
+            ) : readyCount === 1 ? "Create & Process Recording" : `Create & Process ${readyCount} Recordings`}
           </button>
           <button type="button" className="btn btn-secondary" disabled={bulkProcessing} onClick={() => inputRef.current?.click()}>
-            Choose Different Files
+            <Plus size={16} /> Add more recordings
           </button>
           {errorCount > 0 && !bulkProcessing && (
             <button type="button" className="btn btn-secondary" onClick={() => void processBulkUploads(bulkItems.filter((item) => item.status === "error").map((item) => item.id))}>
@@ -729,22 +753,17 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
             </button>
           )}
         </div>
+
         <input
           ref={inputRef}
           type="file"
           accept="video/*,audio/*"
           multiple
           style={{ display: "none" }}
-          onChange={(e) => {
-            const files = e.target.files;
-            if (!files?.length) return;
-            if (files.length === 1) {
-              const file = files.item(0);
-              if (file) handleFileSelect(file, "session");
-            } else {
-              handleBulkFileSelect(files);
-            }
-            e.target.value = "";
+          onChange={(event) => {
+            const files = event.target.files;
+            if (files?.length) handleBulkFileSelect(files, true);
+            event.target.value = "";
           }}
         />
       </>
@@ -942,13 +961,32 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
   );
 }
 
-function bulkStatusLabel(status: BulkUploadStatus) {
-  switch (status) {
-    case "queued": return "Ready";
-    case "creating": return "Creating session";
-    case "uploading": return "Uploading";
-    case "processing": return "Processing started";
-    case "done": return "Processing started";
-    case "error": return "Needs attention";
-  }
+function createUploadDraft(file: File, date: Date, index: number): SessionUploadDraft {
+  return {
+    id: `${file.name}-${file.size}-${file.lastModified}-${date.getTime()}-${index}`,
+    file,
+    status: "queued",
+    progress: 0,
+    sessionId: null,
+    error: null,
+    title: formatRecordingUploadTitle(date),
+    titleIsAuto: true,
+    scheduledAt: formatDateTimeLocal(date),
+    agentName: "",
+    prospectName: "",
+    location: "",
+    notes: "",
+    rubricId: null,
+    usesRubricOverride: false,
+    expanded: false,
+  };
+}
+
+function formatDateTimeLocal(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 }

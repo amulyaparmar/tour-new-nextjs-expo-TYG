@@ -11,5 +11,6 @@ export * from "./public-alias";
 export * from "./conversation-phases";
 export * from "./audio-insights";
 export * from "./audio-insights-status";
+export * from "./conversation-stats";
 export * from "./speaker-labels";
 export * from "./presigned-upload";

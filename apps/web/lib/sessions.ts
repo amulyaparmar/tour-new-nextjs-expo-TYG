@@ -24,7 +24,6 @@ import {
   addLocalSessionAttachment,
   createLocalSession,
   deleteLocalSession,
-  findOpenLocalQrSession,
   getLocalAnalysis,
   getLocalAnalysisRun,
   getLocalAudioInsights,
@@ -343,6 +342,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     input.propertyId ? (await getPrimaryRubricForProperty(input.propertyId)).id : null
   );
   const payload = {
+    ...(input.id ? { id: input.id } : {}),
     title: normalizedTitle,
     status: input.status ?? "scheduled",
     scheduled_at: input.scheduledAt ?? null,
@@ -372,7 +372,10 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     }
 
     const created = mapSessionRow(data);
-    if (created.propertyId) {
+    if (
+      created.propertyId
+      && (created.source !== "qr" || created.leads.length > 0)
+    ) {
       void import("./push")
         .then(({ notifyNewSession }) =>
           notifyNewSession({
@@ -390,6 +393,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
   } catch (error) {
     rethrowInProduction(error);
     return createLocalSession({
+      id: input.id,
       title: normalizedTitle,
       status: input.status ?? "scheduled",
       scheduledAt: input.scheduledAt ?? null,
@@ -404,53 +408,6 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       agentId: input.agentId ?? null,
       propertyId: input.propertyId ?? null,
     });
-  }
-}
-
-const QR_GROUP_WINDOW_MS = 2 * 60 * 60 * 1000;
-
-/**
- * Most recent QR-created session still `in_progress` for the same property and
- * team member within the grouping window. Additional people scanning that QR
- * join the session instead of creating duplicate tours.
- *
- * `agentId` may be a single id or a list of equivalent refs (alias, user:{uuid}, etc.).
- */
-export async function findOpenQrSession(
-  propertyId?: string | null,
-  agentId?: string | string[] | null
-): Promise<SessionSummary | null> {
-  const cutoff = new Date(Date.now() - QR_GROUP_WINDOW_MS).toISOString();
-  const agentIds = Array.isArray(agentId)
-    ? agentId.map((value) => value.trim()).filter(Boolean)
-    : agentId?.trim()
-      ? [agentId.trim()]
-      : [];
-  try {
-    const supabase = getSupabaseServiceClient();
-    let query = supabase
-      .from("sessions")
-      .select(SESSION_COLUMNS)
-      .eq("source", "qr")
-      .eq("status", "in_progress")
-      .gte("created_at", cutoff)
-      .order("created_at", { ascending: false })
-      .limit(1);
-    query = propertyId ? query.eq("property_id", propertyId) : query.is("property_id", null);
-    if (agentIds.length === 1) {
-      query = query.eq("agent_id", agentIds[0]!);
-    } else if (agentIds.length > 1) {
-      query = query.in("agent_id", agentIds);
-    } else {
-      query = query.is("agent_id", null);
-    }
-    const { data, error } = await query.maybeSingle<SessionRow>();
-
-    if (error) throw new Error(error.message);
-    return data ? mapSessionRow(data) : null;
-  } catch (error) {
-    rethrowInProduction(error);
-    return findOpenLocalQrSession(cutoff, propertyId, agentIds);
   }
 }
 

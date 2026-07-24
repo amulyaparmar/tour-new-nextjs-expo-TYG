@@ -1,5 +1,11 @@
 import { FatalError } from "workflow";
 
+import {
+  decorateParticipantNameByConfidence,
+  participantNameWithoutConfidenceMarker,
+  withRecordingParticipants,
+} from "@tour/shared";
+
 import { generateAnalysis, generateFollowUpActions } from "@/lib/analysis";
 import { segmentConversationPhases } from "@/lib/conversation-phases";
 import { resolveRubricForReanalysis } from "@/lib/reanalyze-session";
@@ -33,11 +39,13 @@ export async function transcribeSessionStep(sessionId: string) {
   const file = await fetchRecordingFile(sessionId);
   if (!file) throw new FatalError("No recording found in storage for this session.");
 
+  const rubric = await getRubricForSession(session.rubricId, session.propertyId);
   const transcript = await transcribeAudio(
     sessionId,
     file.buffer,
     file.mimeType,
     file.fileName,
+    rubric.transcribeProvider,
   );
   await saveTranscript(
     sessionId,
@@ -88,9 +96,15 @@ export async function analyzeSessionStep(sessionId: string) {
 
   const transcript = await getTranscript(sessionId);
   const rubric = await getRubricForSession(session.rubricId, session.propertyId);
+  const promptTitle = withRecordingParticipants(
+    session.title,
+    participantNameWithoutConfidenceMarker(session.agentName),
+    participantNameWithoutConfidenceMarker(session.prospectName),
+    rubric.sessionType,
+  );
   const analysis = await generateAnalysis({
-    title: session.title,
-    prospectName: session.prospectName,
+    title: promptTitle,
+    prospectName: participantNameWithoutConfidenceMarker(session.prospectName),
     location: session.location,
     notes: session.notes,
     transcript,
@@ -105,19 +119,44 @@ export async function analyzeSessionStep(sessionId: string) {
     rubricName: rubric.name,
   });
 
-  const nameUpdates: { agentName?: string; prospectName?: string; title?: string } = {};
-  if (!session.agentName && analysis.participantNames?.agentName) {
-    nameUpdates.agentName = analysis.participantNames.agentName;
+  const nameUpdates: { title?: string; agentName?: string; prospectName?: string } = {};
+  const extractedAgentName = decorateParticipantNameByConfidence(
+    analysis.participantNames?.agentName,
+    analysis.participantNames?.agentNameConfidence,
+  );
+  const extractedProspectName = decorateParticipantNameByConfidence(
+    analysis.participantNames?.prospectName,
+    analysis.participantNames?.prospectNameConfidence,
+  );
+  if (
+    extractedAgentName
+    && extractedAgentName !== session.agentName
+  ) {
+    nameUpdates.agentName = extractedAgentName;
   }
-  if (!session.prospectName && analysis.participantNames?.prospectName) {
-    nameUpdates.prospectName = analysis.participantNames.prospectName;
+  if (
+    extractedProspectName
+    && extractedProspectName !== session.prospectName
+  ) {
+    nameUpdates.prospectName = extractedProspectName;
   }
-  const derivedTitle = deriveSessionTitleFromParticipants({
-    currentTitle: session.title,
-    agentName: nameUpdates.agentName ?? session.agentName,
-    prospectName: nameUpdates.prospectName ?? session.prospectName,
-  });
-  if (derivedTitle) nameUpdates.title = derivedTitle;
+  const updatedTitle = withRecordingParticipants(
+    session.title,
+    nameUpdates.agentName ?? session.agentName,
+    nameUpdates.prospectName ?? session.prospectName,
+    rubric.sessionType,
+    analysis.topicSummary,
+  );
+  if (updatedTitle !== session.title) {
+    nameUpdates.title = updatedTitle;
+  } else {
+    const derivedTitle = deriveSessionTitleFromParticipants({
+      currentTitle: session.title,
+      agentName: nameUpdates.agentName ?? session.agentName,
+      prospectName: nameUpdates.prospectName ?? session.prospectName,
+    });
+    if (derivedTitle) nameUpdates.title = derivedTitle;
+  }
   if (Object.keys(nameUpdates).length > 0) {
     await updateSession(sessionId, nameUpdates);
   }
@@ -133,9 +172,15 @@ export async function followUpActionsStep(sessionId: string) {
   if (!session || !analysis) throw new FatalError("Session or analysis missing for follow-up actions.");
 
   const rubric = await getRubricForSession(session.rubricId, session.propertyId);
+  const promptTitle = withRecordingParticipants(
+    session.title,
+    participantNameWithoutConfidenceMarker(session.agentName),
+    participantNameWithoutConfidenceMarker(session.prospectName),
+    rubric.sessionType,
+  );
   const actions = await generateFollowUpActions(analysis, {
-    title: session.title,
-    prospectName: session.prospectName,
+    title: promptTitle,
+    prospectName: participantNameWithoutConfidenceMarker(session.prospectName),
     notes: session.notes,
     analysisModel: rubric.analysisModel
   });

@@ -26,9 +26,9 @@ export type Rubric = {
   definition: RubricDefinition;
   /** Standardized model id for AI rubric analysis (mapped to provider at runtime). */
   analysisModel: AnalysisModelId;
-  /** Transcription provider used when processing sessions with this rubric. */
+  /** Persisted for compatibility; session processing standardizes on ElevenLabs Scribe. */
   transcribeProvider: TranscribeProviderId;
-  /** Gemini-only multimodal audio insights (sentiment, emotion, ambience). */
+  /** Optional post-transcription Gemini audio insights (sentiment, emotion, ambience). */
   audioUnderstandingEnabled: boolean;
   /** Preset id or custom label describing the session format this rubric targets. */
   sessionType: string;
@@ -48,7 +48,6 @@ export type CreateRubricInput = {
   name: string;
   definition: RubricDefinition;
   analysisModel?: AnalysisModelId;
-  transcribeProvider?: TranscribeProviderId;
   audioUnderstandingEnabled?: boolean;
   sessionType?: string;
   segmentationPrompt?: string | null;

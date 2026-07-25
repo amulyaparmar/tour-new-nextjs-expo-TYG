@@ -6,10 +6,10 @@ import { randomUUID } from "node:crypto";
 
 import type { CreateRubricInput, Rubric, RubricDefinition } from "@tour/shared";
 import {
+  DEFAULT_TRANSCRIBE_PROVIDER,
   DEFAULT_RUBRIC_SESSION_TYPE,
   normalizeAnalysisModelId,
   normalizeRubricDefinition,
-  normalizeTranscribeProviderId,
 } from "@tour/shared";
 
 import { DEFAULT_RBG_RUBRIC_DEFINITION, DEFAULT_RBG_RUBRIC_NAME } from "./default-rubric";
@@ -52,7 +52,7 @@ function mapRow(row: RubricRow): Rubric {
     name: row.name,
     definition: normalizeRubricDefinition(rawDefinition),
     analysisModel: normalizeAnalysisModelId(row.analysis_model, defaultAnalysisModelId()),
-    transcribeProvider: normalizeTranscribeProviderId(row.transcribe_provider),
+    transcribeProvider: DEFAULT_TRANSCRIBE_PROVIDER,
     audioUnderstandingEnabled: Boolean(row.audio_understanding_enabled),
     sessionType: normalizeSessionType(row.session_type),
     segmentationPrompt: row.segmentation_prompt?.trim() || null,
@@ -116,7 +116,7 @@ export async function listRubrics(): Promise<Rubric[]> {
         name: DEFAULT_RBG_RUBRIC_NAME,
         definition: DEFAULT_RBG_RUBRIC_DEFINITION,
         analysis_model: defaultAnalysisModelId(),
-        transcribe_provider: "whisper",
+        transcribe_provider: DEFAULT_TRANSCRIBE_PROVIDER,
         audio_understanding_enabled: false,
         source_url: null,
         is_default: true,
@@ -197,7 +197,7 @@ export async function ensurePropertyRubric(
     name: "Tour",
     definition: normalizeRubricDefinition(template.definition ?? template.definition_json),
     analysis_model: normalizeAnalysisModelId(template.analysis_model, defaultAnalysisModelId()),
-    transcribe_provider: normalizeTranscribeProviderId(template.transcribe_provider),
+    transcribe_provider: DEFAULT_TRANSCRIBE_PROVIDER,
     audio_understanding_enabled: Boolean(template.audio_understanding_enabled),
     session_type: normalizeSessionType(template.session_type),
     segmentation_prompt: template.segmentation_prompt ?? null,
@@ -276,7 +276,7 @@ export async function getRubricForSession(
 export async function createRubric(input: CreateRubricInput): Promise<Rubric> {
   const definition = normalizeRubricDefinition(input.definition);
   const analysisModel = normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId());
-  const transcribeProvider = normalizeTranscribeProviderId(input.transcribeProvider);
+  const transcribeProvider = DEFAULT_TRANSCRIBE_PROVIDER;
   const audioUnderstandingEnabled = Boolean(input.audioUnderstandingEnabled);
   const now = new Date().toISOString();
   const payload = {
@@ -345,9 +345,6 @@ export async function updateRubric(rubricId: string, input: Partial<CreateRubric
   const nextDefinition = input.definition === undefined
     ? existing.definition
     : normalizeRubricDefinition(input.definition);
-  const nextTranscribeProvider = input.transcribeProvider === undefined
-    ? existing.transcribeProvider
-    : normalizeTranscribeProviderId(input.transcribeProvider);
   const nextAudioUnderstanding = input.audioUnderstandingEnabled === undefined
     ? existing.audioUnderstandingEnabled
     : Boolean(input.audioUnderstandingEnabled);
@@ -357,7 +354,7 @@ export async function updateRubric(rubricId: string, input: Partial<CreateRubric
     analysis_model: input.analysisModel === undefined
       ? existing.analysisModel
       : normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId()),
-    transcribe_provider: nextTranscribeProvider,
+    transcribe_provider: DEFAULT_TRANSCRIBE_PROVIDER,
     audio_understanding_enabled: nextAudioUnderstanding,
     session_type: input.sessionType === undefined
       ? existing.sessionType
@@ -444,7 +441,6 @@ export async function cloneRubricTemplate(
     name: name?.trim() || template.name,
     definition: template.definition,
     analysisModel: template.analysisModel,
-    transcribeProvider: template.transcribeProvider,
     audioUnderstandingEnabled: template.audioUnderstandingEnabled,
     sessionType: template.sessionType,
     segmentationPrompt: template.segmentationPrompt,

@@ -12,8 +12,16 @@ const GEMINI_BASE_DELAY_MS = 3_000;
 const GEMINI_MAX_DELAY_MS = 90_000;
 const GEMINI_DEFAULT_TIMEOUT_MS = 60_000;
 const GEMINI_GENERATE_TIMEOUT_MS = 30_000;
+const GEMINI_CHAT_TIMEOUT_MS = 30_000;
+const GEMINI_AUDIO_INSIGHTS_TIMEOUT_MS = 10 * 60_000;
 const GEMINI_UPLOAD_TIMEOUT_MS = 180_000;
 const GEMINI_FILE_GET_TIMEOUT_MS = 30_000;
+
+type GeminiRetryOptions = {
+  timeoutMs?: number;
+  maxAttempts?: number;
+  retryTimeouts?: boolean;
+};
 
 function readPositiveIntEnv(name: string): number | null {
   const value = process.env[name]?.trim();
@@ -26,7 +34,15 @@ function geminiRequestTimeoutMs(label: string): number {
   const globalTimeout = readPositiveIntEnv("GEMINI_REQUEST_TIMEOUT_MS");
   const normalized = label.toLowerCase();
 
-  if (normalized.includes("generatecontent") || normalized.includes("audio chat")) {
+  if (normalized.includes("audio chat")) {
+    return (
+      readPositiveIntEnv("GEMINI_CHAT_TIMEOUT_MS")
+      ?? globalTimeout
+      ?? GEMINI_CHAT_TIMEOUT_MS
+    );
+  }
+
+  if (normalized.includes("generatecontent")) {
     return (
       readPositiveIntEnv("GEMINI_GENERATE_TIMEOUT_MS")
       ?? globalTimeout
@@ -53,6 +69,13 @@ function geminiRequestTimeoutMs(label: string): number {
   return globalTimeout ?? GEMINI_DEFAULT_TIMEOUT_MS;
 }
 
+export function getGeminiAudioInsightsTimeoutMs(): number {
+  return (
+    readPositiveIntEnv("GEMINI_AUDIO_INSIGHTS_TIMEOUT_MS")
+    ?? GEMINI_AUDIO_INSIGHTS_TIMEOUT_MS
+  );
+}
+
 function geminiTimeoutError(label: string, timeoutMs: number): Error {
   return new Error(`${label} timed out after ${timeoutMs}ms`);
 }
@@ -74,12 +97,20 @@ function isRetryableGeminiStatus(status: number): boolean {
 async function fetchWithGeminiRetry(
   url: string,
   init: RequestInit,
-  label: string
+  label: string,
+  options: GeminiRetryOptions = {},
 ): Promise<Response> {
   let lastError: Error | null = null;
+  const maxAttempts =
+    Number.isFinite(options.maxAttempts) && Number(options.maxAttempts) > 0
+      ? Math.floor(Number(options.maxAttempts))
+      : GEMINI_MAX_ATTEMPTS;
 
-  for (let attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS; attempt++) {
-    const timeoutMs = geminiRequestTimeoutMs(label);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const timeoutMs =
+      Number.isFinite(options.timeoutMs) && Number(options.timeoutMs) > 0
+        ? Math.floor(Number(options.timeoutMs))
+        : geminiRequestTimeoutMs(label);
     const controller = new AbortController();
     const timeout = setTimeout(() => {
       controller.abort(geminiTimeoutError(label, timeoutMs));
@@ -92,13 +123,13 @@ async function fetchWithGeminiRetry(
       const errText = await response.text();
       lastError = new Error(`${label} error ${response.status}: ${errText}`);
 
-      if (!isRetryableGeminiStatus(response.status) || attempt === GEMINI_MAX_ATTEMPTS) {
+      if (!isRetryableGeminiStatus(response.status) || attempt === maxAttempts) {
         throw lastError;
       }
 
       const delayMs = geminiRetryDelayMs(attempt);
       console.warn(
-        `[gemini] ${label} returned ${response.status}; retry ${attempt}/${GEMINI_MAX_ATTEMPTS} in ${delayMs}ms`
+        `[gemini] ${label} returned ${response.status}; retry ${attempt}/${maxAttempts} in ${delayMs}ms`
       );
       await sleep(delayMs);
     } catch (error) {
@@ -106,12 +137,22 @@ async function fetchWithGeminiRetry(
         throw error;
       }
 
-      lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt === GEMINI_MAX_ATTEMPTS) throw lastError;
+      lastError =
+        controller.signal.aborted && controller.signal.reason instanceof Error
+          ? controller.signal.reason
+          : error instanceof Error
+            ? error
+            : new Error(String(error));
+      const timedOut =
+        controller.signal.aborted
+        && lastError.message === geminiTimeoutError(label, timeoutMs).message;
+      if ((timedOut && options.retryTimeouts === false) || attempt === maxAttempts) {
+        throw lastError;
+      }
 
       const delayMs = geminiRetryDelayMs(attempt);
       console.warn(
-        `[gemini] ${label} network error; retry ${attempt}/${GEMINI_MAX_ATTEMPTS} in ${delayMs}ms:`,
+        `[gemini] ${label} network error; retry ${attempt}/${maxAttempts} in ${delayMs}ms:`,
         lastError.message
       );
       await sleep(delayMs);
@@ -120,7 +161,7 @@ async function fetchWithGeminiRetry(
     }
   }
 
-  throw lastError ?? new Error(`${label} failed after ${GEMINI_MAX_ATTEMPTS} attempts`);
+  throw lastError ?? new Error(`${label} failed after ${maxAttempts} attempts`);
 }
 
 export type GeminiUploadedFile = {
@@ -338,6 +379,7 @@ export async function geminiGenerateJson<T>(params: {
   model?: string;
   uploadedFile?: GeminiUploadedFile;
   useResponseSchema?: boolean;
+  requestOptions?: GeminiRetryOptions;
 }): Promise<T> {
   const { apiKey, model: defaultModel } = getGeminiConfig();
   const model = params.model ?? defaultModel;
@@ -379,7 +421,8 @@ export async function geminiGenerateJson<T>(params: {
       },
       body: JSON.stringify(body),
     },
-    "Gemini generateContent"
+    "Gemini generateContent",
+    params.requestOptions,
   );
 
   const payload = (await response.json()) as {

@@ -4,9 +4,9 @@ import type { TranscriptSegment } from "./transcribe";
 
 /**
  * Original OpenAI pipeline: Whisper-1 for transcription + a separate LLM call for
- * speaker diarization. Kept as a selectable provider (TRANSCRIBE_PROVIDER=whisper).
- * Note: Whisper has a 25MB upload cap and the diarization is an LLM guess — prefer
- * deepgram/aws for long or multi-speaker tours.
+ * speaker diarization. Retained only for isolated provider smoke tests; production
+ * session transcription always uses ElevenLabs Scribe. Note: Whisper has a 25MB
+ * upload cap and the diarization is an LLM guess.
  */
 export async function transcribeWithWhisper(
   sessionId: string,

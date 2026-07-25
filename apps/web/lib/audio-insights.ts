@@ -11,6 +11,7 @@ import {
 import {
   geminiGenerateJson,
   geminiChatWithAudioFile,
+  getGeminiAudioInsightsTimeoutMs,
   getGeminiConfig,
   parseGeminiTimestamp,
   uploadGeminiAudioFile,
@@ -362,6 +363,12 @@ export async function generateAudioInsights(params: {
     fileName: params.fileName,
     model,
     uploadedFile,
+    requestOptions: {
+      timeoutMs: getGeminiAudioInsightsTimeoutMs(),
+      // A full ten-minute provider timeout is already retried by the workflow
+      // step. Do not multiply it by the client's six-attempt retry loop.
+      retryTimeouts: false,
+    },
   });
 
   const insights: AudioInsights = {

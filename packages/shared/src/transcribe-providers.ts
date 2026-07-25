@@ -44,7 +44,8 @@ export const TRANSCRIBE_PROVIDERS: readonly TranscribeProvider[] = [
   },
 ] as const;
 
-export const DEFAULT_TRANSCRIBE_PROVIDER: TranscribeProviderId = "whisper";
+/** All session transcription starts with ElevenLabs Scribe. */
+export const DEFAULT_TRANSCRIBE_PROVIDER: TranscribeProviderId = "elevenlabs";
 
 const PROVIDER_BY_ID = new Map(TRANSCRIBE_PROVIDERS.map((provider) => [provider.id, provider]));
 

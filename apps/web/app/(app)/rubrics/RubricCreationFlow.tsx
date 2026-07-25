@@ -11,10 +11,10 @@ import {
   ANALYSIS_MODELS,
   AI_PROVIDER_LABELS,
   DEFAULT_ANALYSIS_MODEL,
+  DEFAULT_TRANSCRIBE_PROVIDER,
   DEFAULT_RUBRIC_SESSION_TYPE,
   DEFAULT_SEGMENTATION_PROMPT,
   RUBRIC_SESSION_TYPE_PRESETS,
-  TRANSCRIBE_PROVIDERS,
   buildRubricAnalysisPrompt,
   getTranscribeProvider,
   isRubricSessionTypePreset,
@@ -23,7 +23,6 @@ import {
   type AiProvider,
   type RubricDefinition,
   type RubricSessionTypePresetId,
-  type TranscribeProviderId,
 } from "@tour/shared";
 
 import { invalidateRubricsCache } from "@/lib/client-rubrics-cache";
@@ -106,10 +105,7 @@ export function RubricCreationFlow({
   const [analysisModel, setAnalysisModel] = useState<AnalysisModelId>(
     initialRubric?.analysisModel ?? DEFAULT_ANALYSIS_MODEL
   );
-  const [transcribeProvider, setTranscribeProvider] =
-    useState<TranscribeProviderId>(
-      initialRubric?.transcribeProvider ?? "whisper"
-    );
+  const transcribeProvider = DEFAULT_TRANSCRIBE_PROVIDER;
   const [audioUnderstandingEnabled, setAudioUnderstandingEnabled] = useState(
     initialRubric?.audioUnderstandingEnabled ?? false
   );
@@ -258,7 +254,6 @@ export function RubricCreationFlow({
           name,
           definition,
           analysisModel,
-          transcribeProvider,
           audioUnderstandingEnabled,
           sessionType: resolvedSessionType || DEFAULT_RUBRIC_SESSION_TYPE,
           segmentationPrompt: normalizeRubricPromptOverride(segmentationPrompt, DEFAULT_SEGMENTATION_PROMPT),
@@ -537,19 +532,11 @@ export function RubricCreationFlow({
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-foreground mb-1.5">Transcription provider</label>
-                    <select
-                      value={transcribeProvider}
-                      onChange={(event) => setTranscribeProvider(event.target.value as TranscribeProviderId)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
-                      {TRANSCRIBE_PROVIDERS.map((provider) => (
-                        <option key={provider.id} value={provider.id}>
-                          {provider.label}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm font-medium">
+                      {getTranscribeProvider(transcribeProvider).label}
+                    </div>
                     <p className="mt-1.5 text-xs text-muted-foreground">
-                      {getTranscribeProvider(transcribeProvider).description}
+                      All sessions use ElevenLabs Scribe with diarization and agent/prospect role detection.
                     </p>
                   </div>
                   <label className="flex items-start gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 cursor-pointer transition-colors">

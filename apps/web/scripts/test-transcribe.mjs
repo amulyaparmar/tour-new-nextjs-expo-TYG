@@ -34,7 +34,7 @@ const loadedEnvFiles = await loadEnvFiles([
   path.join(process.cwd(), ".env.local")
 ]);
 
-const provider = (process.env.TRANSCRIBE_PROVIDER || "whisper").toLowerCase();
+const provider = (process.env.TRANSCRIBE_PROVIDER || "elevenlabs").toLowerCase();
 
 const REQUIRED = {
   whisper: ["OPENAI_API_KEY"],

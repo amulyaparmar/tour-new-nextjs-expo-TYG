@@ -29,7 +29,6 @@ export async function PATCH(request: Request, context: Context) {
       sourceUrl?: string | null;
       isDefault?: boolean;
       analysisModel?: string;
-      transcribeProvider?: string;
       audioUnderstandingEnabled?: boolean;
       sessionType?: string;
       segmentationPrompt?: string | null;
@@ -49,7 +48,6 @@ export async function PATCH(request: Request, context: Context) {
       sourceUrl: body.sourceUrl,
       isDefault: body.isDefault,
       analysisModel: body.analysisModel as never,
-      transcribeProvider: body.transcribeProvider as never,
       audioUnderstandingEnabled: body.audioUnderstandingEnabled,
       sessionType: body.sessionType,
       segmentationPrompt: body.segmentationPrompt,

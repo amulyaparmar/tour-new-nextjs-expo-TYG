@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { AdminAuthError, propertySessionKeys, requireAdminContext } from "@/lib/admin-auth";
+import { isTranscribeProviderId } from "@tour/shared";
+
+import {
+  AdminAuthError,
+  isLeaseMagnetsEmail,
+  propertySessionKeys,
+  requireAdminContext,
+} from "@/lib/admin-auth";
 import { cloneRubricTemplate, deleteRubric, getRubricById, updateRubric } from "@/lib/rubrics";
 
 type Context = { params: Promise<{ id: string }> };
@@ -43,22 +50,40 @@ export async function PATCH(request: Request, context: Context) {
       sourceUrl?: string | null;
       isDefault?: boolean;
       analysisModel?: string;
+      transcribeProvider?: unknown;
       audioUnderstandingEnabled?: boolean;
       sessionType?: string;
       segmentationPrompt?: string | null;
       analysisPrompt?: string | null;
     };
+    const canChangeTranscribeProvider = isLeaseMagnetsEmail(workspace.user.email);
+    if (body.transcribeProvider !== undefined && !canChangeTranscribeProvider) {
+      throw new AdminAuthError(
+        "Only LeaseMagnets users can change the transcription provider.",
+        403,
+      );
+    }
+    if (
+      body.transcribeProvider !== undefined
+      && (
+        typeof body.transcribeProvider !== "string"
+        || !isTranscribeProviderId(body.transcribeProvider)
+      )
+    ) {
+      return NextResponse.json({ error: "Invalid transcription provider." }, { status: 400 });
+    }
     const rubric = await updateRubric(id, {
       name: body.name,
       definition: body.definition as never,
       sourceUrl: body.sourceUrl,
       isDefault: body.isDefault,
       analysisModel: body.analysisModel as never,
+      transcribeProvider: body.transcribeProvider,
       audioUnderstandingEnabled: body.audioUnderstandingEnabled,
       sessionType: body.sessionType,
       segmentationPrompt: body.segmentationPrompt,
       analysisPrompt: body.analysisPrompt,
-    });
+    }, { canChangeTranscribeProvider });
     return NextResponse.json({ rubric });
   } catch (caught) {
     return NextResponse.json(

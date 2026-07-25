@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { propertySessionKeys } from "@/lib/admin-auth";
+import { isLeaseMagnetsEmail, propertySessionKeys } from "@/lib/admin-auth";
 import { listRubricTemplates, listRubricsForCommunity } from "@/lib/rubrics";
 import { listSessions } from "@/lib/sessions";
 import { requireTourWorkspace } from "@/lib/tour-auth";
@@ -25,6 +25,7 @@ export async function loadRubricsPageData() {
     rubrics,
     templates,
     sessionCounts,
+    canChangeTranscribeProvider: isLeaseMagnetsEmail(workspace.user.email),
   };
 }
 

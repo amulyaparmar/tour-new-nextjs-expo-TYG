@@ -62,7 +62,7 @@ export function LoginScreen({
   const [transitionDirection, setTransitionDirection] = useState<TransitionDirection>("forward");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [expectedCode, setExpectedCode] = useState("");
+  const [challengeId, setChallengeId] = useState("");
   const [emailSent, setEmailSent] = useState(true);
   const [pendingSession, setPendingSession] = useState<MobileAuthSession | null>(null);
   const [propertyQuery, setPropertyQuery] = useState("");
@@ -114,11 +114,12 @@ export function LoginScreen({
     if (!email.trim() || submitting) return;
     setSubmitting(true);
     setError(null);
+    setChallengeId("");
     try {
       const challenge = await requestSignInCode(email);
       setEmail(challenge.email);
-      setExpectedCode(challenge.expectedCode);
-      setEmailSent(challenge.emailSent !== false);
+      setChallengeId(challenge.challengeId);
+      setEmailSent(challenge.emailSent);
       setCode("");
       setResendCooldown(RESEND_COOLDOWN_SECONDS);
       transitionTo("code", "forward");
@@ -130,11 +131,11 @@ export function LoginScreen({
   }
 
   async function verifyCode() {
-    if (code.length < 4 || !expectedCode || submitting) return;
+    if (code.length !== 6 || !challengeId || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      const session = await verifySignInCode(email, code, expectedCode);
+      const session = await verifySignInCode(email, challengeId, code);
       if (session.workspace.communities.length > 1) {
         setPendingSession(session);
         transitionTo("property", "forward");
@@ -220,7 +221,7 @@ export function LoginScreen({
                     value={email}
                     onChangeText={(value) => {
                       setEmail(value);
-                      setExpectedCode("");
+                      setChallengeId("");
                       setError(null);
                     }}
                     placeholder="you@company.com"
@@ -251,7 +252,7 @@ export function LoginScreen({
                   subtitle={
                     emailSent
                       ? `We sent a sign-in code to ${email}.`
-                      : `Email delivery failed — use the test code below for ${email}.`
+                      : `We could not deliver a sign-in code to ${email}.`
                   }
                 />
                 <View style={styles.formBlock}>
@@ -261,41 +262,22 @@ export function LoginScreen({
                     </View>
                     <View style={styles.deliveryCopy}>
                       <Text style={styles.deliveryTitle}>
-                        {emailSent ? "Waiting for your 4-digit code" : "Use the on-screen code"}
+                        {emailSent ? "Waiting for your 6-digit code" : "Code delivery failed"}
                       </Text>
                       <Text style={styles.deliveryText}>
                         {emailSent
                           ? "Look for an email from Tour. Delivery can take up to a minute."
-                          : "Tour could not deliver the email. Enter the test code shown below."}
+                          : "Check the address, then use Resend code to try again."}
                       </Text>
                     </View>
                   </View>
-                  {shouldShowTestCode(email, emailSent, expectedCode) ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Use test sign-in code"
-                      onPress={() => {
-                        setCode(expectedCode);
-                        setError(null);
-                      }}
-                      style={({ pressed }) => [styles.testCodeCard, pressed && styles.pressed]}
-                    >
-                      <Text style={styles.testCodeLabel}>
-                        {email.trim().toLowerCase().endsWith("@leasemagnets.com")
-                          ? "Test code (or 4424)"
-                          : "Test code"}
-                      </Text>
-                      <Text style={styles.testCodeValue}>{expectedCode}</Text>
-                      <Text style={styles.testCodeHint}>Tap to autofill</Text>
-                    </Pressable>
-                  ) : null}
                   <Field
                     value={code}
                     onChangeText={(value) => {
-                      setCode(value.replace(/\D/g, "").slice(0, 4));
+                      setCode(value.replace(/\D/g, "").slice(0, 6));
                       setError(null);
                     }}
-                    placeholder="0000"
+                    placeholder="000000"
                     keyboardType="number-pad"
                     autoComplete="one-time-code"
                     textContentType="oneTimeCode"
@@ -310,7 +292,7 @@ export function LoginScreen({
                     label="Verify and continue"
                     onPress={() => void verifyCode()}
                     loading={submitting}
-                    disabled={code.length < 4}
+                    disabled={code.length !== 6}
                   />
                   <Pressable
                     accessibilityRole="button"
@@ -356,12 +338,6 @@ export function LoginScreen({
       ) : null}
     </View>
   );
-}
-
-function shouldShowTestCode(email: string, emailSent: boolean, expectedCode: string) {
-  if (!/^\d{4}$/.test(expectedCode)) return false;
-  if (__DEV__) return true;
-  return false;
 }
 
 function LoginHeader({
@@ -522,19 +498,6 @@ const styles = StyleSheet.create({
   deliveryCopy: { flex: 1, gap: 2 },
   deliveryTitle: { color: "#067647", fontSize: 12, lineHeight: 17, fontWeight: "800" },
   deliveryText: { color: "#027a48", fontSize: 11, lineHeight: 16, fontWeight: "500" },
-  testCodeCard: {
-    alignItems: "center",
-    gap: 4,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: "#b2ddff",
-    borderRadius: 10,
-    backgroundColor: "#eff8ff",
-  },
-  testCodeLabel: { color: "#175cd3", fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
-  testCodeValue: { color: "#101828", fontSize: 28, fontWeight: "900", letterSpacing: 6 },
-  testCodeHint: { color: "#667085", fontSize: 11, fontWeight: "600" },
   input: {
     width: "100%",
     minHeight: 52,

@@ -9,28 +9,60 @@ import {
   setAdminAccessCookie,
   createSupabaseAnonClient,
   createMobileWorkspacePayload,
+  isGlobalPropertyAdminEmail,
+  listAccessibleBusinessOptionsForEmail,
   propertySessionKeys,
   resolveAdminContextForUser,
 } from "@/lib/admin-auth";
+import {
+  AdminOtpError,
+  consumeAdminOtpChallenge,
+  restoreAdminOtpChallenge,
+} from "@/lib/admin-otp";
 import { ensurePropertyRubric } from "@/lib/rubrics";
 import { ensurePropertyTeamMember } from "@/lib/property-team";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as {
     email?: string;
-    clientVerified?: boolean;
+    challengeId?: string;
+    code?: string;
   };
   const email = body.email?.trim().toLowerCase() ?? "";
+  const challengeId = body.challengeId?.trim() ?? "";
+  const code = body.code?.trim() ?? "";
 
-  if (!email || body.clientVerified !== true) {
+  if (!email || !UUID_PATTERN.test(challengeId) || !/^\d{6}$/.test(code)) {
     return NextResponse.json(
       { error: "Email verification is required." },
       { status: 400 }
     );
   }
 
+  let challengeConsumed = false;
   try {
+    await consumeAdminOtpChallenge({ challengeId, email, code });
+    challengeConsumed = true;
+
+    const accessibleBusinesses = await listAccessibleBusinessOptionsForEmail({
+      email,
+      limit: 1,
+    });
+    if (
+      accessibleBusinesses.length === 0
+      && !isGlobalPropertyAdminEmail(email)
+    ) {
+      return NextResponse.json({
+        verified: true,
+        onboardingRequired: true,
+        email,
+      });
+    }
+
     const service = getSupabaseServiceClient();
     const { data: linkData, error: linkError } = await service.auth.admin.generateLink({
       type: "magiclink",
@@ -38,6 +70,8 @@ export async function POST(request: Request) {
     });
     const tokenHash = linkData?.properties?.hashed_token;
     if (linkError || !tokenHash) {
+      await restoreAdminOtpChallenge(challengeId, email).catch(() => undefined);
+      challengeConsumed = false;
       return NextResponse.json(
         { error: linkError?.message ?? "No Tour account is connected to this work email yet." },
         { status: 401 }
@@ -47,6 +81,8 @@ export async function POST(request: Request) {
     const auth = createSupabaseAnonClient();
     const { data, error } = await auth.auth.verifyOtp({ token_hash: tokenHash, type: "magiclink" });
     if (error || !data.user || !data.session) {
+      await restoreAdminOtpChallenge(challengeId, email).catch(() => undefined);
+      challengeConsumed = false;
       return NextResponse.json(
         { error: error?.message ?? "Could not create the app session." },
         { status: 400 }
@@ -105,7 +141,14 @@ export async function POST(request: Request) {
     response.headers.set("Cache-Control", "private, no-store");
     return response;
   } catch (caught) {
-    const status = caught instanceof AdminAuthError ? caught.status : 500;
+    const status = caught instanceof AdminOtpError
+      ? caught.status
+      : caught instanceof AdminAuthError
+        ? caught.status
+        : 500;
+    if (challengeConsumed && status >= 500) {
+      await restoreAdminOtpChallenge(challengeId, email).catch(() => undefined);
+    }
     return NextResponse.json(
       { error: caught instanceof Error ? caught.message : "Could not verify the sign-in code." },
       { status }

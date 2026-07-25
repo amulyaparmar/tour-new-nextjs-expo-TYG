@@ -35,6 +35,7 @@ export function RubricsDashboard({
   communityId,
   communityName,
   sessionCounts,
+  canChangeTranscribeProvider,
   selectedRubricId = null,
 }: {
   rubrics: Rubric[];
@@ -42,6 +43,7 @@ export function RubricsDashboard({
   communityId: string;
   communityName: string;
   sessionCounts: Record<string, number>;
+  canChangeTranscribeProvider: boolean;
   selectedRubricId?: string | null;
 }) {
   const router = useRouter();
@@ -159,6 +161,7 @@ export function RubricsDashboard({
           <RubricCreationFlow
             properties={properties}
             initialRubric={editingRubric}
+            canChangeTranscribeProvider={canChangeTranscribeProvider}
             onClose={() => { setShowCreate(false); setEditingRubric(null); }}
             onSave={() => { setShowCreate(false); setEditingRubric(null); refresh(); }}
           />

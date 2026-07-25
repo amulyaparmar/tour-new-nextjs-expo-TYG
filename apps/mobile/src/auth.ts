@@ -10,8 +10,6 @@ const TOKENS_KEY = "tour.mobile.tokens.v1";
 const WORKSPACE_KEY = "tour.mobile.workspace.v1";
 /** Pre-split blob; migrated once then deleted. */
 const LEGACY_SESSION_KEY = "tour.mobile.session.v1";
-const REPORT_ACCESS_URL = "https://tour.report/api/verify-access";
-const REPORT_ACCESS_KEY = "LeaseMagnets2025TYG";
 
 type StoredTokens = {
   accessToken: string;
@@ -109,9 +107,8 @@ export type MobileAuthSession = {
 
 export type MobileSignInChallenge = {
   email: string;
-  expectedCode: string;
-  /** False when tour.report email delivery failed but the code is still usable. */
-  emailSent?: boolean;
+  challengeId: string;
+  emailSent: boolean;
 };
 
 export type CommunityEnrichment = {
@@ -259,104 +256,66 @@ export async function requestSignInCode(email: string) {
       body: JSON.stringify({ email: normalizedEmail }),
     });
   } catch {
-    return requestSignInCodeDirect(normalizedEmail);
+    throw new Error("Could not send a sign-in code. Check your connection and try again.");
   }
+
   const body = await response.json().catch(() => null) as {
     sent?: boolean;
     email?: string;
-    challengeCode?: string;
-    deliveryError?: string;
+    challengeId?: string;
     error?: string;
   } | null;
-  if (response.ok && /^\d{4}$/.test(body?.challengeCode ?? "")) {
+  const challengeId = body?.challengeId?.trim() ?? "";
+  if (response.ok && challengeId) {
     return {
       email: body?.email ?? normalizedEmail,
-      expectedCode: body!.challengeCode!,
+      challengeId,
       emailSent: body?.sent !== false,
     } satisfies MobileSignInChallenge;
   }
-  if (response.status === 404 || response.status === 405) {
-    return requestSignInCodeDirect(normalizedEmail);
-  }
-  throw new Error(body?.error ?? deliveryErrorForStatus(response.status));
+  throw new Error(
+    body?.error
+    ?? (response.ok
+      ? "The sign-in service did not return a verification challenge."
+      : deliveryErrorForStatus(response.status))
+  );
 }
 
-export async function verifySignInCode(email: string, token: string, expectedCode: string) {
+export async function verifySignInCode(email: string, challengeId: string, code: string) {
   const normalizedEmail = email.trim().toLowerCase();
-  const normalizedToken = token.replace(/\s+/g, "");
-  const leaseMagnetsOverride =
-    normalizedEmail.endsWith("@leasemagnets.com") && normalizedToken === "4424";
-  if (normalizedToken !== expectedCode && !leaseMagnetsOverride) {
-    throw new Error("That code is not valid. Check the email and try again.");
-  }
+  const normalizedChallengeId = challengeId.trim();
+  const normalizedCode = code.replace(/\s+/g, "");
 
-  let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl()}/api/admin/auth/otp/verify`, {
+    const response = await fetch(`${apiBaseUrl()}/api/admin/auth/otp/verify`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-tour-client": "mobile",
       },
-      body: JSON.stringify({ email: normalizedEmail, clientVerified: true }),
+      body: JSON.stringify({
+        email: normalizedEmail,
+        challengeId: normalizedChallengeId,
+        code: normalizedCode,
+      }),
     });
-  } catch {
+    const body = await response.json().catch(() => null) as {
+      workspace?: MobileWorkspace;
+      session?: Omit<MobileAuthSession, "workspace">;
+      onboardingRequired?: boolean;
+      error?: string;
+    } | null;
+    if (response.ok && body?.workspace && body.session) {
+      return persistSession({ ...body.session, workspace: body.workspace });
+    }
+    if (body?.onboardingRequired) {
+      throw new Error("No property is connected to this email yet. Use tour.you to claim or join a property.");
+    }
+    throw new Error(body?.error ?? "The verification code is invalid or has expired.");
+  } catch (caught) {
+    if (caught instanceof Error) throw caught;
     throw new Error("Could not finish signing in. Check your connection and try again.");
   }
-  const body = await response.json().catch(() => null) as {
-    workspace?: MobileWorkspace;
-    session?: Omit<MobileAuthSession, "workspace">;
-    error?: string;
-  } | null;
-  if (response.ok && body?.workspace && body.session) {
-    return persistSession({ ...body.session, workspace: body.workspace });
-  }
-  if (response.status === 404 || response.status === 405) {
-    throw new Error(
-      leaseMagnetsOverride
-        ? "4424 was accepted, but the app sign-in service has not been deployed yet."
-        : "Your code was accepted, but the app sign-in service is not available yet."
-    );
-  }
-  throw new Error(body?.error ?? "The verification code is invalid or has expired.");
-}
-
-async function requestSignInCodeDirect(email: string) {
-  const expectedCode = String(Math.floor(1000 + Math.random() * 9000));
-  const displayName = email
-    .split("@")[0]
-    ?.split(/[._-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ") || "Tour user";
-  const response = await fetch(REPORT_ACCESS_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      e: encodeReportAccessValue(email),
-      n: encodeReportAccessValue(displayName),
-      c: expectedCode,
-      t: "tour-mobile",
-    }),
-  });
-  const body = await response.json().catch(() => null) as {
-    success?: boolean;
-    message?: string;
-  } | null;
-  if (!response.ok || !body?.success) {
-    throw new Error(body?.message ?? deliveryErrorForStatus(response.status));
-  }
-  return { email, expectedCode, emailSent: true } satisfies MobileSignInChallenge;
-}
-
-function encodeReportAccessValue(value: string) {
-  let encrypted = "";
-  for (let index = 0; index < value.length; index += 1) {
-    encrypted += String.fromCharCode(
-      value.charCodeAt(index) ^ REPORT_ACCESS_KEY.charCodeAt(index % REPORT_ACCESS_KEY.length)
-    );
-  }
-  return btoa(encrypted);
 }
 
 function assertWorkEmail(email: string) {

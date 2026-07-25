@@ -9,7 +9,13 @@ type PageProps = {
 
 export default async function RubricDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const { workspace, rubrics, templates, sessionCounts } = await loadRubricDetailPageData(id);
+  const {
+    workspace,
+    rubrics,
+    templates,
+    sessionCounts,
+    canChangeTranscribeProvider,
+  } = await loadRubricDetailPageData(id);
 
   return (
     <RubricsDashboard
@@ -19,6 +25,7 @@ export default async function RubricDetailPage({ params }: PageProps) {
       communityName={workspace.community.name}
       sessionCounts={sessionCounts}
       selectedRubricId={id}
+      canChangeTranscribeProvider={canChangeTranscribeProvider}
     />
   );
 }

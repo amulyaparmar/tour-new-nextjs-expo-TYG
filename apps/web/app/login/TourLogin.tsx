@@ -63,9 +63,7 @@ export function TourLogin() {
   const [step, setStep] = useState<LoginStep>("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [expectedCode, setExpectedCode] = useState("");
-  const [emailSent, setEmailSent] = useState(true);
-  const [emailVerifiedForOnboarding, setEmailVerifiedForOnboarding] = useState(false);
+  const [challengeId, setChallengeId] = useState("");
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [propertyQuery, setPropertyQuery] = useState("");
   const [propertyResults, setPropertyResults] = useState<BusinessOption[] | null>(null);
@@ -159,6 +157,7 @@ export function TourLogin() {
     if (!emailLooksValid || submitting) return;
     setSubmitting(true);
     setError(null);
+    setChallengeId("");
     try {
       const response = await fetch("/api/admin/auth/otp/start", {
         method: "POST",
@@ -167,13 +166,14 @@ export function TourLogin() {
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok || !/^\d{4}$/.test(body.challengeCode ?? "")) {
+      const nextChallengeId = typeof body.challengeId === "string"
+        ? body.challengeId.trim()
+        : "";
+      if (!response.ok || !nextChallengeId) {
         throw new Error(body.error ?? "Could not send a sign-in code.");
       }
       setEmail(body.email ?? email.trim().toLowerCase());
-      setExpectedCode(body.challengeCode);
-      setEmailSent(body.sent !== false);
-      setEmailVerifiedForOnboarding(false);
+      setChallengeId(nextChallengeId);
       setCode("");
       go("code");
     } catch (caught) {
@@ -185,12 +185,7 @@ export function TourLogin() {
 
   async function verifyCode() {
     const normalized = code.replace(/\D/g, "");
-    if (normalized.length < 4 || !expectedCode || submitting) return;
-    if (normalized !== expectedCode && !(email.endsWith("@leasemagnets.com") && normalized === "4424")) {
-      setError("That code is not valid. Check the email and try again.");
-      return;
-    }
-    setEmailVerifiedForOnboarding(true);
+    if (normalized.length !== 6 || !challengeId || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -198,10 +193,21 @@ export function TourLogin() {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), clientVerified: true }),
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          challengeId,
+          code: normalized,
+        }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok || !body.workspace) throw new Error(body.error ?? "Could not verify this email.");
+      if (!response.ok) throw new Error(body.error ?? "Could not verify this email.");
+      if (body.verified === true && body.onboardingRequired === true) {
+        setChallengeId("");
+        setCode("");
+        go("claim");
+        return;
+      }
+      if (!body.workspace) throw new Error(body.error ?? "Could not verify this email.");
       setWorkspace(body.workspace);
       setPropertyQuery("");
       setPropertyResults((body.workspace.communities ?? []).map((community: WorkspaceCommunity) => ({
@@ -437,7 +443,7 @@ export function TourLogin() {
                   value={email}
                   onChange={(event) => {
                     setEmail(event.target.value);
-                    setEmailVerifiedForOnboarding(false);
+                    setChallengeId("");
                     setError(null);
                   }}
                   placeholder="you@company.com"
@@ -477,28 +483,16 @@ export function TourLogin() {
               <div className={styles.intro}>
                 <span className={styles.eyebrow}>Verification</span>
                 <h1>Check your email</h1>
-                <p>{emailSent ? `Enter the 4-digit code sent to ${email}.` : "Email delivery failed. Use the test code shown below."}</p>
+                <p>Enter the 6-digit code sent to {email}.</p>
               </div>
-              {shouldShowTestCode(email, emailSent, expectedCode) && (
-                <button type="button" className={styles.testCodeCard} onClick={() => setCode(expectedCode)}>
-                  <span>Test code</span>
-                  <strong>{expectedCode}</strong>
-                  <small>Tap to autofill</small>
-                </button>
-              )}
               <label className={styles.field}>
                 <span>Verification code</span>
-                <div><Mail size={16} /><input value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="0000" inputMode="numeric" autoComplete="one-time-code" autoFocus /></div>
+                <div><Mail size={16} /><input value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" inputMode="numeric" autoComplete="one-time-code" autoFocus /></div>
               </label>
               {error && <div className={styles.error}>{error}</div>}
-              <button type="button" className={styles.primaryButton} disabled={code.length < 4 || submitting} onClick={() => void verifyCode()}>
+              <button type="button" className={styles.primaryButton} disabled={code.length !== 6 || submitting} onClick={() => void verifyCode()}>
                 {submitting ? "Verifying..." : "Verify and continue"}
               </button>
-              {emailVerifiedForOnboarding && (
-                <button type="button" className={styles.secondaryButton} onClick={() => go("claim")}>
-                  Claim or add a property
-                </button>
-              )}
             </div>
           )}
 
@@ -698,15 +692,6 @@ function aliasFromName(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
-}
-
-function shouldShowTestCode(email: string, emailSent: boolean, expectedCode: string) {
-  if (!/^\d{4}$/.test(expectedCode)) return false;
-  if (process.env.NODE_ENV !== "production") return true;
-  if (typeof window !== "undefined") {
-    return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-  }
-  return false;
 }
 
 function postLoginPath() {

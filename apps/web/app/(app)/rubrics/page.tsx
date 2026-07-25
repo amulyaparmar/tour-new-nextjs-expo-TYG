@@ -4,7 +4,13 @@ import { loadRubricsPageData } from "./load-rubrics-page-data";
 export const dynamic = "force-dynamic";
 
 export default async function RubricsPage() {
-  const { workspace, rubrics, templates, sessionCounts } = await loadRubricsPageData();
+  const {
+    workspace,
+    rubrics,
+    templates,
+    sessionCounts,
+    canChangeTranscribeProvider,
+  } = await loadRubricsPageData();
 
   return (
     <RubricsDashboard
@@ -13,6 +19,7 @@ export default async function RubricsPage() {
       communityId={workspace.community.id}
       communityName={workspace.community.name}
       sessionCounts={sessionCounts}
+      canChangeTranscribeProvider={canChangeTranscribeProvider}
     />
   );
 }

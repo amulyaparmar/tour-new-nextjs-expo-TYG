@@ -15,6 +15,7 @@ import {
   DEFAULT_RUBRIC_SESSION_TYPE,
   DEFAULT_SEGMENTATION_PROMPT,
   RUBRIC_SESSION_TYPE_PRESETS,
+  TRANSCRIBE_PROVIDERS,
   buildRubricAnalysisPrompt,
   getTranscribeProvider,
   isRubricSessionTypePreset,
@@ -23,6 +24,7 @@ import {
   type AiProvider,
   type RubricDefinition,
   type RubricSessionTypePresetId,
+  type TranscribeProviderId,
 } from "@tour/shared";
 
 import { invalidateRubricsCache } from "@/lib/client-rubrics-cache";
@@ -74,11 +76,13 @@ function initialSessionTypeMode(sessionType?: string): SessionTypeMode {
 export function RubricCreationFlow({
   properties,
   initialRubric,
+  canChangeTranscribeProvider,
   onClose,
   onSave,
 }: {
   properties: PropertyOption[];
   initialRubric?: DisplayRubric | null;
+  canChangeTranscribeProvider: boolean;
   onClose: () => void;
   onSave: () => void;
 }) {
@@ -105,7 +109,9 @@ export function RubricCreationFlow({
   const [analysisModel, setAnalysisModel] = useState<AnalysisModelId>(
     initialRubric?.analysisModel ?? DEFAULT_ANALYSIS_MODEL
   );
-  const transcribeProvider = DEFAULT_TRANSCRIBE_PROVIDER;
+  const [transcribeProvider, setTranscribeProvider] = useState<TranscribeProviderId>(
+    initialRubric?.transcribeProvider ?? DEFAULT_TRANSCRIBE_PROVIDER
+  );
   const [audioUnderstandingEnabled, setAudioUnderstandingEnabled] = useState(
     initialRubric?.audioUnderstandingEnabled ?? false
   );
@@ -254,6 +260,7 @@ export function RubricCreationFlow({
           name,
           definition,
           analysisModel,
+          ...(canChangeTranscribeProvider ? { transcribeProvider } : {}),
           audioUnderstandingEnabled,
           sessionType: resolvedSessionType || DEFAULT_RUBRIC_SESSION_TYPE,
           segmentationPrompt: normalizeRubricPromptOverride(segmentationPrompt, DEFAULT_SEGMENTATION_PROMPT),
@@ -530,15 +537,25 @@ export function RubricCreationFlow({
                       {ANALYSIS_MODELS.find((model) => model.id === analysisModel)?.description}
                     </p>
                   </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-foreground mb-1.5">Transcription provider</label>
-                    <div className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm font-medium">
-                      {getTranscribeProvider(transcribeProvider).label}
+                  {canChangeTranscribeProvider && (
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-1.5">Transcription provider</label>
+                      <select
+                        value={transcribeProvider}
+                        onChange={(event) => setTranscribeProvider(event.target.value as TranscribeProviderId)}
+                        className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        {TRANSCRIBE_PROVIDERS.map((provider) => (
+                          <option key={provider.id} value={provider.id}>
+                            {provider.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        {getTranscribeProvider(transcribeProvider).description}
+                      </p>
                     </div>
-                    <p className="mt-1.5 text-xs text-muted-foreground">
-                      All sessions use ElevenLabs Scribe with diarization and agent/prospect role detection.
-                    </p>
-                  </div>
+                  )}
                   <label className="flex items-start gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 cursor-pointer transition-colors">
                     <input
                       type="checkbox"

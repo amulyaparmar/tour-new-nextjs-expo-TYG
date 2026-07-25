@@ -1,4 +1,9 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import {
   GetTranscriptionJobCommand,
   StartTranscriptionJobCommand,
@@ -38,29 +43,40 @@ export async function transcribeWithAws(
   const s3 = new S3Client({ region, credentials });
   const transcribe = new TranscribeClient({ region, credentials });
 
-  await putObject(s3, bucket, audioKey, audioBuffer, mimeType);
+  let inputUploaded = false;
+  try {
+    await putObject(s3, bucket, audioKey, audioBuffer, mimeType);
+    inputUploaded = true;
 
-  const jobName = `tour-${sessionId}-${Date.now()}`;
-  const languageCode = process.env.TRANSCRIBE_LANGUAGE_CODE;
+    const jobName = `tour-${sessionId}-${Date.now()}`;
+    const languageCode = process.env.TRANSCRIBE_LANGUAGE_CODE;
 
-  await transcribe.send(
-    new StartTranscriptionJobCommand({
-      TranscriptionJobName: jobName,
-      ...(languageCode
-        ? { LanguageCode: languageCode as LanguageCode }
-        : { IdentifyLanguage: true }),
-      MediaFormat: mediaFormat,
-      Media: { MediaFileUri: `s3://${bucket}/${audioKey}` },
-      OutputBucketName: bucket,
-      OutputKey: outputKey,
-      Settings: { ShowSpeakerLabels: true, MaxSpeakerLabels: 4 }
-    })
-  );
+    await transcribe.send(
+      new StartTranscriptionJobCommand({
+        TranscriptionJobName: jobName,
+        ...(languageCode
+          ? { LanguageCode: languageCode as LanguageCode }
+          : { IdentifyLanguage: true }),
+        MediaFormat: mediaFormat,
+        Media: { MediaFileUri: `s3://${bucket}/${audioKey}` },
+        OutputBucketName: bucket,
+        OutputKey: outputKey,
+        Settings: { ShowSpeakerLabels: true, MaxSpeakerLabels: 4 }
+      })
+    );
 
-  const transcriptJson = await pollJob(transcribe, s3, jobName, bucket, outputKey);
-  const segments = parseTranscript(sessionId, transcriptJson);
-  if (!segments.length) throw new Error("Transcribe returned no speech segments");
-  return segments;
+    const transcriptJson = await pollJob(transcribe, s3, jobName, bucket, outputKey);
+    const segments = parseTranscript(sessionId, transcriptJson);
+    if (!segments.length) throw new Error("Transcribe returned no speech segments");
+    return segments;
+  } finally {
+    if (inputUploaded) {
+      await Promise.allSettled([
+        deleteObject(s3, bucket, audioKey),
+        deleteObject(s3, bucket, outputKey),
+      ]);
+    }
+  }
 }
 
 async function putObject(
@@ -84,6 +100,10 @@ async function getObjectText(s3: S3Client, bucket: string, key: string): Promise
   const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
   if (!res.Body) throw new Error(`S3 object ${bucket}/${key} has no body`);
   return await res.Body.transformToString();
+}
+
+async function deleteObject(s3: S3Client, bucket: string, key: string): Promise<void> {
+  await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }
 
 async function pollJob(
@@ -220,6 +240,12 @@ function labelSpeakers(turns: Array<{ speaker: string; start: number; end: numbe
 
 export function toMediaFormat(mimeType: string): MediaFormat {
   const m = mimeType.toLowerCase();
+  if (m.includes("quicktime") || m.includes("mov")) {
+    throw new Error(
+      "AWS Transcribe does not support QuickTime/MOV recordings. "
+      + "Use ElevenLabs, Deepgram, Gemini, or upload MP4/M4A/WAV audio."
+    );
+  }
   if (m.includes("mp4") && m.includes("audio")) return "mp4";
   if (m.includes("m4a") || m.includes("mp4a")) return "m4a";
   if (m.includes("mp4")) return "mp4";
@@ -228,7 +254,10 @@ export function toMediaFormat(mimeType: string): MediaFormat {
   if (m.includes("ogg")) return "ogg";
   if (m.includes("flac")) return "flac";
   if (m.includes("amr")) return "amr";
-  return "mp3";
+  if (m.includes("mpeg") || m.includes("mp3")) return "mp3";
+  throw new Error(
+    `AWS Transcribe does not support recording type "${mimeType || "unknown"}".`
+  );
 }
 
 function sleep(ms: number): Promise<void> {

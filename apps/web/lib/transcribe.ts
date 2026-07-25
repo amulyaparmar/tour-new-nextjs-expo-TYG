@@ -1,5 +1,10 @@
 import "server-only";
 
+import {
+  DEFAULT_TRANSCRIBE_PROVIDER,
+  type TranscribeProviderId,
+} from "@tour/shared";
+
 export type TranscriptSegment = {
   id: string;
   speaker: string;
@@ -9,16 +14,37 @@ export type TranscriptSegment = {
 };
 
 /**
- * Production transcription is intentionally fixed to ElevenLabs Scribe.
- * Gemini is reserved for the independent post-analysis audio-insights workflow.
- * If ElevenLabs is not configured, fail closed instead of silently changing providers.
+ * Dispatch session transcription to the provider stored on the rubric.
+ * New rubrics default to ElevenLabs Scribe. Provider modules fail explicitly when
+ * their required credentials are missing rather than silently changing providers.
  */
 export async function transcribeAudio(
   sessionId: string,
   audioBuffer: Buffer,
   mimeType: string,
-  fileName?: string
+  fileName?: string,
+  provider: TranscribeProviderId = DEFAULT_TRANSCRIBE_PROVIDER,
 ): Promise<TranscriptSegment[]> {
-  const { transcribeWithElevenLabs } = await import("./transcribe-elevenlabs");
-  return transcribeWithElevenLabs(sessionId, audioBuffer, mimeType, fileName);
+  switch (provider) {
+    case "deepgram": {
+      const { transcribeWithDeepgram } = await import("./transcribe-deepgram");
+      return transcribeWithDeepgram(sessionId, audioBuffer, mimeType);
+    }
+    case "elevenlabs": {
+      const { transcribeWithElevenLabs } = await import("./transcribe-elevenlabs");
+      return transcribeWithElevenLabs(sessionId, audioBuffer, mimeType, fileName);
+    }
+    case "gemini": {
+      const { transcribeWithGemini } = await import("./transcribe-gemini");
+      return transcribeWithGemini(sessionId, audioBuffer, mimeType, fileName);
+    }
+    case "aws": {
+      const { transcribeWithAws } = await import("./transcribe-aws");
+      return transcribeWithAws(sessionId, audioBuffer, mimeType);
+    }
+    case "whisper": {
+      const { transcribeWithWhisper } = await import("./transcribe-whisper");
+      return transcribeWithWhisper(sessionId, audioBuffer, mimeType, fileName);
+    }
+  }
 }

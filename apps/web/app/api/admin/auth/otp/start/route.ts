@@ -1,16 +1,23 @@
 import { NextResponse } from "next/server";
 
+import {
+  AdminOtpError,
+  adminOtpRequestFingerprint,
+  createAdminOtpChallenge,
+  createAdminOtpCode,
+  invalidateAdminOtpChallenge,
+} from "@/lib/admin-otp";
+import { sendTransactionalEmail } from "@/lib/transactional-email";
+
 const PERSONAL_EMAIL_DOMAINS = new Set(["gmail.com", "googlemail.com"]);
-const REPORT_ACCESS_URL = "https://tour.report/api/verify-access";
-const REPORT_ACCESS_KEY = "LeaseMagnets2025TYG";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as { email?: string };
   const email = body.email?.trim().toLowerCase() ?? "";
-  const domain = email.split("@")[1] ?? "";
-  const isMobileClient = request.headers.get("x-tour-client") === "mobile";
+  const emailParts = email.split("@");
+  const domain = emailParts.length === 2 ? emailParts[1] : "";
 
-  if (!email || !domain) {
+  if (!emailParts[0] || !domain || /\s/.test(email)) {
     return NextResponse.json({ error: "Enter a valid work email address." }, { status: 400 });
   }
   if (PERSONAL_EMAIL_DOMAINS.has(domain)) {
@@ -20,59 +27,69 @@ export async function POST(request: Request) {
     );
   }
 
+  let issuedChallengeId = "";
   try {
-    const challengeCode = String(Math.floor(1000 + Math.random() * 9000));
+    const challengeCode = createAdminOtpCode();
+    const challenge = await createAdminOtpChallenge(
+      email,
+      challengeCode,
+      adminOtpRequestFingerprint(request)
+    );
+    issuedChallengeId = challenge.challengeId;
     const displayName = email
       .split("@")[0]
       ?.split(/[._-]+/)
       .filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(" ") || "Tour user";
-    const deliveryResponse = await fetch(REPORT_ACCESS_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        e: encodeReportAccessValue(email),
-        n: encodeReportAccessValue(displayName),
-        c: challengeCode,
-        t: "tour-mobile",
-      }),
+    const delivery = await sendTransactionalEmail({
+      to: [email],
+      subject: `${challengeCode} is your Tour sign-in code`,
+      text: [
+        `Hi ${displayName},`,
+        "",
+        `Your Tour sign-in code is ${challengeCode}.`,
+        "",
+        "It expires in 10 minutes. If you did not request this code, you can ignore this email.",
+      ].join("\n"),
+      html: [
+        `<p>Hi ${escapeHtml(displayName)},</p>`,
+        "<p>Your Tour sign-in code is:</p>",
+        `<p style="font-size:30px;font-weight:700;letter-spacing:6px">${challengeCode}</p>`,
+        "<p>It expires in 10 minutes. If you did not request this code, you can ignore this email.</p>",
+      ].join(""),
     });
-    const deliveryBody = await deliveryResponse.json().catch(() => null) as {
-      success?: boolean;
-      message?: string;
-    } | null;
-    if (!deliveryResponse.ok || !deliveryBody?.success) {
-      // Mobile verifies client-side. If email delivery fails, still return the
-      // challenge so TestFlight/dev can sign in without the inbox.
-      if (isMobileClient) {
-        return NextResponse.json({
-          sent: false,
-          email,
-          challengeCode,
-          deliveryError: deliveryBody?.message ?? "Could not send a sign-in code.",
-        });
-      }
+    if (!delivery.configured || delivery.delivered < 1) {
+      await invalidateAdminOtpChallenge(challenge.challengeId, email);
       return NextResponse.json(
-        { error: deliveryBody?.message ?? "Could not send a sign-in code." },
-        { status: deliveryResponse.status || 502 }
+        { error: "Could not send a sign-in code." },
+        { status: 503 }
       );
     }
-    return NextResponse.json({ sent: true, email, challengeCode });
+    return NextResponse.json({
+      sent: true,
+      email,
+      challengeId: challenge.challengeId,
+      expiresAt: challenge.expiresAt,
+    });
   } catch (caught) {
+    if (issuedChallengeId) {
+      await invalidateAdminOtpChallenge(issuedChallengeId, email).catch(() => undefined);
+    }
+    const status = caught instanceof AdminOtpError ? caught.status : 500;
     return NextResponse.json(
       { error: caught instanceof Error ? caught.message : "Could not send a sign-in code." },
-      { status: 500 }
+      { status }
     );
   }
 }
 
-function encodeReportAccessValue(value: string) {
-  let encrypted = "";
-  for (let index = 0; index < value.length; index += 1) {
-    encrypted += String.fromCharCode(
-      value.charCodeAt(index) ^ REPORT_ACCESS_KEY.charCodeAt(index % REPORT_ACCESS_KEY.length)
-    );
-  }
-  return Buffer.from(encrypted, "binary").toString("base64");
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  })[character] ?? character);
 }

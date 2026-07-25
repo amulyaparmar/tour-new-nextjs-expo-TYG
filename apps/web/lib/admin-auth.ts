@@ -10,6 +10,7 @@ export const ADMIN_REFRESH_COOKIE = "tour_admin_refresh_token";
 export const ADMIN_COMMUNITY_COOKIE = "tour_admin_community";
 const DEFAULT_TOUR_COMMUNITY_ID = "community:548";
 const DEFAULT_GLOBAL_PROPERTY_ADMIN_DOMAINS = ["leasemagnets.com"];
+const LEASEMAGNETS_EMAIL_DOMAIN = "leasemagnets.com";
 const COOKIE_CHUNK_SIZE = 3500;
 const MAX_ACCESS_COOKIE_CHUNKS = 6;
 
@@ -89,6 +90,17 @@ export function isGlobalPropertyAdminEmail(value: string | null | undefined) {
     .map((entry) => entry.trim().toLowerCase())
     .filter(Boolean);
   return configured.includes(domain);
+}
+
+/** Exact product capability gate; unlike global-admin access, this is not env-configurable. */
+export function isLeaseMagnetsEmail(value: string | null | undefined) {
+  const normalized = normalizeEmail(value);
+  const parts = normalized.split("@");
+  return (
+    parts.length === 2
+    && Boolean(parts[0])
+    && parts[1] === LEASEMAGNETS_EMAIL_DOMAIN
+  );
 }
 
 /** Canonical storage key first, followed by any legacy session key still in use. */

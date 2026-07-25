@@ -4,9 +4,9 @@ import type { TranscriptSegment } from "./transcribe";
 
 /**
  * Original OpenAI pipeline: Whisper-1 for transcription + a separate LLM call for
- * speaker diarization. Retained only for isolated provider smoke tests; production
- * session transcription always uses ElevenLabs Scribe. Note: Whisper has a 25MB
- * upload cap and the diarization is an LLM guess.
+ * speaker diarization. Available through the LeaseMagnets-only rubric provider
+ * control and isolated smoke tests. Note: Whisper has a 25MB upload cap and the
+ * diarization is an LLM guess.
  */
 export async function transcribeWithWhisper(
   sessionId: string,

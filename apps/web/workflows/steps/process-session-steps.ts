@@ -39,11 +39,13 @@ export async function transcribeSessionStep(sessionId: string) {
   const file = await fetchRecordingFile(sessionId);
   if (!file) throw new FatalError("No recording found in storage for this session.");
 
+  const rubric = await getRubricForSession(session.rubricId, session.propertyId);
   const transcript = await transcribeAudio(
     sessionId,
     file.buffer,
     file.mimeType,
     file.fileName,
+    rubric.transcribeProvider,
   );
   await saveTranscript(
     sessionId,

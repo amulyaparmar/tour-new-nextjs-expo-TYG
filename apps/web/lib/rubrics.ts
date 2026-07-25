@@ -10,6 +10,7 @@ import {
   DEFAULT_RUBRIC_SESSION_TYPE,
   normalizeAnalysisModelId,
   normalizeRubricDefinition,
+  normalizeTranscribeProviderId,
 } from "@tour/shared";
 
 import { DEFAULT_RBG_RUBRIC_DEFINITION, DEFAULT_RBG_RUBRIC_NAME } from "./default-rubric";
@@ -17,6 +18,10 @@ import { defaultAnalysisModelId } from "./resolve-analysis-model";
 import { getSupabaseServiceClient } from "./supabase";
 
 const STORE_PATH = path.join(process.cwd(), ".codex", "rubrics-store.json");
+
+type RubricMutationOptions = {
+  canChangeTranscribeProvider?: boolean;
+};
 
 type RubricRow = {
   id: string;
@@ -52,7 +57,7 @@ function mapRow(row: RubricRow): Rubric {
     name: row.name,
     definition: normalizeRubricDefinition(rawDefinition),
     analysisModel: normalizeAnalysisModelId(row.analysis_model, defaultAnalysisModelId()),
-    transcribeProvider: DEFAULT_TRANSCRIBE_PROVIDER,
+    transcribeProvider: normalizeTranscribeProviderId(row.transcribe_provider),
     audioUnderstandingEnabled: Boolean(row.audio_understanding_enabled),
     sessionType: normalizeSessionType(row.session_type),
     segmentationPrompt: row.segmentation_prompt?.trim() || null,
@@ -273,10 +278,15 @@ export async function getRubricForSession(
   return getDefaultRubric();
 }
 
-export async function createRubric(input: CreateRubricInput): Promise<Rubric> {
+export async function createRubric(
+  input: CreateRubricInput,
+  options: RubricMutationOptions = {},
+): Promise<Rubric> {
   const definition = normalizeRubricDefinition(input.definition);
   const analysisModel = normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId());
-  const transcribeProvider = DEFAULT_TRANSCRIBE_PROVIDER;
+  const transcribeProvider = options.canChangeTranscribeProvider
+    ? normalizeTranscribeProviderId(input.transcribeProvider)
+    : DEFAULT_TRANSCRIBE_PROVIDER;
   const audioUnderstandingEnabled = Boolean(input.audioUnderstandingEnabled);
   const now = new Date().toISOString();
   const payload = {
@@ -337,7 +347,11 @@ export async function createRubric(input: CreateRubricInput): Promise<Rubric> {
   }
 }
 
-export async function updateRubric(rubricId: string, input: Partial<CreateRubricInput>): Promise<Rubric> {
+export async function updateRubric(
+  rubricId: string,
+  input: Partial<CreateRubricInput>,
+  options: RubricMutationOptions = {},
+): Promise<Rubric> {
   const existing = await getRubricById(rubricId);
   if (!existing) throw new Error("Rubric not found.");
   if (existing.isTemplate) throw new Error("Frozen rubric templates cannot be edited. Clone this template instead.");
@@ -345,6 +359,8 @@ export async function updateRubric(rubricId: string, input: Partial<CreateRubric
   const nextDefinition = input.definition === undefined
     ? existing.definition
     : normalizeRubricDefinition(input.definition);
+  const shouldChangeTranscribeProvider =
+    options.canChangeTranscribeProvider && input.transcribeProvider !== undefined;
   const nextAudioUnderstanding = input.audioUnderstandingEnabled === undefined
     ? existing.audioUnderstandingEnabled
     : Boolean(input.audioUnderstandingEnabled);
@@ -354,7 +370,9 @@ export async function updateRubric(rubricId: string, input: Partial<CreateRubric
     analysis_model: input.analysisModel === undefined
       ? existing.analysisModel
       : normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId()),
-    transcribe_provider: DEFAULT_TRANSCRIBE_PROVIDER,
+    ...(shouldChangeTranscribeProvider
+      ? { transcribe_provider: normalizeTranscribeProviderId(input.transcribeProvider) }
+      : {}),
     audio_understanding_enabled: nextAudioUnderstanding,
     session_type: input.sessionType === undefined
       ? existing.sessionType

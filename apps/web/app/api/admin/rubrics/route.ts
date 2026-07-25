@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { propertySessionKeys, AdminAuthError, requireAdminContext } from "@/lib/admin-auth";
+import { isTranscribeProviderId } from "@tour/shared";
+
+import {
+  propertySessionKeys,
+  AdminAuthError,
+  isLeaseMagnetsEmail,
+  requireAdminContext,
+} from "@/lib/admin-auth";
 import { createRubric, listRubricTemplates, listRubricsForCommunity } from "@/lib/rubrics";
 
 const RUBRICS_CACHE_CONTROL = "private, max-age=60, stale-while-revalidate=300";
@@ -36,6 +43,7 @@ export async function POST(request: Request) {
       sourceUrl?: string | null;
       isDefault?: boolean;
       analysisModel?: string;
+      transcribeProvider?: unknown;
       audioUnderstandingEnabled?: boolean;
       sessionType?: string;
       segmentationPrompt?: string | null;
@@ -44,6 +52,22 @@ export async function POST(request: Request) {
     if (!body.name?.trim() || !body.definition || typeof body.definition !== "object") {
       return NextResponse.json({ error: "name and definition are required." }, { status: 400 });
     }
+    const canChangeTranscribeProvider = isLeaseMagnetsEmail(workspace.user.email);
+    if (body.transcribeProvider !== undefined && !canChangeTranscribeProvider) {
+      throw new AdminAuthError(
+        "Only LeaseMagnets users can change the transcription provider.",
+        403,
+      );
+    }
+    if (
+      body.transcribeProvider !== undefined
+      && (
+        typeof body.transcribeProvider !== "string"
+        || !isTranscribeProviderId(body.transcribeProvider)
+      )
+    ) {
+      return NextResponse.json({ error: "Invalid transcription provider." }, { status: 400 });
+    }
 
     const rubric = await createRubric({
       name: body.name,
@@ -51,13 +75,14 @@ export async function POST(request: Request) {
       sourceUrl: body.sourceUrl ?? null,
       isDefault: body.isDefault ?? false,
       analysisModel: body.analysisModel as never,
+      transcribeProvider: body.transcribeProvider,
       audioUnderstandingEnabled: body.audioUnderstandingEnabled,
       sessionType: body.sessionType,
       segmentationPrompt: body.segmentationPrompt ?? null,
       analysisPrompt: body.analysisPrompt ?? null,
       propertyId: workspace.community.propertyTygId,
       isTemplate: false,
-    });
+    }, { canChangeTranscribeProvider });
 
     return NextResponse.json({ rubric }, { status: 201 });
   } catch (caught) {

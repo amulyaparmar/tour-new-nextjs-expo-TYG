@@ -5,7 +5,6 @@ import { isTranscribeProviderId } from "@tour/shared";
 import {
   AdminAuthError,
   hasAdminSession,
-  isLeaseMagnetsEmail,
   propertySessionKeys,
   requireAdminContext,
 } from "@/lib/admin-auth";
@@ -56,13 +55,6 @@ export async function POST(request: Request) {
     if (!body.definition || typeof body.definition !== "object") {
       return NextResponse.json({ error: "definition is required." }, { status: 400 });
     }
-    const canChangeTranscribeProvider = isLeaseMagnetsEmail(workspace.user.email);
-    if (body.transcribeProvider !== undefined && !canChangeTranscribeProvider) {
-      return NextResponse.json(
-        { error: "Only LeaseMagnets users can change the transcription provider." },
-        { status: 403 },
-      );
-    }
     if (
       body.transcribeProvider !== undefined
       && (
@@ -86,7 +78,7 @@ export async function POST(request: Request) {
       analysisPrompt: body.analysisPrompt ?? null,
       propertyId: workspace.community.propertyTygId,
       isTemplate: false,
-    }, { canChangeTranscribeProvider });
+    });
 
     return NextResponse.json({ rubric }, { status: 201 });
   } catch (error) {

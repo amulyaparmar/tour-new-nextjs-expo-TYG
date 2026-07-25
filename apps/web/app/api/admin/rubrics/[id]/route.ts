@@ -4,7 +4,6 @@ import { isTranscribeProviderId } from "@tour/shared";
 
 import {
   AdminAuthError,
-  isLeaseMagnetsEmail,
   propertySessionKeys,
   requireAdminContext,
 } from "@/lib/admin-auth";
@@ -56,13 +55,6 @@ export async function PATCH(request: Request, context: Context) {
       segmentationPrompt?: string | null;
       analysisPrompt?: string | null;
     };
-    const canChangeTranscribeProvider = isLeaseMagnetsEmail(workspace.user.email);
-    if (body.transcribeProvider !== undefined && !canChangeTranscribeProvider) {
-      throw new AdminAuthError(
-        "Only LeaseMagnets users can change the transcription provider.",
-        403,
-      );
-    }
     if (
       body.transcribeProvider !== undefined
       && (
@@ -83,7 +75,7 @@ export async function PATCH(request: Request, context: Context) {
       sessionType: body.sessionType,
       segmentationPrompt: body.segmentationPrompt,
       analysisPrompt: body.analysisPrompt,
-    }, { canChangeTranscribeProvider });
+    });
     return NextResponse.json({ rubric });
   } catch (caught) {
     return NextResponse.json(

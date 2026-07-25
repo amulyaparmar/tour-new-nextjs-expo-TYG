@@ -19,10 +19,6 @@ import { getSupabaseServiceClient } from "./supabase";
 
 const STORE_PATH = path.join(process.cwd(), ".codex", "rubrics-store.json");
 
-type RubricMutationOptions = {
-  canChangeTranscribeProvider?: boolean;
-};
-
 type RubricRow = {
   id: string;
   name: string;
@@ -280,13 +276,10 @@ export async function getRubricForSession(
 
 export async function createRubric(
   input: CreateRubricInput,
-  options: RubricMutationOptions = {},
 ): Promise<Rubric> {
   const definition = normalizeRubricDefinition(input.definition);
   const analysisModel = normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId());
-  const transcribeProvider = options.canChangeTranscribeProvider
-    ? normalizeTranscribeProviderId(input.transcribeProvider)
-    : DEFAULT_TRANSCRIBE_PROVIDER;
+  const transcribeProvider = normalizeTranscribeProviderId(input.transcribeProvider);
   const audioUnderstandingEnabled = Boolean(input.audioUnderstandingEnabled);
   const now = new Date().toISOString();
   const payload = {
@@ -350,7 +343,6 @@ export async function createRubric(
 export async function updateRubric(
   rubricId: string,
   input: Partial<CreateRubricInput>,
-  options: RubricMutationOptions = {},
 ): Promise<Rubric> {
   const existing = await getRubricById(rubricId);
   if (!existing) throw new Error("Rubric not found.");
@@ -359,8 +351,7 @@ export async function updateRubric(
   const nextDefinition = input.definition === undefined
     ? existing.definition
     : normalizeRubricDefinition(input.definition);
-  const shouldChangeTranscribeProvider =
-    options.canChangeTranscribeProvider && input.transcribeProvider !== undefined;
+  const shouldChangeTranscribeProvider = input.transcribeProvider !== undefined;
   const nextAudioUnderstanding = input.audioUnderstandingEnabled === undefined
     ? existing.audioUnderstandingEnabled
     : Boolean(input.audioUnderstandingEnabled);

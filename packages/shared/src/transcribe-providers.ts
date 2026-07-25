@@ -44,7 +44,7 @@ export const TRANSCRIBE_PROVIDERS: readonly TranscribeProvider[] = [
   },
 ] as const;
 
-/** New rubrics use ElevenLabs Scribe unless an authorized internal user changes it. */
+/** New rubrics use ElevenLabs Scribe unless another valid provider is explicitly selected. */
 export const DEFAULT_TRANSCRIBE_PROVIDER: TranscribeProviderId = "elevenlabs";
 
 const PROVIDER_BY_ID = new Map(TRANSCRIBE_PROVIDERS.map((provider) => [provider.id, provider]));

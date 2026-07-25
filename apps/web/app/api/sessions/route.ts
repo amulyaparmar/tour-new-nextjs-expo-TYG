@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import type { SessionStatus } from "@tour/shared";
+import type { SessionKind, SessionStatus } from "@tour/shared";
 import {
   ADMIN_COMMUNITY_COOKIE,
   hasAdminSession,
@@ -26,6 +26,7 @@ const VALID_STATUSES: SessionStatus[] = [
 const COMPLETED_STATUSES: SessionStatus[] = ["analysis_ready", "reviewed"];
 
 const VALID_SORTS = ["newest", "oldest", "score_desc", "score_asc", "scheduled_asc"] as const;
+const VALID_SESSION_KINDS: SessionKind[] = ["tour", "call", "ai_call"];
 
 export async function GET(request: NextRequest) {
   try {
@@ -43,6 +44,10 @@ export async function GET(request: NextRequest) {
     const sortParam = sp.get("sort") as (typeof VALID_SORTS)[number] | null;
     const sort = sortParam && (VALID_SORTS as readonly string[]).includes(sortParam)
       ? sortParam as (typeof VALID_SORTS)[number]
+      : undefined;
+    const sessionKindParam = sp.get("type") ?? sp.get("sessionKind");
+    const sessionKind = sessionKindParam && VALID_SESSION_KINDS.includes(sessionKindParam as SessionKind)
+      ? sessionKindParam as SessionKind
       : undefined;
 
     const workspace = hasAdminSession(request)
@@ -91,6 +96,7 @@ export async function GET(request: NextRequest) {
       propertyId,
       propertyIds,
       agentId,
+      sessionKind,
       excludeScheduled: !upcoming,
       upcomingFrom: upcoming ? new Date().toISOString() : undefined,
     });

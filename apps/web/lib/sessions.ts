@@ -13,11 +13,12 @@ import type {
   SessionDetail,
   SessionAttachment,
   SessionLead,
+  SessionKind,
   SessionSource,
   SessionStatus,
   SessionSummary
 } from "@tour/shared";
-import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeConversationPhaseSegmentation, normalizeParticipantName, normalizeSessionStatus, buildSessionTourTitle } from "@tour/shared";
+import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeConversationPhaseSegmentation, normalizeParticipantName, normalizeSessionKind, normalizeSessionStatus, buildSessionTourTitle } from "@tour/shared";
 
 import {
   addLocalSessionLead,
@@ -70,6 +71,7 @@ type SessionRow = {
   location: string | null;
   status: SessionStatus;
   source: SessionSource | null;
+  session_kind?: string | null;
   leads: SessionLead[] | null;
   attachments: SessionAttachment[] | null;
   rubric_id: string | null;
@@ -101,7 +103,7 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS =
-  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,leads,attachments,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,analysis_workflow_run_id,analysis_workflow_started_at,analysis_workflow_completed_at,analysis_workflow_error,analysis_workflow_attempts,audio_insights_workflow_run_id,audio_insights_started_at,audio_insights_completed_at,audio_insights_error,audio_insights_attempts,card_summary,needs_improvement";
+  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,session_kind,leads,attachments,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,analysis_workflow_run_id,analysis_workflow_started_at,analysis_workflow_completed_at,analysis_workflow_error,analysis_workflow_attempts,audio_insights_workflow_run_id,audio_insights_started_at,audio_insights_completed_at,audio_insights_error,audio_insights_attempts,card_summary,needs_improvement";
 
 export type SessionWorkflowKind = "analysis" | "audioInsights";
 
@@ -173,6 +175,7 @@ export type ListSessionsParams = {
   propertyId?: string;
   propertyIds?: string[];
   agentId?: string;
+  sessionKind?: SessionKind;
   excludeScheduled?: boolean;
   upcomingFrom?: string;
 };
@@ -224,6 +227,9 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
 
     if (params?.agentId) {
       query = query.eq("agent_id", params.agentId);
+    }
+    if (params?.sessionKind) {
+      query = query.eq("session_kind", params.sessionKind);
     }
 
     if (params?.search) {
@@ -298,6 +304,9 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
     }
     if (params?.agentId) {
       all = all.filter((session) => session.agentId === params.agentId);
+    }
+    if (params?.sessionKind) {
+      all = all.filter((session) => session.sessionKind === params.sessionKind);
     }
     if (params?.search) {
       const term = params.search.toLowerCase();
@@ -1094,6 +1103,7 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     location: row.location,
     status: normalizeSessionStatus(row.status),
     source: row.source ?? "manual",
+    sessionKind: normalizeSessionKind(row.session_kind),
     leads: row.leads ?? [],
     attachments: row.attachments ?? [],
     rubricId: row.rubric_id ?? null,

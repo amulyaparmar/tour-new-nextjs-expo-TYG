@@ -87,7 +87,6 @@ import {
   type SessionComment,
   deleteComment,
   deleteSession,
-  downloadSessionReportPdf,
   fetchActions,
   fetchAnalysis,
   fetchAudioInsights,
@@ -199,6 +198,8 @@ import type { SortOption, StatusFilter } from "./src/types/ui";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text as UiText } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import { BulkUploadDock, BulkUploadFlow } from "./src/bulk-upload/BulkUploadFlow";
+import { SessionReportScreen } from "./src/reports/SessionReportScreen";
 
 const loginBackground = require("./assets/videos/login-bg.mp4");
 
@@ -210,6 +211,8 @@ type Screen =
   | { type: "session-comments"; sessionId: string; sessionTitle?: string }
   | { type: "session-ai-chat"; sessionId: string; sessionTitle?: string; prospectName?: string }
   | { type: "session-audio-insights"; sessionId: string; sessionTitle?: string; initialStatus?: AudioInsightsStatus; initialInsights?: AudioInsights | null }
+  | { type: "session-report"; sessionId: string }
+  | { type: "bulk-upload"; batchId?: string }
   | { type: "create-session" }
   | { type: "audio-test" }
   | { type: "rubrics" }
@@ -232,13 +235,6 @@ type RecordingUploadFile = {
   name: string;
   size?: number;
   durationSec?: number;
-};
-type BulkRecordingUploadItem = RecordingUploadFile & {
-  id: string;
-  status: "queued" | "creating" | "uploading" | "processing" | "done" | "error";
-  progress: number;
-  sessionId: string | null;
-  error?: string | null;
 };
 type PendingRecordingUpload = {
   sessionId: string;
@@ -435,17 +431,6 @@ function initialUploadStats(total?: number | null): UploadStats {
   };
 }
 
-function bulkMobileStatusLabel(status: BulkRecordingUploadItem["status"]) {
-  switch (status) {
-    case "queued": return "Ready";
-    case "creating": return "Creating session";
-    case "uploading": return "Uploading";
-    case "processing": return "Processing started";
-    case "done": return "Workflow started";
-    case "error": return "Needs attention";
-  }
-}
-
 function fmtDate(d: string | null) {
   if (!d) return "Unscheduled";
   return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -604,6 +589,8 @@ function screenKey(screen: Screen) {
   if (screen.type === "session-comments") return `session-comments:${screen.sessionId}`;
   if (screen.type === "session-ai-chat") return `session-ai:${screen.sessionId}`;
   if (screen.type === "session-audio-insights") return `session-audio:${screen.sessionId}`;
+  if (screen.type === "session-report") return `session-report:${screen.sessionId}`;
+  if (screen.type === "bulk-upload") return `bulk-upload:${screen.batchId ?? "new"}`;
   return screen.type;
 }
 
@@ -619,6 +606,8 @@ function screenRank(screen: Screen) {
   if (screen.type === "session-comments") return 14;
   if (screen.type === "session-ai-chat") return 14;
   if (screen.type === "session-audio-insights") return 14;
+  if (screen.type === "session-report") return 14;
+  if (screen.type === "bulk-upload") return 13;
   return 0;
 }
 
@@ -909,6 +898,7 @@ export default function App() {
                   onOpenComments={(meta) => nav({ type: "session-comments", ...meta })}
                   onOpenAiChat={(meta) => nav({ type: "session-ai-chat", ...meta })}
                   onOpenAudioInsights={(meta) => nav({ type: "session-audio-insights", ...meta })}
+                  onOpenReport={(sessionId) => nav({ type: "session-report", sessionId })}
                 />
               ) : null}
               {screen.type === "session-comments" && (
@@ -935,6 +925,24 @@ export default function App() {
                   onBack={() => nav({ type: "session-detail", sessionId: screen.sessionId })}
                 />
               )}
+              {screen.type === "session-report" && (
+                <SessionReportScreen
+                  sessionId={screen.sessionId}
+                  onBack={() => nav({ type: "session-detail", sessionId: screen.sessionId })}
+                  onNotify={showToast}
+                />
+              )}
+              {screen.type === "bulk-upload" && (
+                <BulkUploadFlow
+                  communityId={authSession.workspace.community.id}
+                  propertyName={property}
+                  agentName={agentName}
+                  initialBatchId={screen.batchId}
+                  onBack={() => nav({ type: "main", tab: "sessions" })}
+                  onOpenSession={(sessionId) => nav({ type: "session-detail", sessionId })}
+                  onNotify={showToast}
+                />
+              )}
               {screen.type === "create-session" && (
                 <CreateSessionScreen
                   onBack={() => nav({ type: "main", tab: "sessions" })}
@@ -946,6 +954,7 @@ export default function App() {
                     setPendingCreateUpload(payload);
                     nav({ type: "create-session" });
                   }}
+                  onBulkUpload={() => nav({ type: "bulk-upload" })}
                   agentName={agentName}
                 />
               )}
@@ -958,6 +967,11 @@ export default function App() {
               )}
             </ScreenTransition>
             <RecordingExperienceHost />
+            <BulkUploadDock
+              communityId={authSession.workspace.community.id}
+              hidden={screen.type === "bulk-upload"}
+              onOpen={(batchId) => nav({ type: "bulk-upload", batchId })}
+            />
             <LiveRecordingDock />
           </KeyboardAvoidingView>
         </ToastProvider>
@@ -1604,6 +1618,7 @@ function SessionRow({ session, onPress, isLast }: { session: SessionSummary; onP
 
 const FILTER_CHIPS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "All" },
+  { value: "ai_calls", label: "AI calls" },
   { value: "needs_review", label: "Needs review" },
   { value: "feedback", label: "Feedback received" },
 ];
@@ -1708,6 +1723,12 @@ function SessionListSwipeRow({
           <View style={slst.sessionNameRow}>
             {session.status === "in_progress" && <PulseDot color="#f04438" />}
             <Text style={slst.sessionName} numberOfLines={1}>{session.title}</Text>
+            {session.sessionKind === "ai_call" && (
+              <View style={slst.aiCallBadge}>
+                <Ionicons name="sparkles" size={10} color={C.purple} />
+                <Text style={slst.aiCallBadgeText}>AI</Text>
+              </View>
+            )}
           </View>
           <Text style={slst.sessionMeta} numberOfLines={1}>
             {checkedInSummary || formatSessionCardMeta(session)}
@@ -1786,6 +1807,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     limit: SESSIONS_PAGE_SIZE,
     sort,
     search: debouncedSearch.trim() || undefined,
+    sessionKind: statusFilter === "ai_calls" ? "ai_call" : undefined,
   });
 
   // Remote-only list. Local folders hold in-flight live audio, not session cards.
@@ -1794,8 +1816,12 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     [sessionsQuery.data],
   );
   const total = sessionsQuery.data?.pages[0]?.total ?? sessions.length;
-  const sampleSessionsQuery = useSampleSessionsQuery(true);
+  const sampleSessionsQuery = useSampleSessionsQuery(
+    true,
+    statusFilter === "ai_calls" ? "ai_call" : undefined,
+  );
   const sampleSessions = sampleSessionsQuery.data?.sessions ?? [];
+  const samplePropertyName = sampleSessionsQuery.data?.propertyName ?? "1540 Place Apartments";
   const samplesAvailable = sampleSessionsQuery.isSuccess && sampleSessions.length > 0;
   const visibleSessions = showSamples ? sampleSessions : sessions;
   const hasMore = sessionsQuery.hasNextPage;
@@ -1875,18 +1901,21 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     const filteredSessions = visibleSessions.filter((session) => {
       if (showSamples) return true;
       if (statusFilter === "all") return true;
+      if (statusFilter === "ai_calls") return session.sessionKind === "ai_call";
       if (statusFilter === "needs_review") return ["uploaded", "failed", "analysis_ready"].includes(session.status);
       if (statusFilter === "feedback") return ["analysis_ready", "reviewed"].includes(session.status) || session.overallScore !== null;
       return true;
     });
 
     const label = showSamples
-      ? "40Fifty Lofts samples"
-      : statusFilter === "needs_review"
-        ? "Needs Review"
-        : statusFilter === "feedback"
-          ? "Feedback Received"
-          : "Recent Sessions";
+      ? `${samplePropertyName} samples`
+      : statusFilter === "ai_calls"
+        ? "AI Calls"
+        : statusFilter === "needs_review"
+          ? "Needs Review"
+          : statusFilter === "feedback"
+            ? "Feedback Received"
+            : "Recent Sessions";
 
     return filteredSessions.length
       ? [
@@ -1894,7 +1923,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
           ...filteredSessions.map((session) => ({ kind: "session" as const, id: session.id, session })),
         ]
       : [];
-  }, [showSamples, statusFilter, visibleSessions]);
+  }, [samplePropertyName, showSamples, statusFilter, visibleSessions]);
 
   const renderItem = useCallback(({ item }: { item: SessionListItem }) => {
     if (item.kind === "header") {
@@ -1952,7 +1981,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
       <View style={slst.titleRow}>
         <View>
           <Text style={st.pageTitle}>{showSamples ? "Sample sessions" : "Sessions"}</Text>
-          {showSamples ? <Text style={slst.sampleHeadingSub}>Curated from 40Fifty Lofts · Read only</Text> : null}
+          {showSamples ? <Text style={slst.sampleHeadingSub}>Curated from {samplePropertyName} · Read only</Text> : null}
         </View>
         <View style={slst.avgPill}>
           <Ionicons name="analytics-outline" size={14} color={sessionMetrics.averageScore !== null ? scoreColor(sessionMetrics.averageScore) : C.brand} />
@@ -2016,7 +2045,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
         </View>
       )}
     </View>
-  ), [averageScore, onBack, onCommunityPress, property, search, sessionMetrics.averageScore, showSamples, sort, showSort, showSearch, statusFilter]);
+  ), [averageScore, onBack, onCommunityPress, property, samplePropertyName, search, sessionMetrics.averageScore, showSamples, sort, showSort, showSearch, statusFilter]);
 
   const ListFooter = useMemo(() => {
     if (showSamples) return null;
@@ -2189,6 +2218,8 @@ const slst = StyleSheet.create({
   sessionCardDeleting: { opacity: 0.55 },
   sessionNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   sessionName: { flex: 1, color: "#1a1a1a", fontSize: 15, fontWeight: "900" },
+  aiCallBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: "#ddd6fe", borderRadius: 999, backgroundColor: "#f5f3ff" },
+  aiCallBadgeText: { color: C.purple, fontSize: 9, fontWeight: "900" },
   sessionMeta: { color: "#666", fontSize: 12, marginTop: 5 },
   sessionDescription: { color: "#667085", fontSize: 12, marginTop: 4, lineHeight: 16 },
   sessionRight: { alignItems: "flex-end", gap: 5 },
@@ -2894,6 +2925,7 @@ function CreateSessionScreen({
   onCreated,
   onLiveRecordingOpened,
   onRecordingFinished,
+  onBulkUpload,
   pendingUpload,
   onPendingUploadHandled,
   agentName,
@@ -2902,13 +2934,14 @@ function CreateSessionScreen({
   onCreated: (id: string) => void;
   onLiveRecordingOpened: () => void;
   onRecordingFinished: (payload: PendingCreateSessionUpload) => void;
+  onBulkUpload: () => void;
   pendingUpload: PendingCreateSessionUpload | null;
   onPendingUploadHandled: () => void;
   agentName?: string | null;
 }) {
   const rec = useRecording();
 
-  const [phase, setPhase] = useState<"choose" | "uploading" | "details" | "bulkUploading">(pendingUpload ? "uploading" : "choose");
+  const [phase, setPhase] = useState<"choose" | "uploading" | "details">(pendingUpload ? "uploading" : "choose");
   const [uploadStats, setUploadStats] = useState<UploadStats>(initialUploadStats());
   const [sessionId, setSessionId] = useState<string | null>(pendingUpload?.sessionId ?? null);
   const [fileName, setFileName] = useState(pendingUpload?.name ?? "");
@@ -2928,8 +2961,6 @@ function CreateSessionScreen({
   const [rubricOpen, setRubricOpen] = useState(false);
   const [assets, setAssets] = useState<Material[]>([]);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>(pendingUpload?.draft.selectedAssetIds ?? []);
-  const [bulkItems, setBulkItems] = useState<BulkRecordingUploadItem[]>([]);
-  const [bulkUploading, setBulkUploading] = useState(false);
   const [uploaderIsAgent, setUploaderIsAgent] = useState(false);
 
   useEffect(() => {
@@ -3200,78 +3231,6 @@ function CreateSessionScreen({
     }
   }
 
-  async function pickBulkFiles() {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ["video/*", "audio/*"],
-        copyToCacheDirectory: true,
-        multiple: true,
-      } as DocumentPicker.DocumentPickerOptions);
-      if (result.canceled || !result.assets?.length) return;
-      const nextItems = result.assets.map((file, index) => ({
-        id: `${file.uri}-${file.name ?? "recording"}-${index}`,
-        uri: file.uri,
-        mimeType: file.mimeType ?? "video/mp4",
-        name: file.name ?? `recording-${index + 1}.mp4`,
-        size: file.size ?? undefined,
-        status: "queued" as const,
-        progress: 0,
-        sessionId: null,
-        error: null,
-      }));
-      setBulkItems(nextItems);
-      setBulkUploading(false);
-      setPhase("bulkUploading");
-      void Haptics.selectionAsync();
-    } catch {
-      showToast("Could not select files", "error");
-    }
-  }
-
-  function updateBulkItem(id: string, patch: Partial<BulkRecordingUploadItem>) {
-    setBulkItems((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
-  }
-
-  async function processBulkFiles() {
-    if (bulkUploading || bulkItems.length === 0) return;
-    setBulkUploading(true);
-    for (const item of bulkItems) {
-      try {
-        updateBulkItem(item.id, { status: "creating", error: null, progress: 0 });
-        const scheduledAt = new Date();
-        const sessionData = await createSession({
-          title: formatRecordingUploadTitle(scheduledAt),
-          titleIsAuto: true,
-          sourceFileName: item.name,
-          scheduledAt: scheduledAt.toISOString(),
-          uploaderIsAgent,
-          rubricId,
-        });
-        const sid = sessionData.session.id;
-        updateBulkItem(item.id, { status: "uploading", sessionId: sid });
-        await uploadRecording(sid, item.uri, item.mimeType, item.name, item.durationSec, (next) => {
-          updateBulkItem(item.id, {
-            progress: Math.max(0, Math.min(100, next.percent)),
-          });
-        });
-        updateBulkItem(item.id, { status: "processing", progress: 100 });
-        const processRes = await authenticatedFetch(`/api/sessions/${sid}/process`, { method: "POST" });
-        if (!processRes.ok) {
-          const body = await processRes.json().catch(() => null) as { error?: string } | null;
-          throw new Error(body?.error ?? "Could not start processing");
-        }
-        updateBulkItem(item.id, { status: "done" });
-      } catch (caught) {
-        updateBulkItem(item.id, {
-          status: "error",
-          error: caught instanceof Error ? caught.message : "Upload failed",
-        });
-      }
-    }
-    setBulkUploading(false);
-    showToast("Bulk upload started", "success");
-  }
-
   async function submitAndProcess() {
     if (!sessionId) return;
     setSubmitting(true);
@@ -3324,65 +3283,11 @@ function CreateSessionScreen({
               <Ionicons name="document-attach-outline" size={18} color={C.textSec} />
               <Text style={st.outlineBtnText}>Upload One File</Text>
             </Pressable>
-            <Pressable onPress={pickBulkFiles} disabled={!createOptionsReady} style={({ pressed }) => [st.outlineBtn, pressed && st.pressed]}>
+            <Pressable onPress={onBulkUpload} disabled={!createOptionsReady} style={({ pressed }) => [st.outlineBtn, pressed && st.pressed]}>
               <Ionicons name="copy-outline" size={18} color={C.textSec} />
               <Text style={st.outlineBtnText}>Bulk Upload Files</Text>
             </Pressable>
           </View>
-        </View>
-      </ScrollView>
-    );
-  }
-
-  if (phase === "bulkUploading") {
-    const doneCount = bulkItems.filter((item) => item.status === "done").length;
-    const failedCount = bulkItems.filter((item) => item.status === "error").length;
-    return (
-      <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
-        <View style={st.page}>
-          <BackBtn label="New Session" onPress={() => { if (!bulkUploading) setPhase("choose"); }} />
-          <Text style={st.pageTitle}>Bulk Upload</Text>
-          <Text style={st.pageSub}>{doneCount} of {bulkItems.length} started{failedCount ? ` · ${failedCount} failed` : ""}</Text>
-          <AgentIdentityToggle
-            selected={uploaderIsAgent}
-            agentName={agentName}
-            disabled={bulkUploading}
-            onToggle={() => {
-              if (bulkUploading) return;
-              setUploaderIsAgent((value) => !value);
-              void Haptics.selectionAsync();
-            }}
-          />
-          <View style={[st.card, { padding: 14, gap: 10 }]}>
-            {bulkItems.map((item) => (
-              <View key={item.id} style={{ flexDirection: "row", gap: 10, alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" }}>
-                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: item.status === "error" ? C.redBg : C.brand + "12", alignItems: "center", justifyContent: "center" }}>
-                  <Ionicons
-                    name={item.status === "done" ? "checkmark" : item.status === "error" ? "alert" : "cloud-upload-outline"}
-                    size={18}
-                    color={item.status === "error" ? C.red : item.status === "done" ? C.green : C.brand}
-                  />
-                </View>
-                <View style={st.flex1}>
-                  <Text style={{ fontSize: 13, fontWeight: "800", color: C.text }} numberOfLines={1}>{item.name}</Text>
-                  <Text style={{ fontSize: 11, fontWeight: "700", color: C.textMuted }} numberOfLines={1}>
-                    {formatBytes(item.size)} · {bulkMobileStatusLabel(item.status)}
-                  </Text>
-                  {item.status === "uploading" && (
-                    <View style={[st.progressTrack, { marginTop: 6 }]}><AnimatedProgressFill percent={item.progress} /></View>
-                  )}
-                  {item.error ? <Text style={{ marginTop: 4, color: C.red, fontSize: 11, fontWeight: "700" }}>{item.error}</Text> : null}
-                </View>
-              </View>
-            ))}
-          </View>
-          <PrimaryBtn
-            label={bulkUploading ? "Uploading..." : "Create & Process All"}
-            onPress={() => void processBulkFiles()}
-            icon="cloud-upload-outline"
-            disabled={bulkUploading || bulkItems.length === 0}
-          />
-          {doneCount > 0 && <PrimaryBtn label="View Sessions" onPress={onBack} icon="list-outline" />}
         </View>
       </ScrollView>
     );
@@ -3570,6 +3475,7 @@ function SampleSessionDetailScreen({ sessionId, onBack }: { sessionId: string; o
       onOpenComments={() => undefined}
       onOpenAiChat={() => undefined}
       onOpenAudioInsights={() => undefined}
+      onOpenReport={() => undefined}
       readOnly
     />
   );
@@ -3617,12 +3523,14 @@ function SessionDetailScreen({
   onOpenComments,
   onOpenAiChat,
   onOpenAudioInsights,
+  onOpenReport,
 }: {
   sessionId: string;
   autoStartRecording?: boolean;
   onBack: () => void;
   onOpenComments: (meta: { sessionId: string; sessionTitle?: string }) => void;
   onOpenAiChat: (meta: { sessionId: string; sessionTitle?: string; prospectName?: string }) => void;
+  onOpenReport: (sessionId: string) => void;
   onOpenAudioInsights: (meta: {
     sessionId: string;
     sessionTitle?: string;
@@ -3731,6 +3639,7 @@ function SessionDetailScreen({
             initialInsights: audioInsights,
           })
         }
+        onOpenReport={() => onOpenReport(sessionId)}
       />
     );
   }
@@ -3821,6 +3730,7 @@ function SessionReviewExperience({
   onOpenComments,
   onOpenAiChat,
   onOpenAudioInsights,
+  onOpenReport,
   readOnly = false,
 }: {
   session: any;
@@ -3835,6 +3745,7 @@ function SessionReviewExperience({
   onOpenComments: () => void;
   onOpenAiChat: () => void;
   onOpenAudioInsights: () => void;
+  onOpenReport: () => void;
   readOnly?: boolean;
 }) {
   const [localActions, setLocalActions] = useState(actions);
@@ -3851,7 +3762,6 @@ function SessionReviewExperience({
   const [selectionBusy, setSelectionBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [followPlayback, setFollowPlayback] = useState(true);
-  const [exportingReport, setExportingReport] = useState(false);
   const [annotationSheet, setAnnotationSheet] = useState<{
     items: TranscriptAnnotation[];
     index: number;
@@ -4110,27 +4020,8 @@ function SessionReviewExperience({
     }
   }
 
-  async function downloadPdfReport() {
-    if (exportingReport) return;
-    setExportingReport(true);
-    try {
-      const report = await downloadSessionReportPdf(sessionId, session.title);
-      await Share.share({
-        title: report.filename,
-        message: `${session.title} PDF report`,
-        url: report.uri,
-      });
-      showToast("PDF report ready", "success");
-    } catch (caught) {
-      showToast(caught instanceof Error ? caught.message : "Could not export PDF report", "error");
-    } finally {
-      setExportingReport(false);
-    }
-  }
-
   function openSessionMoreMenu() {
     Alert.alert("Session options", undefined, [
-      { text: exportingReport ? "Preparing PDF…" : "PDF report", onPress: () => void downloadPdfReport() },
       { text: comments.length > 0 ? `Comments (${comments.length})` : "Comments", onPress: onOpenComments },
       { text: "Audio insights", onPress: onOpenAudioInsights },
       { text: "Cancel", style: "cancel" },
@@ -4177,19 +4068,36 @@ function SessionReviewExperience({
         onMomentumScrollEnd={() => { userDragging.current = false; }}
         onScrollEndDrag={() => { userDragging.current = false; }}
       >
-        <TourScreenHeader
-          onBack={onBack}
-          title={session.title}
-          subtitle={[
-            session.prospectName || "Recorded tour",
-            duration ? fmtSec(duration) : null,
-            `${analysis.overallScore}% score`,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-          onMorePress={readOnly ? undefined : openSessionMoreMenu}
-          moreAccessibilityLabel="Session options"
-        />
+        <View>
+          <TourScreenHeader
+            onBack={onBack}
+            title={session.title}
+            subtitle={[
+              session.prospectName || "Recorded tour",
+              duration ? fmtSec(duration) : null,
+              `${analysis.overallScore}% score`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            onMorePress={readOnly ? undefined : openSessionMoreMenu}
+            moreAccessibilityLabel="Session options"
+          />
+          {!readOnly ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open PDF report"
+              onPress={onOpenReport}
+              style={({ pressed }) => [reviewSt.reportCta, pressed && st.pressed]}
+            >
+              <View style={reviewSt.reportCtaIcon}><Ionicons name="document-text-outline" size={20} color={C.brand} /></View>
+              <View style={st.flex1}>
+                <Text style={reviewSt.reportCtaTitle}>PDF report</Text>
+                <Text style={reviewSt.reportCtaSub}>Preview, share, save, or choose an analysis version</Text>
+              </View>
+              <Ionicons name="arrow-forward" size={18} color={C.brand} />
+            </Pressable>
+          ) : null}
+        </View>
 
         <View style={reviewSt.tabSticky}>
           <SessionModeTabs
@@ -6656,6 +6564,10 @@ const reviewSt = StyleSheet.create({
   commentsPageContent: { gap: 12, paddingHorizontal: SESSION_PAGE_PADDING, paddingTop: 12, paddingBottom: 130 },
   tabSticky: { backgroundColor: tourColors.bg, zIndex: 2 },
   tabBody: { gap: 13, paddingHorizontal: SESSION_PAGE_PADDING, paddingTop: 8 },
+  reportCta: { minHeight: 62, marginHorizontal: SESSION_PAGE_PADDING, marginTop: 8, marginBottom: 10, paddingHorizontal: 13, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 11, borderWidth: 1, borderColor: "#dbeafe", backgroundColor: "#f7fbff" },
+  reportCtaIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#eaf4ff" },
+  reportCtaTitle: { color: C.text, fontSize: 13, fontWeight: "900" },
+  reportCtaSub: { marginTop: 2, color: C.textSec, fontSize: 10, lineHeight: 14, fontWeight: "700" },
   sampleReadOnlyBanner: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, padding: 12, borderWidth: 1, borderColor: "#ddd6fe", borderRadius: 14, backgroundColor: "#faf7ff" },
   sampleReadOnlyIcon: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: C.purpleBg },
   sampleReadOnlyTitle: { color: C.text, fontSize: 13, fontWeight: "900" },

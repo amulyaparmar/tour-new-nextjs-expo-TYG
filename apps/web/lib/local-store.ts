@@ -4,8 +4,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, SessionAttachment, SessionDetail, SessionLead, SessionSource, SessionStatus, SessionSummary, AnalysisRun, AnalysisRunSummary, AnalysisRunTrigger } from "@tour/shared";
-import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeParticipantName } from "@tour/shared";
+import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, SessionAttachment, SessionDetail, SessionKind, SessionLead, SessionSource, SessionStatus, SessionSummary, AnalysisRun, AnalysisRunSummary, AnalysisRunTrigger } from "@tour/shared";
+import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeParticipantName, normalizeSessionKind } from "@tour/shared";
 
 type TranscriptSegment = {
   id: string;
@@ -45,6 +45,7 @@ async function loadStore(): Promise<StoreShape> {
         prospectName: normalizeParticipantName(session.prospectName),
         agentName: normalizeParticipantName(session.agentName),
         source: session.source ?? "manual",
+        sessionKind: normalizeSessionKind(session.sessionKind),
         leads: session.leads ?? [],
         attachments: session.attachments ?? [],
         audioInsightsStatus: normalizeAudioInsightsStatus(session.audioInsightsStatus),
@@ -95,6 +96,7 @@ export async function createLocalSession(input: {
   agentName?: string | null;
   notes?: string | null;
   source?: SessionSource;
+  sessionKind?: SessionKind;
   leads?: SessionLead[];
   attachments?: SessionAttachment[];
   rubricId?: string | null;
@@ -111,6 +113,7 @@ export async function createLocalSession(input: {
     location: input.location ?? null,
     status: input.status ?? "scheduled",
     source: input.source ?? "manual",
+    sessionKind: input.sessionKind ?? "tour",
     leads: input.leads ?? [],
     attachments: input.attachments ?? [],
     rubricId: input.rubricId ?? null,
@@ -157,6 +160,7 @@ export async function updateLocalSession(
     location?: string | null;
     notes?: string | null;
     rubricId?: string | null;
+    sessionKind?: SessionKind;
     analysisWorkflowRunId?: string | null;
     analysisWorkflowStartedAt?: string | null;
     analysisWorkflowCompletedAt?: string | null;
@@ -179,6 +183,7 @@ export async function updateLocalSession(
   if (fields.location !== undefined) session.location = fields.location;
   if (fields.notes !== undefined) session.notes = fields.notes;
   if (fields.rubricId !== undefined) session.rubricId = fields.rubricId;
+  if (fields.sessionKind !== undefined) session.sessionKind = fields.sessionKind;
   if (fields.analysisWorkflowRunId !== undefined) session.analysisWorkflowRunId = fields.analysisWorkflowRunId;
   if (fields.analysisWorkflowStartedAt !== undefined) session.analysisWorkflowStartedAt = fields.analysisWorkflowStartedAt;
   if (fields.analysisWorkflowCompletedAt !== undefined) session.analysisWorkflowCompletedAt = fields.analysisWorkflowCompletedAt;

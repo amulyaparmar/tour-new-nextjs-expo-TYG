@@ -15,6 +15,7 @@ export type SessionCardFields = {
   title?: string | null;
   agentName?: string | null;
   prospectName?: string | null;
+  sessionKind?: "tour" | "call" | "ai_call" | null;
   leads?: Array<{ name: string }> | null;
   scheduledAt?: string | null;
   createdAt?: string | null;
@@ -228,7 +229,13 @@ export function formatSessionCardWhen(
 /** `Jun 23 Mon 5 PM Tour` */
 export function formatSessionCardDateTime(fields: SessionCardFields): string | null {
   const when = formatSessionCardWhen(fields.scheduledAt, fields.createdAt);
-  return when ? `${when} Tour` : null;
+  if (!when) return null;
+  const label = fields.sessionKind === "ai_call"
+    ? "AI Call"
+    : fields.sessionKind === "call"
+      ? "Call"
+      : "Tour";
+  return `${when} ${label}`;
 }
 
 /** Keep existing title as the primary card heading. */
@@ -248,7 +255,9 @@ export function formatSessionCardMeta(
   fields: SessionCardFields,
   extras?: { propertyName?: string | null },
 ): string {
-  const agent = firstName(fields.agentName);
+  const agent = fields.sessionKind === "ai_call"
+    ? fields.agentName?.trim() || null
+    : firstName(fields.agentName);
   const lead = firstName(leadName(fields));
   const people =
     agent && lead ? `${agent} · ${lead}` : agent ?? lead ?? null;

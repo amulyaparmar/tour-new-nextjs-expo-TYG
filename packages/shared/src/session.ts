@@ -13,6 +13,18 @@ export type SessionStatus =
   | "failed";
 
 export type SessionSource = "manual" | "qr" | "entrata";
+export type SessionKind = "tour" | "call" | "ai_call";
+
+export const SESSION_KIND_LABELS: Record<SessionKind, string> = {
+  tour: "Tour",
+  call: "Call",
+  ai_call: "AI call",
+};
+
+export function normalizeSessionKind(value: string | null | undefined): SessionKind {
+  if (value === "call" || value === "ai_call") return value;
+  return "tour";
+}
 
 export type SessionLead = {
   name: string;
@@ -56,6 +68,7 @@ export type SessionSummary = {
   location: string | null;
   status: SessionStatus;
   source: SessionSource;
+  sessionKind: SessionKind;
   leads: SessionLead[];
   attachments: SessionAttachment[];
   rubricId: string | null;
@@ -100,6 +113,7 @@ export type CreateSessionInput = {
   agentName?: string | null;
   notes?: string | null;
   source?: SessionSource;
+  sessionKind?: SessionKind;
   leads?: SessionLead[];
   attachments?: SessionAttachment[];
   rubricId?: string | null;

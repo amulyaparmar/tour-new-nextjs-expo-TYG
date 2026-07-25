@@ -20,10 +20,14 @@ import {
 export async function GET(request: NextRequest) {
   try {
     const workspace = await requireAdminContext(request);
+    const sessionKind = request.nextUrl.searchParams.get("type") === "ai_call"
+      ? "ai_call"
+      : undefined;
     const ownSessions = await listSessionsPaginated({
       limit: 1,
       propertyIds: propertySessionKeys(workspace.community),
       excludeScheduled: true,
+      sessionKind,
     });
 
     if (ownSessions.total > 0) {
@@ -66,6 +70,7 @@ export async function GET(request: NextRequest) {
       limit: 100,
       propertyIds: [...SAMPLE_SOURCE_PROPERTY_IDS],
       excludeScheduled: true,
+      sessionKind,
       sort: "newest",
     });
     const byId = new Map(source.sessions.map((session) => [session.id, session]));

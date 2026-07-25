@@ -1,4 +1,4 @@
-import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionAttachment, SessionDetail, SessionLead, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, AnalysisRunSummary, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionAttachment, SessionDetail, SessionKind, SessionLead, SessionSummary } from "@tour/shared";
 import { fetch as expoFetch } from "expo/fetch";
 import { File, Paths } from "expo-file-system";
 
@@ -12,6 +12,7 @@ export type FetchSessionsParams = {
   status?: string;
   search?: string;
   sort?: "newest" | "oldest" | "score_desc" | "score_asc" | "scheduled_asc";
+  sessionKind?: SessionKind;
   upcoming?: boolean;
 };
 
@@ -53,6 +54,7 @@ export async function fetchSessions(params?: FetchSessionsParams): Promise<Pagin
   if (params?.status) sp.set("status", params.status);
   if (params?.search) sp.set("search", params.search);
   if (params?.sort) sp.set("sort", params.sort);
+  if (params?.sessionKind) sp.set("type", params.sessionKind);
   if (params?.upcoming) sp.set("upcoming", "true");
   const qs = sp.toString();
   const res = await authenticatedFetch(`/api/sessions${qs ? `?${qs}` : ""}`);
@@ -62,8 +64,9 @@ export async function fetchSessions(params?: FetchSessionsParams): Promise<Pagin
   return (await res.json()) as PaginatedSessions;
 }
 
-export async function fetchSampleSessions(): Promise<SampleSessionsResponse> {
-  const res = await authenticatedFetch("/api/sessions/samples");
+export async function fetchSampleSessions(sessionKind?: SessionKind): Promise<SampleSessionsResponse> {
+  const query = sessionKind ? `?type=${encodeURIComponent(sessionKind)}` : "";
+  const res = await authenticatedFetch(`/api/sessions/samples${query}`);
   const body = await res.json().catch(() => null) as (SampleSessionsResponse & { error?: string }) | null;
   if (!res.ok || !body?.sessions) {
     throw new Error(body?.error ?? "Could not load sample sessions.");
@@ -268,8 +271,18 @@ export async function getRecordingSignedPlaybackUrl(sessionId: string) {
   return (await res.json()) as { signedUrl: string; expiresAt: string };
 }
 
-export async function downloadSessionReportPdf(sessionId: string, sessionTitle: string) {
-  const res = await authenticatedFetch(`/api/sessions/${sessionId}/export`);
+export async function fetchAnalysisRuns(sessionId: string) {
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/analysis/runs`);
+  const body = await res.json().catch(() => null) as { runs?: AnalysisRunSummary[]; error?: string } | null;
+  if (!res.ok || !body?.runs) {
+    throw new Error(body?.error ?? "Failed to load report versions.");
+  }
+  return { runs: body.runs };
+}
+
+export async function downloadSessionReportPdf(sessionId: string, sessionTitle: string, version?: number | null) {
+  const query = version == null ? "" : `?version=${encodeURIComponent(String(version))}`;
+  const res = await authenticatedFetch(`/api/sessions/${sessionId}/export${query}`);
   if (!res.ok) {
     const body = await res.json().catch(() => null) as { error?: string } | null;
     throw new Error(body?.error ?? "PDF export failed.");

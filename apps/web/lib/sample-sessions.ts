@@ -10,6 +10,7 @@ export const SAMPLE_SOURCE_PROPERTY_IDS = [
 // Curated, analyzed examples. Keep this list explicit so new sessions never
 // become visible as samples merely because of their property.
 export const SAMPLE_SESSION_IDS = [
+  "a11ca11a-0000-4000-8000-000000000001", // AI leasing call - direct ElevenLabs transcript
   "717f4772-ec00-4676-bcf4-1eaf924c3786", // Laura x Amulya - 8 exact moments
   "772c294c-130e-45b6-866a-5e374d7b9d29", // Laura x Amulya - long transcript
   "34a29aea-1810-4ec9-97b8-af3bd95fd8c8", // Vic Village - 392 transcript turns

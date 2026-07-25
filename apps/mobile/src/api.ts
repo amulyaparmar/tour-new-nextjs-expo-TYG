@@ -1,4 +1,4 @@
-import type { AnalysisResult, AnalysisRunSummary, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionAttachment, SessionDetail, SessionKind, SessionLead, SessionSummary } from "@tour/shared";
+import type { AnalysisResult, AnalysisRunSummary, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, Rubric, SessionAttachment, SessionDetail, SessionLead, SessionSummary } from "@tour/shared";
 import { fetch as expoFetch } from "expo/fetch";
 import { File, Paths } from "expo-file-system";
 
@@ -12,7 +12,6 @@ export type FetchSessionsParams = {
   status?: string;
   search?: string;
   sort?: "newest" | "oldest" | "score_desc" | "score_asc" | "scheduled_asc";
-  sessionKind?: SessionKind;
   upcoming?: boolean;
 };
 
@@ -54,7 +53,6 @@ export async function fetchSessions(params?: FetchSessionsParams): Promise<Pagin
   if (params?.status) sp.set("status", params.status);
   if (params?.search) sp.set("search", params.search);
   if (params?.sort) sp.set("sort", params.sort);
-  if (params?.sessionKind) sp.set("type", params.sessionKind);
   if (params?.upcoming) sp.set("upcoming", "true");
   const qs = sp.toString();
   const res = await authenticatedFetch(`/api/sessions${qs ? `?${qs}` : ""}`);
@@ -64,9 +62,8 @@ export async function fetchSessions(params?: FetchSessionsParams): Promise<Pagin
   return (await res.json()) as PaginatedSessions;
 }
 
-export async function fetchSampleSessions(sessionKind?: SessionKind): Promise<SampleSessionsResponse> {
-  const query = sessionKind ? `?type=${encodeURIComponent(sessionKind)}` : "";
-  const res = await authenticatedFetch(`/api/sessions/samples${query}`);
+export async function fetchSampleSessions(): Promise<SampleSessionsResponse> {
+  const res = await authenticatedFetch("/api/sessions/samples");
   const body = await res.json().catch(() => null) as (SampleSessionsResponse & { error?: string }) | null;
   if (!res.ok || !body?.sessions) {
     throw new Error(body?.error ?? "Could not load sample sessions.");

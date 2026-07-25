@@ -1,4 +1,4 @@
-import type { AudioInsights, FollowUpAction, SessionKind, SessionSummary } from "@tour/shared";
+import type { AudioInsights, FollowUpAction, SessionSummary } from "@tour/shared";
 import {
   useInfiniteQuery,
   useMutation,
@@ -43,7 +43,7 @@ export const queryKeys = {
   sessions: (params?: FetchSessionsParams) => [...queryKeys.all(), "sessions", params ?? {}] as const,
   sessionPages: (params?: FetchSessionsParams) => [...queryKeys.all(), "sessionPages", params ?? {}] as const,
   session: (sessionId: string) => [...queryKeys.all(), "session", sessionId] as const,
-  sampleSessions: (sessionKind?: SessionKind) => [...queryKeys.all(), "sampleSessions", sessionKind ?? "all"] as const,
+  sampleSessions: () => [...queryKeys.all(), "sampleSessions"] as const,
   sampleSession: (sessionId: string) => [...queryKeys.all(), "sampleSession", sessionId] as const,
   analysis: (sessionId: string) => [...queryKeys.session(sessionId), "analysis"] as const,
   actions: (sessionId: string) => [...queryKeys.session(sessionId), "actions"] as const,
@@ -78,10 +78,10 @@ export function useSessionQuery(sessionId: string) {
   });
 }
 
-export function useSampleSessionsQuery(enabled = true, sessionKind?: SessionKind) {
+export function useSampleSessionsQuery(enabled = true) {
   return useQuery({
-    queryKey: queryKeys.sampleSessions(sessionKind),
-    queryFn: () => fetchSampleSessions(sessionKind),
+    queryKey: queryKeys.sampleSessions(),
+    queryFn: fetchSampleSessions,
     enabled,
     staleTime: 5 * 60_000,
   });

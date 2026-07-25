@@ -1618,7 +1618,6 @@ function SessionRow({ session, onPress, isLast }: { session: SessionSummary; onP
 
 const FILTER_CHIPS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "ai_calls", label: "AI calls" },
   { value: "needs_review", label: "Needs review" },
   { value: "feedback", label: "Feedback received" },
 ];
@@ -1723,12 +1722,6 @@ function SessionListSwipeRow({
           <View style={slst.sessionNameRow}>
             {session.status === "in_progress" && <PulseDot color="#f04438" />}
             <Text style={slst.sessionName} numberOfLines={1}>{session.title}</Text>
-            {session.sessionKind === "ai_call" && (
-              <View style={slst.aiCallBadge}>
-                <Ionicons name="sparkles" size={10} color={C.purple} />
-                <Text style={slst.aiCallBadgeText}>AI</Text>
-              </View>
-            )}
           </View>
           <Text style={slst.sessionMeta} numberOfLines={1}>
             {checkedInSummary || formatSessionCardMeta(session)}
@@ -1807,7 +1800,6 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     limit: SESSIONS_PAGE_SIZE,
     sort,
     search: debouncedSearch.trim() || undefined,
-    sessionKind: statusFilter === "ai_calls" ? "ai_call" : undefined,
   });
 
   // Remote-only list. Local folders hold in-flight live audio, not session cards.
@@ -1816,10 +1808,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     [sessionsQuery.data],
   );
   const total = sessionsQuery.data?.pages[0]?.total ?? sessions.length;
-  const sampleSessionsQuery = useSampleSessionsQuery(
-    true,
-    statusFilter === "ai_calls" ? "ai_call" : undefined,
-  );
+  const sampleSessionsQuery = useSampleSessionsQuery(true);
   const sampleSessions = sampleSessionsQuery.data?.sessions ?? [];
   const samplePropertyName = sampleSessionsQuery.data?.propertyName ?? "1540 Place Apartments";
   const samplesAvailable = sampleSessionsQuery.isSuccess && sampleSessions.length > 0;
@@ -1901,7 +1890,6 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     const filteredSessions = visibleSessions.filter((session) => {
       if (showSamples) return true;
       if (statusFilter === "all") return true;
-      if (statusFilter === "ai_calls") return session.sessionKind === "ai_call";
       if (statusFilter === "needs_review") return ["uploaded", "failed", "analysis_ready"].includes(session.status);
       if (statusFilter === "feedback") return ["analysis_ready", "reviewed"].includes(session.status) || session.overallScore !== null;
       return true;
@@ -1909,9 +1897,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
 
     const label = showSamples
       ? `${samplePropertyName} samples`
-      : statusFilter === "ai_calls"
-        ? "AI Calls"
-        : statusFilter === "needs_review"
+      : statusFilter === "needs_review"
           ? "Needs Review"
           : statusFilter === "feedback"
             ? "Feedback Received"
@@ -2218,8 +2204,6 @@ const slst = StyleSheet.create({
   sessionCardDeleting: { opacity: 0.55 },
   sessionNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   sessionName: { flex: 1, color: "#1a1a1a", fontSize: 15, fontWeight: "900" },
-  aiCallBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: "#ddd6fe", borderRadius: 999, backgroundColor: "#f5f3ff" },
-  aiCallBadgeText: { color: C.purple, fontSize: 9, fontWeight: "900" },
   sessionMeta: { color: "#666", fontSize: 12, marginTop: 5 },
   sessionDescription: { color: "#667085", fontSize: 12, marginTop: 4, lineHeight: 16 },
   sessionRight: { alignItems: "flex-end", gap: 5 },

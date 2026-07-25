@@ -210,11 +210,11 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
       )}
 
       {!hasAnalysis && isScheduled && !isReadOnlyExternal && (
-        <UploadAndProcess sessionId={id} hasRecording={false} variant="new-session" defaults={defaults ?? undefined} noteAssets={noteAssets} recordingDuration={session.duration} />
+        <UploadAndProcess sessionId={id} sessionCreatedAt={session.createdAt} hasRecording={false} variant="new-session" defaults={defaults ?? undefined} noteAssets={noteAssets} recordingDuration={session.duration} />
       )}
 
       {!hasAnalysis && !isScheduled && !isReadOnlyExternal && (
-        <UploadAndProcess sessionId={id} hasRecording={hasRecording} defaults={defaults ?? undefined} noteAssets={noteAssets} recordingDuration={session.duration} />
+        <UploadAndProcess sessionId={id} sessionCreatedAt={session.createdAt} hasRecording={hasRecording} defaults={defaults ?? undefined} noteAssets={noteAssets} recordingDuration={session.duration} />
       )}
 
       {!hasAnalysis && isReadOnlyExternal && recordingUrl && (

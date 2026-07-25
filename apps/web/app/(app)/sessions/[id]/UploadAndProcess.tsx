@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookmarkPlus, CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle, Brain, Sparkles, Upload, Video, GitBranch, Clock, FileText } from "lucide-react";
+import { BookmarkPlus, CalendarDays, Mic, QrCode, Square, CheckCircle2, XCircle, Brain, Sparkles, Upload, Video, GitBranch, Clock } from "lucide-react";
 
 import type { SessionStatus } from "@tour/shared";
 import { waitForSessionProcessing } from "@/lib/wait-for-session-processing";
@@ -42,44 +42,6 @@ const STEP_ICONS = {
   brain: Brain,
   sparkles: Sparkles,
   check: CheckCircle2,
-};
-
-const STEP_DETAILS: Record<Exclude<Step, "idle" | "uploaded">, { stage: string; output: string; status: string }> = {
-  uploading: {
-    stage: "Uploading recording",
-    output: "Recording uploaded securely",
-    status: "In progress",
-  },
-  transcribing: {
-    stage: "Transcribing audio",
-    output: "Transcript with speaker labels",
-    status: "In progress",
-  },
-  segmenting: {
-    stage: "Segmenting conversation",
-    output: "Conversation phase map",
-    status: "In progress",
-  },
-  analyzing: {
-    stage: "Analyzing rubric",
-    output: "Scores, moments, coaching",
-    status: "In progress",
-  },
-  generating_actions: {
-    stage: "Creating follow-up actions",
-    output: "Next steps and suggested messages",
-    status: "In progress",
-  },
-  done: {
-    stage: "Analysis complete",
-    output: "Review-ready session",
-    status: "Complete",
-  },
-  error: {
-    stage: "Processing stopped",
-    output: "Needs retry",
-    status: "Failed",
-  },
 };
 
 function statusToStep(status: SessionStatus): Step {
@@ -164,8 +126,15 @@ function formatEta(seconds: number | null): string {
   return `~${Math.ceil(seconds / 60)} min`;
 }
 
+function elapsedSecondsSince(createdAt: string): number {
+  const createdAtMs = Date.parse(createdAt);
+  if (!Number.isFinite(createdAtMs)) return 0;
+  return Math.max(0, Math.floor((Date.now() - createdAtMs) / 1000));
+}
+
 export function UploadAndProcess({
   sessionId,
+  sessionCreatedAt,
   hasRecording,
   variant = "record",
   defaults,
@@ -173,6 +142,7 @@ export function UploadAndProcess({
   recordingDuration = null
 }: {
   sessionId: string;
+  sessionCreatedAt: string;
   hasRecording: boolean;
   variant?: "record" | "new-session";
   defaults?: SessionDetailDefaults;
@@ -209,12 +179,16 @@ export function UploadAndProcess({
 
   useEffect(() => {
     if (phase !== "processing" || step === "done" || step === "error") return;
+    const updateProcessingElapsed = () => {
+      setProcessingElapsed(elapsedSecondsSince(sessionCreatedAt));
+    };
+    updateProcessingElapsed();
     const t = setInterval(() => {
-      setProcessingElapsed((e) => e + 1);
+      updateProcessingElapsed();
       setStepElapsed((e) => e + 1);
     }, 1000);
     return () => clearInterval(t);
-  }, [phase, step]);
+  }, [phase, step, sessionCreatedAt]);
 
   useEffect(() => {
     setStepElapsed(0);
@@ -350,7 +324,7 @@ export function UploadAndProcess({
     setPhase("processing");
     setStep("uploading");
     setProgress(0);
-    setProcessingElapsed(0);
+    setProcessingElapsed(elapsedSecondsSince(sessionCreatedAt));
     setStepElapsed(0);
     setErrorMsg(null);
     try {
@@ -420,7 +394,7 @@ export function UploadAndProcess({
   const startProcessing = useCallback(async () => {
     setPhase("processing");
     setStep("transcribing");
-    setProcessingElapsed(0);
+    setProcessingElapsed(elapsedSecondsSince(sessionCreatedAt));
     setStepElapsed(0);
     setErrorMsg(null);
     try {
@@ -430,7 +404,7 @@ export function UploadAndProcess({
       setStep("error");
       setErrorMsg(err instanceof Error ? err.message : "Processing failed");
     }
-  }, [sessionId]);
+  }, [sessionId, sessionCreatedAt]);
 
   // Auto-start processing when recording exists but no analysis
   const hasAutoStarted = useRef(false);
@@ -658,15 +632,6 @@ export function UploadAndProcess({
   const currentIdx = stepIndex(step);
   const isDone = step === "done";
   const isError = step === "error";
-  const totalSteps = PIPELINE_STEPS.length;
-  const visibleStepCount = isDone
-    ? totalSteps
-    : isError
-      ? Math.max(1, currentIdx + 1)
-      : Math.max(1, currentIdx + 1);
-  const overallPct = isDone ? 100 : isError ? 0 : Math.round((visibleStepCount / totalSteps) * 100);
-  const activeStep = PIPELINE_STEPS.find((ps) => ps.key === step || (step === "uploaded" && ps.key === "uploading"));
-  const activeDetails = STEP_DETAILS[step === "uploaded" ? "uploading" : step === "idle" ? "transcribing" : step];
   const etaSeconds = estimateRemainingSeconds(step, mediaDurationSec, stepElapsed);
 
   return (
@@ -692,24 +657,11 @@ export function UploadAndProcess({
             <Clock size={18} />
             <strong>{formatTime(processingElapsed)}</strong>
           </div>
-          <span>Elapsed time</span>
+          <span>Elapsed · {formatEta(etaSeconds)} left</span>
         </div>
       </div>
 
       <div className="pipeline-divider" />
-
-      <div className="pipeline-progress-row">
-        <strong>{overallPct}%</strong>
-        <span>{visibleStepCount} of {totalSteps} steps complete</span>
-      </div>
-      {!isError && (
-        <div className="pipeline-progress-track" aria-label={`${overallPct}% complete`}>
-          <div
-            className={`pipeline-progress-fill ${isDone ? "is-done" : ""}`}
-            style={{ width: `${overallPct}%` }}
-          />
-        </div>
-      )}
 
       <div className="pipeline-timeline" aria-label="Processing steps">
         {PIPELINE_STEPS.map((ps, i) => {
@@ -731,46 +683,6 @@ export function UploadAndProcess({
             </div>
           );
         })}
-      </div>
-
-      <div className="pipeline-divider" />
-
-      <div className="pipeline-summary-grid">
-        <article className="pipeline-summary-card">
-          <span className="pipeline-summary-icon">
-            {activeStep ? (() => {
-              const Icon = STEP_ICONS[activeStep.icon];
-              return <Icon size={24} />;
-            })() : <Mic size={24} />}
-          </span>
-          <div>
-            <span>Current stage</span>
-            <strong>{activeDetails.stage}</strong>
-            <small data-tone={isError ? "error" : isDone ? "done" : "active"}>{activeDetails.status}</small>
-          </div>
-        </article>
-
-        <article className="pipeline-summary-card">
-          <span className="pipeline-summary-icon is-eta">
-            <Clock size={24} />
-          </span>
-          <div>
-            <span>Estimated time left</span>
-            <strong>{formatEta(etaSeconds)}</strong>
-            <small>Based on current progress</small>
-          </div>
-        </article>
-
-        <article className="pipeline-summary-card">
-          <span className="pipeline-summary-icon is-output">
-            <FileText size={24} />
-          </span>
-          <div>
-            <span>Output</span>
-            <strong>{activeDetails.output}</strong>
-            <small data-tone="done">{isDone ? "Ready" : "Planned output"}</small>
-          </div>
-        </article>
       </div>
 
       {/* Error retry */}

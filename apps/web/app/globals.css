@@ -5225,51 +5225,12 @@ audio.recording-upload-player {
   margin: 18px 0;
 }
 
-.pipeline-progress-row {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.pipeline-progress-row strong {
-  color: var(--indigo-600);
-  font-size: 28px;
-  font-weight: 850;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.pipeline-progress-row span {
-  color: var(--slate-500);
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.pipeline-progress-track {
-  height: 7px;
-  border-radius: var(--radius-full);
-  background: var(--slate-100);
-  overflow: hidden;
-}
-
-.pipeline-progress-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: var(--indigo-600);
-  transition: width .45s ease;
-}
-
-.pipeline-progress-fill.is-done {
-  background: var(--green-500);
-}
-
 .pipeline-timeline {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   align-items: start;
   gap: 0;
-  margin: 28px 0 2px;
+  margin: 4px 0 2px;
 }
 
 .pipeline-timeline-step {
@@ -5384,97 +5345,6 @@ audio.recording-upload-player {
   font-size: 11px;
 }
 
-.pipeline-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.pipeline-summary-card {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--slate-200);
-  border-radius: 8px;
-  background: white;
-}
-
-.pipeline-summary-icon {
-  flex: 0 0 42px;
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  color: var(--indigo-600);
-  background: var(--indigo-50);
-  border: 1px solid var(--indigo-100);
-}
-
-.pipeline-summary-icon svg {
-  width: 19px;
-  height: 19px;
-}
-
-.pipeline-summary-icon.is-eta {
-  color: #6d4edc;
-  background: #f3edff;
-  border-color: #e6d7ff;
-}
-
-.pipeline-summary-icon.is-output {
-  color: var(--green-600);
-  background: var(--green-50);
-  border-color: var(--green-100);
-}
-
-.pipeline-summary-card div {
-  min-width: 0;
-}
-
-.pipeline-summary-card div > span {
-  display: block;
-  color: var(--slate-500);
-  font-size: 12px;
-}
-
-.pipeline-summary-card strong {
-  display: block;
-  margin-top: 2px;
-  color: var(--slate-900);
-  font-size: 14px;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-}
-
-.pipeline-summary-card small {
-  display: inline-flex;
-  margin-top: 5px;
-  padding: 2px 7px;
-  border-radius: var(--radius-full);
-  color: var(--slate-500);
-  background: var(--slate-100);
-  font-size: 11px;
-  line-height: 1.2;
-}
-
-.pipeline-summary-card small[data-tone="active"] {
-  color: var(--indigo-600);
-  background: var(--indigo-50);
-}
-
-.pipeline-summary-card small[data-tone="done"] {
-  color: var(--green-700);
-  background: var(--green-50);
-}
-
-.pipeline-summary-card small[data-tone="error"] {
-  color: var(--red-700);
-  background: var(--red-50);
-}
-
 .pipeline-retry-actions {
   display: flex;
   gap: 8px;
@@ -5485,11 +5355,6 @@ audio.recording-upload-player {
 @media (max-width: 980px) {
   .pipeline-stage-card {
     padding: 16px;
-  }
-
-  .pipeline-summary-grid {
-    grid-template-columns: 1fr;
-    gap: 8px;
   }
 
   .pipeline-timeline {
@@ -5552,18 +5417,6 @@ audio.recording-upload-player {
     margin: 14px 0;
   }
 
-  .pipeline-progress-row {
-    gap: 10px;
-  }
-
-  .pipeline-progress-row strong {
-    font-size: 25px;
-  }
-
-  .pipeline-progress-row span {
-    font-size: 12px;
-  }
-
   .pipeline-timeline {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-top: 22px;
@@ -5574,20 +5427,6 @@ audio.recording-upload-player {
     height: 40px;
   }
 
-  .pipeline-summary-card {
-    gap: 10px;
-    padding: 10px;
-  }
-
-  .pipeline-summary-icon {
-    width: 38px;
-    height: 38px;
-    flex-basis: 38px;
-  }
-
-  .pipeline-summary-card strong {
-    font-size: 13px;
-  }
 }
 
 /* ── Calendar (schedule-x) ────────────────────────────── */

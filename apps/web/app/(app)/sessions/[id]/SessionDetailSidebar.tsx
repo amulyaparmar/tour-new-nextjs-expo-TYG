@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import type { AnalysisModelId, AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, SessionParticipants, TranscriptConversationStats } from "@tour/shared";
-import { Activity, CheckCircle2, ExternalLink, MessageSquare } from "lucide-react";
+import { Activity, CheckCircle2, MessageSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
 
@@ -223,25 +222,14 @@ function SessionRubricPanel({
     <div className={styles.rubricPanel}>
       <div className={styles.sidebarSectionHead}>
         <h2>Rubric</h2>
-        <div className={styles.rubricHeaderActions}>
-          {rubric ? (
-            <Link
-              href={`/rubrics/${encodeURIComponent(rubric.id)}`}
-              className={styles.rubricSourceLink}
-              title={`Open rubric ${rubric.name ?? rubric.id}`}
-            >
-              <span className={styles.rubricSourceName}>{rubric.name ?? "Rubric"}</span>
-              <span className={styles.rubricSourceId}>{shortRubricId(rubric.id)}</span>
-              <ExternalLink size={12} />
-            </Link>
-          ) : (
-            <span className={styles.rubricSourceMuted}>Default rubric</span>
-          )}
-          <span className={styles.sidebarScore}>{analysis.overallScore}%</span>
-        </div>
+        <ReanalyzeWithRubric
+          sessionId={sessionId}
+          currentRubricId={rubric?.id ?? null}
+          currentRubricName={rubric?.name ?? null}
+          score={analysis.overallScore}
+          readOnly={readOnly}
+        />
       </div>
-
-      {!readOnly && <ReanalyzeWithRubric sessionId={sessionId} currentRubricId={rubric?.id ?? null} />}
 
       {!anyQuestions && (
         <div className={styles.rubricLegacy}>
@@ -367,11 +355,6 @@ function SessionRubricPanel({
       })}
     </div>
   );
-}
-
-function shortRubricId(id: string) {
-  if (id.length <= 12) return id;
-  return `${id.slice(0, 6)}...${id.slice(-4)}`;
 }
 
 function RubricStrengthRadar({

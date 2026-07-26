@@ -17,7 +17,6 @@ import {
   uploadGeminiAudioFile,
   type GeminiChatMessage,
 } from "./gemini-client";
-import type { TranscriptSegment } from "./transcribe";
 
 const GEMINI_FILE_TTL_MS = 48 * 60 * 60 * 1000;
 const GEMINI_FILE_EXPIRY_SAFETY_MS = 10 * 60 * 1000;
@@ -39,7 +38,10 @@ const AUDIO_INSIGHTS_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          speaker: { type: "string" },
+          speaker: {
+            type: "string",
+            description: "Role inferred from the voice's behavior across the full audio",
+          },
           talkTimeSeconds: { type: "number" },
           dominantEmotion: {
             type: "string",
@@ -55,7 +57,10 @@ const AUDIO_INSIGHTS_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          speaker: { type: "string" },
+          speaker: {
+            type: "string",
+            description: "Agent or Prospect after tracking the same voice across the recording; split turns whenever the voice changes",
+          },
           timestamp: { type: "string" },
           endTimestamp: { type: "string" },
           content: { type: "string" },
@@ -103,11 +108,11 @@ const AUDIO_INSIGHTS_SCHEMA = {
       properties: {
         agentName: {
           type: "string",
-          description: "Leasing agent/staff name heard in the audio; empty string if unknown",
+          description: "Name bound by voice continuity to the person conducting the session; empty string if unknown",
         },
         prospectName: {
           type: "string",
-          description: "Prospect/customer/visitor name heard in the audio; empty string if unknown",
+          description: "Name bound by voice continuity to the person shopping for housing; empty string if unknown",
         },
         agentNameConfidence: {
           type: "number",
@@ -252,12 +257,12 @@ export type AudioInsightsRubricContext = {
 };
 
 function buildAudioInsightsPrompt(
-  transcript?: TranscriptSegment[],
   rubricContext?: AudioInsightsRubricContext,
 ): string {
   const lines = [
     "Analyze this leasing tour or phone shop recording for coaching insights.",
     "Use the audio directly — tone, pacing, pauses, enthusiasm, and non-speech ambience matter.",
+    "Listen through the audio and establish the distinct voices, who conducts the session, and who is shopping before assigning names or computing role-based statistics.",
     "",
     "Requirements:",
     "1. Identify distinct speakers and estimate talk time per speaker.",
@@ -278,7 +283,14 @@ function buildAudioInsightsPrompt(
     "   - Use 90-100 only for an explicit introduction or repeated unambiguous address; 60-89 for strong contextual evidence; below 60 for a tentative phonetic/contextual reading.",
     "   - Return names without confidence symbols or prefixes; the application adds its own low-confidence marker.",
     "   - agentNameFirstMentionTimestamp and prospectNameFirstMentionTimestamp: earliest point where the corresponding returned name is audibly spoken by anyone, in MM:SS; use empty string if the name is unknown or is never audibly spoken.",
-    "   - Prefer spoken introductions and how speakers address each other. Do not infer names from tool/schema text.",
+    "   - Resolve identity in this order: distinguish the voices, attach each audible name to the correct voice, then infer that voice's role from the whole interaction. Apply that same mapping consistently to participants, speaker dynamics, segments, and conversation stats.",
+    "   - A self-introduction (for example, \"I'm Camilla\") names the speaker. A direct address (for example, \"Camilla, ...\") names the listener. Do not assign a name to a role merely because the other person spoke it.",
+    "   - Around every candidate name, re-listen to the audio immediately before and after the mention, bind the name to that voice, and follow that same voice across the recording before assigning Agent or Prospect.",
+    "   - Split turns whenever the voice changes. If the audio cannot support both the name-to-voice link and the voice-to-role link, return the name as unknown.",
+    "   - The recording is the only source of truth for participant names. Ignore names in rubric context, criteria, examples, prior metadata or analyses, and tool/schema text.",
+    "   - Track the voice that gives a spoken introduction or is unambiguously addressed, then infer that voice's role from what they do across the recording (for example: conducting the tour and explaining the property versus shopping for housing).",
+    "   - Prefer spoken introductions and unambiguous direct address. Resolve ambiguous local phrases using voice continuity and the full conversational behavior.",
+    "   - agentName must belong to the person conducting this session. Do not use a name heard only when that person addresses or calls a colleague, manager, maintenance worker, or other third party.",
     "9. Compute conversationStats from the audio:",
     "   - talkRatioPercent: rep/agent talk time ÷ total talk time × 100",
     "   - repTalkTimeSeconds: total rep/agent speaking time",
@@ -310,23 +322,7 @@ function buildAudioInsightsPrompt(
     }
   }
 
-  if (transcript?.length) {
-    lines.push(
-      "",
-      "Existing transcript for alignment (audio is source of truth):",
-      ...transcript.slice(0, 120).map(
-        (segment) => `[${formatMmSs(segment.startTime)}] ${segment.speaker}: ${segment.text}`
-      )
-    );
-  }
-
   return lines.join("\n");
-}
-
-function formatMmSs(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
 function parseOptionalMentionTimestamp(value: unknown): number | null {
@@ -345,7 +341,6 @@ export async function generateAudioInsights(params: {
   audioBuffer: Buffer;
   mimeType: string;
   fileName?: string;
-  transcript?: TranscriptSegment[];
   rubricContext?: AudioInsightsRubricContext;
 }): Promise<AudioInsights> {
   const { model } = getGeminiConfig();
@@ -356,7 +351,7 @@ export async function generateAudioInsights(params: {
   );
 
   const payload = await geminiGenerateJson<GeminiAudioInsightsPayload>({
-    prompt: buildAudioInsightsPrompt(params.transcript, params.rubricContext),
+    prompt: buildAudioInsightsPrompt(params.rubricContext),
     schema: AUDIO_INSIGHTS_SCHEMA,
     audioBuffer: params.audioBuffer,
     mimeType: params.mimeType,

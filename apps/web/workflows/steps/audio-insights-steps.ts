@@ -9,7 +9,6 @@ import { generateAudioInsights } from "@/lib/audio-insights";
 import { isGeminiConfigured } from "@/lib/gemini-client";
 import { getRubricForSession } from "@/lib/rubrics";
 import {
-  getTranscript,
   getSessionById,
   saveAudioInsights,
   setAudioInsightsStatus,
@@ -67,12 +66,10 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
     throw new FatalError("No recording found in storage for audio insights.");
   }
 
-  const transcript = await getTranscript(sessionId);
   const insights = await generateAudioInsights({
     audioBuffer: file.buffer,
     mimeType: file.mimeType,
     fileName: file.fileName,
-    transcript,
     rubricContext: {
       name: rubric.name,
       sessionType: rubric.sessionType,

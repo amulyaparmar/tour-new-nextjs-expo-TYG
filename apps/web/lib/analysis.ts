@@ -29,8 +29,6 @@ export type AnalysisWithParticipantNames = AnalysisResult & {
 };
 
 export async function generateAnalysis(params: {
-  title: string;
-  prospectName: string | null;
   location: string | null;
   notes: string | null;
   transcript?: TranscriptSegment[];
@@ -51,9 +49,7 @@ export async function generateAnalysis(params: {
   const sessionTypeLabel = rubricSessionTypeLabel(params.sessionType);
 
   const userPrompt = [
-    `Session: ${params.title}`,
     `Session type: ${sessionTypeLabel}`,
-    `Prospect: ${params.prospectName ?? "Unknown"}`,
     `Location: ${params.location ?? "Unknown"}`,
     `Agent Notes: ${params.notes ?? "None provided"}`,
     "",
@@ -67,7 +63,11 @@ export async function generateAnalysis(params: {
     "- A first-mention timestamp is about the name being spoken, not merely the first time that participant talks.",
     "- Use 90-100 only for an explicit introduction or repeated unambiguous address; 60-89 for strong contextual evidence; below 60 for a tentative phonetic/contextual reading.",
     "- Return names without confidence symbols or prefixes; the application adds its own low-confidence marker.",
-    "- Prefer spoken introductions and direct address. Do not infer names from schema text.",
+    "- The transcript is the only source of truth for participant names. Ignore names in rubric text, examples, notes, schema text, stored session metadata, titles, and prior analyses.",
+    "- Speaker labels are provider-inferred role hints and can be wrong. Independently infer who conducts the session versus who is shopping from the full conversational behavior; context wins when it conflicts with a label.",
+    "- Resolve identity in this order: attach each spoken name to the correct speaker, then infer that speaker's role. A self-introduction names the speaker; direct address names the listener.",
+    "- Prefer spoken introductions and unambiguous direct address.",
+    "- identifiedAgentName must belong to the person conducting this session. Do not use a name heard only when that person addresses or calls a colleague, manager, maintenance worker, or other third party.",
     "",
     "Also return topicSummary as a concise 1-4 word title label grounded in the transcript:",
     "- For tours, prefer the unit type or unit types discussed (for example: Studio + 2BR). If no unit type is supported, use the primary tour focus.",

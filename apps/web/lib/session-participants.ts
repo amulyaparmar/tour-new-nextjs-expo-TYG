@@ -13,25 +13,21 @@ export async function resolveSessionAgentName(
     return session.agentName.trim();
   }
 
+  if (!session.agentId?.trim()) {
+    return null;
+  }
+
   const agents = await listTeamAgents(workspace.communities);
-
-  if (session.agentId) {
-    const matched = agents.find((agent) => agent.id === session.agentId);
-    if (matched) {
-      return matched.fullName?.trim() || matched.name?.trim() || null;
-    }
-
-    if (session.agentId === `user:${workspace.user.id}`) {
-      return workspace.user.fullName?.trim() || null;
-    }
+  const matched = agents.find((agent) => agent.id === session.agentId);
+  if (matched) {
+    return matched.fullName?.trim() || matched.name?.trim() || null;
   }
 
-  const currentAgent = agents.find((agent) => agent.email === workspace.user.email);
-  if (currentAgent) {
-    return currentAgent.fullName?.trim() || currentAgent.name?.trim() || null;
+  if (session.agentId === `user:${workspace.user.id}`) {
+    return workspace.user.fullName?.trim() || null;
   }
 
-  return workspace.user.fullName?.trim() || null;
+  return null;
 }
 
 export function sessionParticipants(

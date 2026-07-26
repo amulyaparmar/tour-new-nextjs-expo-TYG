@@ -19,7 +19,10 @@ export async function reanalyzeSessionWorkflow(
     if (resegment) {
       await segmentPhasesStep(sessionId);
     }
-    const { overallScore } = await analyzeSessionStep(sessionId);
+    // Participant identity belongs to the recording, not the selected scoring
+    // rubric. Preserve the initial/Gemini-resolved names and inferred title
+    // while creating a new rubric analysis version.
+    const { overallScore } = await analyzeSessionStep(sessionId, false);
     const { actionsGenerated } = await followUpActionsStep(sessionId);
     await finalizeSessionStep(sessionId);
 

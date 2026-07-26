@@ -87,7 +87,10 @@ export async function segmentPhasesStep(sessionId: string) {
   return { spanCount: segmentation.spans.length };
 }
 
-export async function analyzeSessionStep(sessionId: string) {
+export async function analyzeSessionStep(
+  sessionId: string,
+  updateSessionIdentity = true,
+) {
   "use step";
 
   await setSessionStatus(sessionId, "analyzing");
@@ -96,15 +99,7 @@ export async function analyzeSessionStep(sessionId: string) {
 
   const transcript = await getTranscript(sessionId);
   const rubric = await getRubricForSession(session.rubricId, session.propertyId);
-  const promptTitle = withRecordingParticipants(
-    session.title,
-    participantNameWithoutConfidenceMarker(session.agentName),
-    participantNameWithoutConfidenceMarker(session.prospectName),
-    rubric.sessionType,
-  );
   const analysis = await generateAnalysis({
-    title: promptTitle,
-    prospectName: participantNameWithoutConfidenceMarker(session.prospectName),
     location: session.location,
     notes: session.notes,
     transcript,
@@ -118,6 +113,10 @@ export async function analyzeSessionStep(sessionId: string) {
     rubricId: rubric.id,
     rubricName: rubric.name,
   });
+
+  if (!updateSessionIdentity) {
+    return { overallScore: analysis.overallScore };
+  }
 
   const nameUpdates: { title?: string; agentName?: string; prospectName?: string } = {};
   const extractedAgentName = decorateParticipantNameByConfidence(

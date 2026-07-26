@@ -142,6 +142,11 @@ export async function POST(request: Request) {
     }
 
     const agentName = body.agentName ?? (body.uploaderIsAgent ? workspace.user.fullName : null);
+    const agentId = body.agentId !== undefined
+      ? body.agentId?.trim() || null
+      : body.uploaderIsAgent
+        ? `user:${workspace.user.id}`
+        : null;
     const prospectName = body.prospectName ?? null;
     const scheduledAt = body.scheduledAt ?? null;
     const scheduledDate = scheduledAt ? new Date(scheduledAt) : new Date();
@@ -181,7 +186,7 @@ export async function POST(request: Request) {
       notes: body.notes ?? null,
       source,
       rubricId: rubric.id,
-      agentId: body.agentId ?? `user:${workspace.user.id}`,
+      agentId,
       propertyId: requestedPropertyId,
       unitLabel: body.unitLabel ?? null
     });

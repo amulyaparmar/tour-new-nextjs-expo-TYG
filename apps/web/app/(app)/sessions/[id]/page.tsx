@@ -155,6 +155,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
           {!isSampleSession && !isReadOnlyExternal && (
             <EditSessionParticipants
               sessionId={id}
+              title={session.title}
               agentName={session.agentName}
               prospectName={session.prospectName}
             />

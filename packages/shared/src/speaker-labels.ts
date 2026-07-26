@@ -47,10 +47,11 @@ export function hasDiarizedRoleLabels(
 
 export function buildDiarizedRoleHint(): string {
   return [
-    "Speaker labels in this transcript use diarized roles:",
-    `- "${TRANSCRIPT_SPEAKER_AGENT}" = leasing agent / staff member`,
-    `- "${TRANSCRIPT_SPEAKER_PROSPECT}" = visitor / customer / prospect`,
-    "Use self-introductions and how speakers address each other to extract agentName (from Agent lines) and prospectName (from Prospect lines).",
+    "Speaker labels in this transcript are provider-inferred role hints and can be wrong:",
+    `- "${TRANSCRIPT_SPEAKER_AGENT}" usually means leasing agent / staff member`,
+    `- "${TRANSCRIPT_SPEAKER_PROSPECT}" usually means visitor / customer / prospect`,
+    "Independently check the full conversational behavior before assigning roles. The person conducting the tour, explaining the property, or guiding the leasing process is the agent; the person shopping for housing is the prospect.",
+    "First attach each audible name to the correct speaker: a self-introduction names the speaker, while direct address names the listener. Then assign that speaker to agentName or prospectName. Context wins when it conflicts with a provider label.",
   ].join("\n");
 }
 

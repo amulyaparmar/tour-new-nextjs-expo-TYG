@@ -280,8 +280,6 @@
   right: 0;
   z-index: 80;
   width: min(320px, calc(100vw - 32px));
-  display: grid;
-  gap: 12px;
   padding: 14px;
   border: 1px solid var(--slate-200);
   border-radius: 8px;
@@ -290,10 +288,46 @@
   text-align: left;
 }
 
+.participantEditorForm {
+  display: grid;
+  gap: 12px;
+}
+
 .participantEditorActions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.participantTitleSuggestion {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.participantTitleSuggestion strong {
+  color: var(--slate-900);
+  font-size: 13px;
+}
+
+.participantTitleSuggestion p {
+  margin: 0;
+  color: var(--slate-600);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.participantTitleSuggestion span {
+  display: block;
+  padding: 9px 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: 6px;
+  background: var(--slate-50);
+  color: var(--slate-800);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .participantEditorError {
@@ -2395,7 +2429,8 @@
   padding: 4px 10px;
 }
 
-.rubricHeaderActions {
+.rubricMenuRoot {
+  position: relative;
   display: flex;
   min-width: 0;
   align-items: center;
@@ -2403,10 +2438,12 @@
   gap: 8px;
 }
 
-.rubricSourceLink,
-.rubricSourceMuted {
+.rubricSourceTrigger {
+  display: inline-flex;
   min-width: 0;
   max-width: 180px;
+  align-items: center;
+  gap: 5px;
   border: 1px solid var(--slate-200);
   border-radius: 999px;
   background: rgba(248, 250, 252, 0.72);
@@ -2414,23 +2451,23 @@
   padding: 4px 8px;
   font-size: 10px;
   font-weight: 750;
+  font-family: inherit;
   line-height: 1;
-}
-
-.rubricSourceLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  text-decoration: none;
+  cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 
-.rubricSourceLink:hover,
-.rubricSourceLink:focus-visible {
+.rubricSourceTrigger:hover,
+.rubricSourceTrigger:focus-visible,
+.rubricSourceTrigger[aria-expanded="true"] {
   border-color: #bfd7fb;
   background: #eef5ff;
   color: #326fc9;
   outline: none;
+}
+
+.rubricSourceTrigger:focus-visible {
+  box-shadow: 0 0 0 3px rgba(50, 111, 201, 0.14);
 }
 
 .rubricSourceName {
@@ -2440,16 +2477,135 @@
   white-space: nowrap;
 }
 
-.rubricSourceId {
+.rubricMenuChevron,
+.rubricMenuChevronOpen {
   flex-shrink: 0;
-  color: var(--slate-400);
-  font-weight: 800;
+  transition: transform 0.16s ease;
 }
 
-.rubricSourceMuted {
-  display: inline-flex;
-  align-items: center;
+.rubricMenuChevronOpen {
+  transform: rotate(180deg);
+}
+
+.rubricActionsPopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 90;
+  width: min(320px, calc(var(--sd-sidebar-width, 360px) - 32px), calc(100vw - 32px));
+  max-height: min(420px, calc(100dvh - var(--topbar-h, 52px) - 92px));
+  overflow-y: auto;
+  padding: 7px;
+  border: 1px solid var(--slate-200);
+  border-radius: 14px;
+  background: white;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.17), 0 4px 12px rgba(15, 23, 42, 0.06);
+  color: var(--slate-700);
+  text-align: left;
+  transform-origin: top right;
+  animation: rubric-actions-popover-in 0.16s cubic-bezier(.2, .8, .2, 1) both;
+}
+
+@keyframes rubric-actions-popover-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.rubricActionsPopoverHead {
+  display: grid;
+  gap: 2px;
+  padding: 7px 9px 8px;
+  border-bottom: 1px solid var(--slate-100);
+  margin-bottom: 4px;
+}
+
+.rubricActionsPopoverHead span {
+  color: var(--slate-400);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.rubricActionsPopoverHead strong {
+  overflow: hidden;
+  color: var(--slate-800);
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rubricPopoverOption {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--slate-700);
+  font-family: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.rubricPopoverOption:hover,
+.rubricPopoverOption:focus-visible,
+.rubricPopoverOptionActive {
+  background: var(--indigo-50);
+  color: var(--indigo-700);
+  outline: none;
+}
+
+.rubricPopoverOption > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.rubricPopoverOption strong {
+  color: currentColor;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.rubricPopoverOption small {
+  overflow: hidden;
+  color: var(--slate-500);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rubricPopoverOptionIcon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--indigo-50);
+  color: var(--indigo-600);
+}
+
+.rubricPopoverOption > svg:last-child {
+  flex-shrink: 0;
+  color: var(--slate-400);
+  transition: transform 0.16s ease;
+}
+
+.rubricPopoverOptionActive > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.rubricPopoverOptionMuted {
+  cursor: default;
+  opacity: 0.72;
 }
 
 .rubricPanel {
@@ -3425,18 +3581,56 @@
 }
 
 .rubricReanalyze {
-  margin: 0 16px 12px;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--slate-200);
-  background: rgba(248, 250, 252, 0.72);
+  margin: 3px 0 1px;
+  padding: 11px;
+  border-radius: 10px;
+  border: 1px solid var(--indigo-100);
+  background: rgba(238, 245, 255, 0.52);
   display: grid;
-  gap: 10px;
+  gap: 9px;
+}
+
+.rubricReanalyzeField {
+  display: grid;
+  gap: 5px;
+}
+
+.rubricReanalyzeField > span {
+  color: var(--slate-500);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rubricReanalyzeField select {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 30px 0 9px;
+  border: 1px solid var(--slate-200);
+  border-radius: 9px;
+  background: white;
+  color: var(--slate-800);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+}
+
+.rubricReanalyzeField select:focus {
+  border-color: #8eb6ef;
+  box-shadow: 0 0 0 3px rgba(50, 111, 201, 0.12);
+}
+
+.rubricReanalyzeField select:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .rubricReanalyzeHint {
   margin: 0;
-  font-size: 12px;
+  font-size: 10px;
   line-height: 1.45;
   color: var(--slate-500);
 }
@@ -3445,29 +3639,58 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
   color: var(--slate-600);
 }
 
 .rubricReanalyzeCheck input {
   margin-top: 2px;
+  accent-color: #326fc9;
 }
 
-.rubricReanalyzeActions {
+.rubricReanalyzeStatus {
   display: flex;
-  justify-content: flex-end;
-}
-
-.rubricReanalyzeActions .btn {
-  display: inline-flex;
   align-items: center;
   gap: 6px;
+  margin: 0;
+  color: var(--slate-500);
+  font-size: 11px;
+}
+
+.rubricReanalyzeSubmit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 11px;
+  border: 1px solid #326fc9;
+  border-radius: 9px;
+  background: #326fc9;
+  color: white;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.rubricReanalyzeSubmit:hover:not(:disabled) {
+  background: #285aa8;
+  border-color: #285aa8;
+}
+
+.rubricReanalyzeSubmit:disabled {
+  cursor: wait;
+  opacity: 0.62;
 }
 
 .rubricReanalyzeError {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.4;
   color: var(--red-700);
 }
 
@@ -3652,6 +3875,10 @@
 
   .sidebarResizeHandle {
     display: none;
+  }
+
+  .rubricActionsPopover {
+    max-height: 310px;
   }
 
   .transcriptRowWrapComments {

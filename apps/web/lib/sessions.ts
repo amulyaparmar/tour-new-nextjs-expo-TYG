@@ -14,11 +14,12 @@ import type {
   SessionAttachment,
   SessionLead,
   SessionKind,
+  SessionCustomerInterest,
   SessionSource,
   SessionStatus,
   SessionSummary
 } from "@tour/shared";
-import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeConversationPhaseSegmentation, normalizeParticipantName, normalizeSessionKind, normalizeSessionStatus, buildSessionTourTitle } from "@tour/shared";
+import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeConversationPhaseSegmentation, normalizeParticipantName, normalizeSessionCustomerInterests, normalizeSessionKind, normalizeSessionStatus, buildSessionTourTitle } from "@tour/shared";
 
 import {
   addLocalSessionLead,
@@ -74,6 +75,7 @@ type SessionRow = {
   session_kind?: string | null;
   leads: SessionLead[] | null;
   attachments: SessionAttachment[] | null;
+  customer_interests?: SessionCustomerInterest[] | null;
   rubric_id: string | null;
   agent_id?: string | null;
   property_id?: string | null;
@@ -103,7 +105,7 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS =
-  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,session_kind,leads,attachments,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,analysis_workflow_run_id,analysis_workflow_started_at,analysis_workflow_completed_at,analysis_workflow_error,analysis_workflow_attempts,audio_insights_workflow_run_id,audio_insights_started_at,audio_insights_completed_at,audio_insights_error,audio_insights_attempts,card_summary,needs_improvement";
+  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,session_kind,leads,attachments,customer_interests,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,analysis_workflow_run_id,analysis_workflow_started_at,analysis_workflow_completed_at,analysis_workflow_error,analysis_workflow_attempts,audio_insights_workflow_run_id,audio_insights_started_at,audio_insights_completed_at,audio_insights_error,audio_insights_attempts,card_summary,needs_improvement";
 
 export type SessionWorkflowKind = "analysis" | "audioInsights";
 
@@ -362,6 +364,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
     source: input.source ?? "manual",
     leads: input.leads ?? [],
     attachments: input.attachments ?? [],
+    customer_interests: normalizeSessionCustomerInterests(input.customerInterests),
     rubric_id: rubricId,
     agent_id: input.agentId ?? null,
     property_id: input.propertyId ?? null,
@@ -413,6 +416,7 @@ export async function createSession(input: CreateSessionInput): Promise<SessionS
       source: input.source ?? "manual",
       leads: input.leads ?? [],
       attachments: input.attachments ?? [],
+      customerInterests: normalizeSessionCustomerInterests(input.customerInterests),
       rubricId,
       agentId: input.agentId ?? null,
       propertyId: input.propertyId ?? null,
@@ -472,6 +476,7 @@ export async function updateSession(
     agentName?: string | null;
     location?: string | null;
     notes?: string | null;
+    customerInterests?: SessionCustomerInterest[];
     videoUrl?: string | null;
     audioUrl?: string | null;
     duration?: number | null;
@@ -490,6 +495,9 @@ export async function updateSession(
     if (fields.agentName !== undefined) row.agent_name = normalizeParticipantName(fields.agentName);
     if (fields.location !== undefined) row.location = fields.location;
     if (fields.notes !== undefined) row.notes = fields.notes;
+    if (fields.customerInterests !== undefined) {
+      row.customer_interests = normalizeSessionCustomerInterests(fields.customerInterests);
+    }
     if (fields.videoUrl !== undefined) row.video_url = fields.videoUrl;
     if (fields.audioUrl !== undefined) row.audio_url = fields.audioUrl;
     if (fields.duration !== undefined) row.duration = fields.duration;
@@ -1106,6 +1114,7 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     sessionKind: normalizeSessionKind(row.session_kind),
     leads: row.leads ?? [],
     attachments: row.attachments ?? [],
+    customerInterests: normalizeSessionCustomerInterests(row.customer_interests),
     rubricId: row.rubric_id ?? null,
     agentId: row.agent_id ?? null,
     propertyId: row.property_id ?? null,

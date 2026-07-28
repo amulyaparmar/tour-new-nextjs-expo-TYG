@@ -1,0 +1,73 @@
+.button {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.button:hover:not(:disabled) {
+  color: #326fc9;
+  background: #eaf2ff;
+}
+
+.button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.recording {
+  color: #dc2626;
+  background: #fee2e2;
+  animation: dictationPulse 1.4s ease-in-out infinite;
+}
+
+.landing {
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+  margin-right: 7px;
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.landing:hover:not(:disabled) {
+  color: #18181b;
+  background: #e4e4e7;
+}
+
+.spinner {
+  animation: dictationSpin 800ms linear infinite;
+}
+
+@keyframes dictationSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes dictationPulse {
+  50% {
+    box-shadow: 0 0 0 5px rgba(220, 38, 38, 0.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .recording,
+  .spinner {
+    transition: none;
+    animation: none;
+  }
+}

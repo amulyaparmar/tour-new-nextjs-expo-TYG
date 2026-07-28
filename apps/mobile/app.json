@@ -25,6 +25,7 @@
           "_http._tcp",
           "_expo._tcp"
         ],
+        "NSCameraUsageDescription": "Allow Tour to use your camera when you choose to record a video asset.",
         "NSMicrophoneUsageDescription": "Allow Tour to record leasing conversations for session analysis and coaching.",
         "NSPhotoLibraryUsageDescription": "Allow Tour to choose photos or videos from your library for tour media and community assets.",
         "NSPhotoLibraryAddUsageDescription": "Allow Tour to save tour media and shared assets to your photo library when you request it.",
@@ -36,6 +37,10 @@
     },
     "android": {
       "package": "com.leasemagnets.tournewtouryou.tyg",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#087f8c"
@@ -67,6 +72,16 @@
         }
       ],
       "expo-video",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Tour to access videos you choose from your photo library.",
+          "savePhotosPermission": "Allow Tour to save recorded video assets to your photo library.",
+          "granularPermissions": [
+            "video"
+          ]
+        }
+      ],
       "expo-secure-store"
     ],
     "extra": {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  appendDictationText,
   DEFAULT_GEMINI_AUDIO_MODEL,
   GEMINI_AUDIO_MODELS,
   normalizeGeminiAudioModelId,
@@ -11,6 +12,7 @@ import { ArrowUp, Loader2 } from "lucide-react";
 
 import { AiChatModelSelect } from "./AiChatModelSelect";
 import { AiChatMarkdown } from "./AiChatMarkdown";
+import { ElevenLabsDictationButton } from "@/components/ElevenLabsDictationButton";
 import styles from "./session-detail.module.css";
 
 type ChatMessage = {
@@ -56,6 +58,7 @@ export function SessionAudioFileChat({
     initialAudioFileExpiresAt
   );
   const [error, setError] = useState<string | null>(null);
+  const [dictationError, setDictationError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -259,7 +262,9 @@ export function SessionAudioFileChat({
           </div>
         )}
 
-        {error && <div className={styles.aiChatError}>{error}</div>}
+        {(error || dictationError) && (
+          <div className={styles.aiChatError}>{dictationError || error}</div>
+        )}
       </div>
 
       <form className={styles.audioFileChatForm} onSubmit={handleSubmit}>
@@ -273,6 +278,14 @@ export function SessionAudioFileChat({
             disabled={isBusy}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
+          />
+          <ElevenLabsDictationButton
+            disabled={isBusy}
+            onError={setDictationError}
+            onTranscript={(text) => {
+              setInput((current) => appendDictationText(current, text));
+              window.requestAnimationFrame(() => inputRef.current?.focus());
+            }}
           />
           <button
             type="submit"

@@ -1,0 +1,321 @@
+.field {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 6px;
+  width: 100%;
+  max-width: 660px;
+  min-width: 0;
+}
+
+.labelRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.labelRow label {
+  color: #29364a;
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: -.005em;
+}
+
+.labelRow span {
+  color: #929bad;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.container {
+  width: 100%;
+}
+
+.control {
+  min-height: 44px;
+  padding: 4px 5px 4px 8px;
+  border: 1px solid #d5dce6;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(20 32 51 / .035);
+  cursor: text;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.control:hover {
+  border-color: #c2ccd9;
+}
+
+.controlFocused {
+  border-color: #6f9ed7;
+  box-shadow: 0 0 0 3px rgb(62 119 187 / .1), 0 2px 5px rgb(20 32 51 / .05);
+}
+
+.controlFocused:hover {
+  border-color: #6f9ed7;
+}
+
+.controlDisabled {
+  background: #f7f8fa;
+  cursor: not-allowed;
+  opacity: .65;
+}
+
+.valueContainer {
+  gap: 5px;
+  padding: 0;
+}
+
+.searchIcon {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 27px;
+  place-items: center;
+  border-radius: 7px;
+  color: #8591a3;
+}
+
+.input {
+  min-width: 58px;
+  margin: 0;
+  padding: 0 5px;
+  color: #263247;
+  font-size: 12px;
+}
+
+.placeholder {
+  margin: 0;
+  padding-left: 5px;
+  color: #8792a5;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.multiValue {
+  min-height: 28px;
+  margin: 0;
+  border: 1px solid #dbe5f0;
+  border-radius: 8px;
+  background: #f4f7fb;
+  color: #314762;
+  box-shadow: 0 1px 1px rgb(34 61 89 / .025);
+}
+
+.multiValueLabel {
+  padding: 0 4px 0 9px;
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 26px;
+}
+
+.multiValueRemove {
+  width: 21px;
+  margin: 3px;
+  border-radius: 6px;
+  color: #8290a3;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.multiValueRemove:hover {
+  background: #e3eaf2;
+  color: #3c4b60;
+}
+
+.indicators {
+  align-self: stretch;
+}
+
+.indicatorSeparator {
+  display: none;
+}
+
+.dropdownIndicator {
+  width: 29px;
+  height: 29px;
+  margin-right: 1px;
+  padding: 0;
+  border-radius: 7px;
+  color: #7f8b9d;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.dropdownIndicator:hover {
+  background: #f1f4f7;
+  color: #3e4b5d;
+}
+
+.menu {
+  z-index: 40;
+  margin-top: 6px;
+  overflow: hidden;
+  border: 1px solid #dce2e9;
+  border-radius: 11px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgb(20 32 51 / .14), 0 3px 10px rgb(20 32 51 / .06);
+  animation: menuEnter 130ms cubic-bezier(.2, .75, .25, 1);
+  transform-origin: top center;
+}
+
+.menuList {
+  max-height: 284px;
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.group {
+  padding: 1px 0 6px;
+}
+
+.group + .group {
+  margin-top: 3px;
+  padding-top: 7px;
+  border-top: 1px solid #edf0f4;
+}
+
+.groupHeading {
+  padding: 7px 9px 5px;
+  color: #8c96a7;
+  font-size: 9px;
+  font-weight: 760;
+  letter-spacing: .075em;
+  text-transform: uppercase;
+}
+
+.option {
+  min-height: 46px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: #334155;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 590;
+  transition: background-color 100ms ease, color 100ms ease;
+}
+
+.optionFocused {
+  background: #f1f5f9;
+  color: #253449;
+}
+
+.optionSelected {
+  background: #eaf2fc;
+  color: #285f9f;
+}
+
+.optionContent {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.optionIcon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border: 1px solid #e2e8ef;
+  border-radius: 8px;
+  background: #fff;
+  color: #687b91;
+  box-shadow: 0 1px 2px rgb(20 32 51 / .035);
+}
+
+.optionFocused .optionIcon {
+  border-color: #d7e2ef;
+  color: #3e6f9f;
+}
+
+.optionCopy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.optionCopy strong {
+  overflow: hidden;
+  color: #2e3b4f;
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionCopy small {
+  overflow: hidden;
+  color: #8791a2;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noOptions {
+  padding: 14px 9px;
+  color: #8993a4;
+  font-size: 12px;
+}
+
+.createOption {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #40526a;
+}
+
+.optionFocused .createOption {
+  color: #30445c;
+}
+
+.createOption strong {
+  max-width: 360px;
+  overflow: hidden;
+  color: #2767aa;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.createIcon {
+  display: grid;
+  width: 23px;
+  height: 23px;
+  margin-right: 2px;
+  place-items: center;
+  border-radius: 6px;
+  background: #edf4fc;
+  color: #3475ba;
+}
+
+.compact {
+  gap: 5px;
+}
+
+@keyframes menuEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(.995);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .field {
+    max-width: none;
+  }
+}

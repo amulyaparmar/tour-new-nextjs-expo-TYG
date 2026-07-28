@@ -10,8 +10,9 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { withRecordingParticipants } from "@tour/shared";
+import { withRecordingParticipants, type SessionCustomerInterest } from "@tour/shared";
 
+import { CustomerInterestsField } from "../CustomerInterestsField";
 import { RubricSelector } from "../RubricSelector";
 
 export type SessionUploadStatus =
@@ -36,6 +37,7 @@ export type SessionUploadDraft = {
   prospectName: string;
   location: string;
   notes: string;
+  customerInterests: SessionCustomerInterest[];
   rubricId: string | null;
   usesRubricOverride: boolean;
   expanded: boolean;
@@ -207,6 +209,16 @@ export function SessionRecordingUploadCard({
                 onChange={(event) => onChange({ location: event.currentTarget.value })}
               />
             </div>
+          </div>
+
+          <CustomerInterestsField
+            value={item.customerInterests}
+            onChange={(customerInterests) => onChange({ customerInterests })}
+            disabled={disabled}
+            compact
+          />
+
+          <div className="recording-upload-fields">
             <div className="form-group recording-upload-field-wide">
               <label className="form-label" htmlFor={`${item.id}-notes`}>Notes <span>optional</span></label>
               <textarea

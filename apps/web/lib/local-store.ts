@@ -4,8 +4,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, SessionAttachment, SessionDetail, SessionKind, SessionLead, SessionSource, SessionStatus, SessionSummary, AnalysisRun, AnalysisRunSummary, AnalysisRunTrigger } from "@tour/shared";
-import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeParticipantName, normalizeSessionKind } from "@tour/shared";
+import type { AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, FollowUpAction, SessionAttachment, SessionCustomerInterest, SessionDetail, SessionKind, SessionLead, SessionSource, SessionStatus, SessionSummary, AnalysisRun, AnalysisRunSummary, AnalysisRunTrigger } from "@tour/shared";
+import { normalizeAudioInsights, normalizeAudioInsightsStatus, normalizeParticipantName, normalizeSessionCustomerInterests, normalizeSessionKind } from "@tour/shared";
 
 type TranscriptSegment = {
   id: string;
@@ -48,6 +48,7 @@ async function loadStore(): Promise<StoreShape> {
         sessionKind: normalizeSessionKind(session.sessionKind),
         leads: session.leads ?? [],
         attachments: session.attachments ?? [],
+        customerInterests: normalizeSessionCustomerInterests(session.customerInterests),
         audioInsightsStatus: normalizeAudioInsightsStatus(session.audioInsightsStatus),
         analysisWorkflowAttempts: session.analysisWorkflowAttempts ?? 0,
         audioInsightsAttempts: session.audioInsightsAttempts ?? 0,
@@ -99,6 +100,7 @@ export async function createLocalSession(input: {
   sessionKind?: SessionKind;
   leads?: SessionLead[];
   attachments?: SessionAttachment[];
+  customerInterests?: SessionCustomerInterest[];
   rubricId?: string | null;
   agentId?: string | null;
   propertyId?: string | null;
@@ -116,6 +118,7 @@ export async function createLocalSession(input: {
     sessionKind: input.sessionKind ?? "tour",
     leads: input.leads ?? [],
     attachments: input.attachments ?? [],
+    customerInterests: normalizeSessionCustomerInterests(input.customerInterests),
     rubricId: input.rubricId ?? null,
     agentId: input.agentId ?? null,
     propertyId: input.propertyId ?? null,
@@ -159,6 +162,7 @@ export async function updateLocalSession(
     agentName?: string | null;
     location?: string | null;
     notes?: string | null;
+    customerInterests?: SessionCustomerInterest[];
     rubricId?: string | null;
     sessionKind?: SessionKind;
     analysisWorkflowRunId?: string | null;
@@ -182,6 +186,9 @@ export async function updateLocalSession(
   if (fields.agentName !== undefined) session.agentName = normalizeParticipantName(fields.agentName);
   if (fields.location !== undefined) session.location = fields.location;
   if (fields.notes !== undefined) session.notes = fields.notes;
+  if (fields.customerInterests !== undefined) {
+    session.customerInterests = normalizeSessionCustomerInterests(fields.customerInterests);
+  }
   if (fields.rubricId !== undefined) session.rubricId = fields.rubricId;
   if (fields.sessionKind !== undefined) session.sessionKind = fields.sessionKind;
   if (fields.analysisWorkflowRunId !== undefined) session.analysisWorkflowRunId = fields.analysisWorkflowRunId;

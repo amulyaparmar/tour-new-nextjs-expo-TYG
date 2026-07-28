@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Building2, Check, ChevronDown, ClipboardList, ListChecks, Loader2, Star, X } from "lucide-react";
+import { Building2, Check, ChevronDown, ClipboardList, Loader2 } from "lucide-react";
 
 import type { Rubric } from "@tour/shared";
 import { rubricItemCount, rubricTotalPoints } from "@tour/shared";
 
 import { fetchCommunityRubrics } from "@/lib/client-rubrics-cache";
+import { RubricPreviewPanel } from "./RubricPreviewPanel";
 
 type RubricSelectorProps = {
   name?: string;
@@ -88,8 +89,6 @@ export function RubricSelector({
 
   const selectedRubric = rubrics.find((r) => r.id === selected);
   const previewRubric = rubrics.find((r) => r.id === previewId) ?? selectedRubric;
-  const previewTotal = previewRubric ? rubricTotalPoints(previewRubric.definition) : 0;
-  const previewItems = previewRubric ? rubricItemCount(previewRubric.definition) : 0;
 
   return (
     <div className={compact ? undefined : "form-group"}>
@@ -171,83 +170,12 @@ export function RubricSelector({
                   })}
                 </div>
                 {previewRubric ? (
-                  <div className="rubric-modal-preview">
-                    <button type="button" className="rubric-preview-close" aria-label="Close rubric picker" onClick={() => setOpen(false)}>
-                      <X size={15} />
-                    </button>
-                    <div className="rubric-preview-heading">
-                      <span className="rubric-preview-icon" aria-hidden="true">
-                        <Building2 size={22} />
-                      </span>
-                      <div>
-                        <strong id={`${name}-rubric-modal-title`}>{previewRubric.name}</strong>
-                        <div className="rubric-preview-badges">
-                          <span><Star size={13} /> {previewTotal} pts</span>
-                          <span><ListChecks size={13} /> {previewItems} items</span>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="rubric-preview-label">Section breakdown</p>
-                    {previewRubric.definition.sections.map((section) => {
-                      const sectionPoints = section.items.reduce((sum, item) => sum + item.points, 0);
-                      const sectionPercent = previewTotal > 0 ? Math.max(4, Math.round((sectionPoints / previewTotal) * 100)) : 0;
-                      return (
-                        <div key={section.name} className="rubric-preview-section">
-                          <span className="rubric-preview-section-icon" aria-hidden="true">
-                            <ClipboardList size={14} />
-                          </span>
-                          <div className="rubric-preview-section-name">
-                            <strong>{section.name}</strong>
-                          </div>
-                          <span className="rubric-preview-bar"><i style={{ width: `${sectionPercent}%` }} /></span>
-                          <strong className="rubric-preview-points">{sectionPoints} pts</strong>
-                          <span className="rubric-preview-count">{section.items.length} items</span>
-                        </div>
-                      );
-                    })}
-                    {previewRubric.definition.compliance?.length ? (
-                      <div className="rubric-preview-section">
-                        <span className="rubric-preview-section-icon" aria-hidden="true">
-                          <ClipboardList size={14} />
-                        </span>
-                        <div className="rubric-preview-section-name">
-                          <strong>Compliance flags</strong>
-                        </div>
-                        <span className="rubric-preview-bar"><i style={{ width: "8%" }} /></span>
-                        <strong className="rubric-preview-points">flag only</strong>
-                        <span className="rubric-preview-count">{previewRubric.definition.compliance.length} items</span>
-                      </div>
-                    ) : null}
-                    <p className="rubric-preview-label">Full rubric questions</p>
-                    <div className="rubric-full-questions">
-                      {previewRubric.definition.sections.map((section) => (
-                        <div key={section.name} className="rubric-question-section">
-                          <strong>{section.name}</strong>
-                          <ul>
-                            {section.items.map((item) => (
-                              <li key={item.id}>
-                                <span>{item.text}</span>
-                                <em>{item.points} pts</em>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ))}
-                      {previewRubric.definition.compliance?.length ? (
-                        <div className="rubric-question-section">
-                          <strong>Compliance flags</strong>
-                          <ul>
-                            {previewRubric.definition.compliance.map((item) => (
-                              <li key={item.id}>
-                                <span>{item.text}</span>
-                                <em>{item.points} pts</em>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
+                  <RubricPreviewPanel
+                    rubric={previewRubric}
+                    titleId={`${name}-rubric-modal-title`}
+                    closeLabel="Close rubric picker"
+                    onClose={() => setOpen(false)}
+                  />
                 ) : null}
               </div>
             </div>

@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { setAudioModeAsync } from "expo-audio";
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -29,6 +29,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  appendDictationText,
   formatRecordingUploadTitle,
   isRecordingUploadTitle,
   type SessionAttachment,
@@ -50,6 +51,7 @@ import { ChatTypingIndicator, LiveChatMarkdown } from "./LiveChatMarkdown";
 import { supportsBackgroundRecording } from "../runtime";
 import { formatElapsed } from "./formatElapsed";
 import { useRecording, WAVEFORM_BAR_COUNT } from "./RecordingProvider";
+import { ElevenLabsDictationButton } from "../components/ElevenLabsDictationButton";
 
 const C = {
   bg: "#F7F8FB",
@@ -428,6 +430,7 @@ export function RecordingExperience({
   const cancelledRef = useRef(false);
   const speechStartedRef = useRef(false);
   const ensuringSessionRef = useRef<Promise<string | null> | null>(null);
+  const dictationPausedSessionRef = useRef(false);
   const liveSpeech = useLiveSpeechTranscription();
   const sessionPaused = rec.isPaused;
   const wasSessionPausedRef = useRef(sessionPaused);
@@ -436,6 +439,22 @@ export function RecordingExperience({
   const chatComposerMode = chatFocused && hasStarted;
   const showBottomDock = !chatComposerMode;
   const canSendChat = Boolean(chatInput.trim()) && !chatBusy;
+
+  const pauseTourForDictation = useCallback(async () => {
+    if (!rec.isRecording || rec.isPaused) return;
+    stopSpeechEngineSafely();
+    await rec.togglePause();
+    dictationPausedSessionRef.current = true;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }, [rec]);
+
+  const resumeTourAfterDictation = useCallback(async () => {
+    if (!dictationPausedSessionRef.current) return;
+    dictationPausedSessionRef.current = false;
+    if (rec.isRecording && rec.isPaused) {
+      await rec.togglePause();
+    }
+  }, [rec]);
 
   useEffect(() => {
     setResolvedSessionId(sessionId ?? null);
@@ -1336,6 +1355,16 @@ export function RecordingExperience({
                     multiline
                     textAlignVertical="center"
                     style={s.chatInput}
+                  />
+                  <ElevenLabsDictationButton
+                    disabled={chatBusy}
+                    keepAudioSessionActive
+                    onBeforeStart={pauseTourForDictation}
+                    onAfterStop={resumeTourAfterDictation}
+                    onError={setChatError}
+                    onTranscript={(text) => {
+                      setChatInput((current) => appendDictationText(current, text));
+                    }}
                   />
                   <Pressable
                     accessibilityLabel="Send message"

@@ -10,7 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
-import type { AnalysisModelId, AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, SessionParticipants } from "@tour/shared";
+import type { AnalysisModelId, AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, SessionCustomerInterest, SessionLead, SessionParticipants } from "@tour/shared";
 import { buildPhaseTracks, calculateTranscriptConversationStats } from "@tour/shared";
 
 import { FloatingSessionPlayer } from "./FloatingSessionPlayer";
@@ -39,6 +39,9 @@ type Props = {
   initialAudioInsightsStatus: AudioInsightsStatus;
   initialAudioInsights: AudioInsights | null;
   participants: SessionParticipants;
+  prospectName: string | null;
+  leads: SessionLead[];
+  customerInterests: SessionCustomerInterest[];
   rubric: {
     id: string;
     name: string | null;
@@ -74,6 +77,9 @@ export function SessionDetailExperience({
   initialAudioInsightsStatus,
   initialAudioInsights,
   participants,
+  prospectName,
+  leads,
+  customerInterests,
   rubric,
   readOnly = false,
 }: Props) {
@@ -448,6 +454,9 @@ export function SessionDetailExperience({
         initialAudioInsights={initialAudioInsights}
         fallbackConversationStats={fallbackConversationStats}
         participants={participants}
+        prospectName={prospectName}
+        leads={leads}
+        customerInterests={customerInterests}
         duration={effectiveDuration}
         tab={sidebarTab}
         onTabChange={setSidebarTab}

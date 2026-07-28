@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ClipboardCheck, Trash2 } from "lucide-react";
 import { SESSION_STATUS_LABELS, type SessionSummary } from "@tour/shared";
 import { SessionCardCopy } from "@/app/components/SessionCardCopy";
 
@@ -260,15 +260,21 @@ export function SessionsPageClient({
 
   return (
     <>
-      <div className="page-header">
-        <h1>Sessions</h1>
-        <p>
-          {loading
-            ? "Loading..."
-            : showingSamples
-              ? `Sample tours${samplePropertyName ? ` from ${samplePropertyName}` : ""}`
-              : `${total} session${total !== 1 ? "s" : ""}`}
-        </p>
+      <div className="page-header page-header-row">
+        <div>
+          <h1>Sessions</h1>
+          <p>
+            {loading
+              ? "Loading..."
+              : showingSamples
+                ? `Sample tours${samplePropertyName ? ` from ${samplePropertyName}` : ""}`
+                : `${total} session${total !== 1 ? "s" : ""}`}
+          </p>
+        </div>
+        <Link href="/rubrics" className="sessions-manage-rubrics-link">
+          <ClipboardCheck size={15} aria-hidden="true" />
+          Manage rubrics
+        </Link>
       </div>
 
       <div className="sl-toolbar sl-toolbar-row">

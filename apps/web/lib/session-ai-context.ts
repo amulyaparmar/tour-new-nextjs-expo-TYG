@@ -1,6 +1,10 @@
 import "server-only";
 
-import type { AnalysisResult } from "@tour/shared";
+import {
+  normalizeProspectInsights,
+  PROSPECT_INTEREST_CATEGORY_LABELS,
+  type AnalysisResult,
+} from "@tour/shared";
 
 import type { TranscriptSegment } from "./evidence";
 
@@ -30,6 +34,20 @@ export function buildSessionAiInstructions(
     .map((seg) => `[${formatTs(seg.startTime)}] ${seg.speaker}: ${seg.text}`)
     .join("\n")
     .slice(0, MAX_TRANSCRIPT_CHARS);
+  const prospectInsights = normalizeProspectInsights(analysis.prospectInsights);
+  const prospectContext = prospectInsights
+    ? [
+        `Intent: ${prospectInsights.intentStage}${prospectInsights.intentRationale ? ` — ${prospectInsights.intentRationale}` : ""}`,
+        ...prospectInsights.interests.map((interest) =>
+          `- ${PROSPECT_INTEREST_CATEGORY_LABELS[interest.category]}: ${interest.detail} (${interest.coverage.replaceAll("_", " ")})`
+        ),
+        ...prospectInsights.conversionDrivers.map((driver) => `- Conversion driver: ${driver}`),
+        ...prospectInsights.objections.map((objection) => `- Open concern: ${objection}`),
+        ...(prospectInsights.nextBestAction
+          ? [`- Next best action: ${prospectInsights.nextBestAction}`]
+          : []),
+      ].join("\n")
+    : "Prospect insight is not available for this analysis.";
 
   return `You are Tour AI, a coaching assistant for multifamily leasing teams reviewing recorded tour sessions.
 
@@ -49,6 +67,9 @@ ${analysis.opportunities.map((o) => `- ${o}`).join("\n") || "- None noted"}
 
 ## Suggested close / rewrite
 ${analysis.suggestedRewrite || "Not provided"}
+
+## Prospect understanding
+${prospectContext}
 
 ## Rubric sections
 ${sections || "No section breakdown"}

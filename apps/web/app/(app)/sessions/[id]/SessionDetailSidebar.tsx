@@ -1,13 +1,14 @@
 "use client";
 
-import type { AnalysisModelId, AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, SessionParticipants, TranscriptConversationStats } from "@tour/shared";
-import { Activity, CheckCircle2, MessageSquare } from "lucide-react";
+import type { AnalysisModelId, AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, SessionCustomerInterest, SessionLead, SessionParticipants, TranscriptConversationStats } from "@tour/shared";
+import { Activity, CheckCircle2, MessageSquare, UserRoundSearch } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
 
 import { SidebarCommentsPanel } from "./SidebarCommentsPanel";
 import { SessionAudioInsightsSidebarTab } from "./SessionAudioInsightsSidebarTab";
 import { SessionAiChat } from "./SessionAiChat";
+import { SessionProspectPanel } from "./SessionProspectPanel";
 import { TourSegmentSummary } from "./TourSegmentSummary";
 import { ClickableTimestampText } from "./ClickableTimestampText";
 import { ReanalyzeWithRubric } from "./ReanalyzeWithRubric";
@@ -16,7 +17,7 @@ import { rubricPctByColor } from "./session-detail-class-maps";
 import styles from "./session-detail.module.css";
 import { isDiscussionComment, scoreColor, type SessionComment } from "./session-detail-utils";
 
-export type SidebarTab = "rubric" | "comments" | "audio" | "ai";
+export type SidebarTab = "rubric" | "prospect" | "comments" | "audio" | "ai";
 
 export function SessionDetailSidebar({
   sessionId,
@@ -27,6 +28,9 @@ export function SessionDetailSidebar({
   initialAudioInsights,
   fallbackConversationStats,
   participants,
+  prospectName,
+  leads,
+  customerInterests,
   duration,
   tab,
   onTabChange,
@@ -51,6 +55,9 @@ export function SessionDetailSidebar({
   initialAudioInsights: AudioInsights | null;
   fallbackConversationStats: TranscriptConversationStats | null;
   participants: SessionParticipants;
+  prospectName: string | null;
+  leads: SessionLead[];
+  customerInterests: SessionCustomerInterest[];
   duration: number;
   tab: SidebarTab;
   onTabChange: (tab: SidebarTab) => void;
@@ -77,6 +84,17 @@ export function SessionDetailSidebar({
           title="Rubric"
         >
           <CheckCircle2 size={18} />
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "prospect"}
+          aria-label="Prospect"
+          className={`${styles.sidebarTab} ${tab === "prospect" ? styles.sidebarTabActive : ""}`}
+          onClick={() => onTabChange("prospect")}
+          title="Prospect"
+        >
+          <UserRoundSearch size={18} />
         </button>
         <button
           type="button"
@@ -125,6 +143,18 @@ export function SessionDetailSidebar({
             currentTime={currentTime}
             onSeek={onSeek}
             readOnly={readOnly}
+          />
+        </div>
+        <div
+          className={`${styles.sidebarPanel} ${tab === "prospect" ? styles.sidebarPanelActive : ""}`}
+          hidden={tab !== "prospect"}
+        >
+          <SessionProspectPanel
+            analysis={analysis}
+            prospectName={prospectName}
+            leads={leads}
+            customerInterests={customerInterests}
+            onSeek={onSeek}
           />
         </div>
         <div

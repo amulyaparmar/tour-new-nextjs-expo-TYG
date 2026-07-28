@@ -846,7 +846,16 @@ export async function fetchMaterials() {
   return (await res.json()) as { materials: Material[]; tourLibrary: TourLibraryLink | null };
 }
 
-export async function uploadMaterial(fileUri: string, mimeType: string, fileName: string) {
+export async function uploadMaterial(
+  fileUri: string,
+  mimeType: string,
+  fileName: string,
+  metadata?: {
+    name?: string;
+    description?: string;
+    type?: Material["type"];
+  },
+) {
   const body = await uploadLocalFileWithPresign<{ material?: Material }>({
     authenticatedFetch,
     presignPath: "/api/materials/upload/presign",
@@ -855,8 +864,9 @@ export async function uploadMaterial(fileUri: string, mimeType: string, fileName
     mimeType,
     fileName,
     completeBody: () => ({
-      name: fileName.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
-      type: "other",
+      name: metadata?.name?.trim() || fileName.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
+      description: metadata?.description?.trim() || "",
+      type: metadata?.type ?? "other",
     }),
   });
   if (!body?.material) throw new Error("Asset upload failed.");

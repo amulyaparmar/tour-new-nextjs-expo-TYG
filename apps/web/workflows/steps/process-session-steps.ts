@@ -102,6 +102,17 @@ export async function analyzeSessionStep(
   const analysis = await generateAnalysis({
     location: session.location,
     notes: session.notes,
+    providedCustomerInterests: session.customerInterests ?? [],
+    prospectContext: session.leads
+      .flatMap((lead) => [
+        lead.reason?.trim() ? `Reason for visit: ${lead.reason.trim()}` : null,
+        lead.notes?.trim() ? `Team notes: ${lead.notes.trim()}` : null,
+        ...Object.entries(lead.questionAnswers ?? {}).map(([question, answer]) =>
+          answer.trim() ? `${question}: ${answer.trim()}` : null
+        ),
+      ])
+      .filter((item): item is string => Boolean(item))
+      .slice(0, 12),
     transcript,
     rubricDefinition: rubric.definition,
     analysisModel: rubric.analysisModel,

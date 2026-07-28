@@ -2,13 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AnalysisModelId, AnalysisResult } from "@tour/shared";
-import { AI_PROVIDER_LABELS, ANALYSIS_MODELS, DEFAULT_ANALYSIS_MODEL, type AiProvider } from "@tour/shared";
+import {
+  AI_PROVIDER_LABELS,
+  ANALYSIS_MODELS,
+  appendDictationText,
+  DEFAULT_ANALYSIS_MODEL,
+  type AiProvider,
+} from "@tour/shared";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { ArrowUp, Loader2 } from "lucide-react";
 
 import { AiChatModelSelect } from "./AiChatModelSelect";
 import { AiChatMarkdown } from "./AiChatMarkdown";
+import { ElevenLabsDictationButton } from "@/components/ElevenLabsDictationButton";
 import styles from "./session-detail.module.css";
 import {
   filterMentionPrompts,
@@ -49,6 +56,7 @@ export function SessionAiChat({
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [savedMessages, setSavedMessages] = useState<SessionAiMessages | null>(null);
+  const [dictationError, setDictationError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -262,9 +270,9 @@ export function SessionAiChat({
           ))
         )}
 
-        {error && (
+        {(error || dictationError) && (
           <div className={styles.aiChatError}>
-            {error.message || "Something went wrong. Try again."}
+            {dictationError || error?.message || "Something went wrong. Try again."}
           </div>
         )}
       </div>
@@ -327,6 +335,15 @@ export function SessionAiChat({
               disabled={isBusy}
               onChange={(event) => handleInputChange(event.target.value)}
               onKeyDown={handleKeyDown}
+            />
+
+            <ElevenLabsDictationButton
+              disabled={isBusy}
+              onError={setDictationError}
+              onTranscript={(text) => {
+                setInput((current) => appendDictationText(current, text));
+                window.requestAnimationFrame(() => inputRef.current?.focus());
+              }}
             />
 
             <button

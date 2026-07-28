@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import type { SessionKind, SessionStatus } from "@tour/shared";
+import { normalizeSessionCustomerInterests, type SessionKind, type SessionStatus } from "@tour/shared";
 import {
   ADMIN_COMMUNITY_COOKIE,
   hasAdminSession,
@@ -124,6 +124,7 @@ export async function POST(request: Request) {
       agentName?: string | null;
       uploaderIsAgent?: boolean;
       notes?: string | null;
+      customerInterests?: unknown;
       rubricId?: string | null;
       agentId?: string | null;
       propertyId?: string | null;
@@ -184,6 +185,7 @@ export async function POST(request: Request) {
       prospectName,
       agentName,
       notes: body.notes ?? null,
+      customerInterests: normalizeSessionCustomerInterests(body.customerInterests),
       source,
       rubricId: rubric.id,
       agentId,

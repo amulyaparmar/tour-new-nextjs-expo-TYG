@@ -1,12 +1,14 @@
 import "server-only";
 
-import type { AnalysisResult, AnalysisModelId, RubricDefinition } from "@tour/shared";
+import type { AnalysisResult, AnalysisModelId, RubricDefinition, SessionCustomerInterest } from "@tour/shared";
 import {
   buildRubricAnalysisPrompt,
   cardFieldsFromAnalysis,
   normalizeParticipantName,
   normalizeParticipantNameConfidence,
+  normalizeProspectInsights,
   normalizeSessionTopicSummary,
+  PROSPECT_INTEREST_CATEGORY_LABELS,
   rubricSessionTypeLabel,
   rubricTotalPoints,
 } from "@tour/shared";
@@ -31,6 +33,8 @@ export type AnalysisWithParticipantNames = AnalysisResult & {
 export async function generateAnalysis(params: {
   location: string | null;
   notes: string | null;
+  prospectContext?: string[];
+  providedCustomerInterests?: SessionCustomerInterest[];
   transcript?: TranscriptSegment[];
   rubricDefinition?: RubricDefinition;
   analysisModel?: AnalysisModelId | null;
@@ -52,6 +56,17 @@ export async function generateAnalysis(params: {
     `Session type: ${sessionTypeLabel}`,
     `Location: ${params.location ?? "Unknown"}`,
     `Agent Notes: ${params.notes ?? "None provided"}`,
+    "Known prospect context:",
+    ...(params.prospectContext?.length
+      ? params.prospectContext.map((item) => `- ${item}`)
+      : ["- None provided"]),
+    "",
+    "Customer interests provided before the session:",
+    ...(params.providedCustomerInterests?.length
+      ? params.providedCustomerInterests.map((interest) =>
+          `- [${PROSPECT_INTEREST_CATEGORY_LABELS[interest.category]}] ${interest.detail}`
+        )
+      : ["- None provided"]),
     "",
     "Also identify participant names from the transcript before scoring:",
     "- identifiedAgentName: the leasing agent or staff member conducting the tour/call; null if unknown",
@@ -73,6 +88,20 @@ export async function generateAnalysis(params: {
     "- For tours, prefer the unit type or unit types discussed (for example: Studio + 2BR). If no unit type is supported, use the primary tour focus.",
     "- For calls, state the purpose of the call (for example: Pricing Inquiry or Application Follow-up), not a generic label such as Phone Call.",
     "- Return null when no specific topic is supported.",
+    "",
+    "Also build prospectInsights to help the leasing team understand and convert this specific prospect:",
+    "- Ground every insight in the transcript or the provided session context. Never invent preferences or buying intent.",
+    "- interests: include every customer interest provided before the session, then add distinct interests stated or cautiously inferred from the transcript, up to 10 total.",
+    "- Use source=provided for interests supplied before the session, source=stated for needs expressed in the transcript, and source=inferred only for cautious transcript-grounded inferences.",
+    "- Keep each provided interest's category and detail substantially unchanged so the team can compare it with the conversation.",
+    "- For every interest, explain exactly how the agent addressed it and classify coverage as addressed, partially_addressed, missed, or not_discussed.",
+    "- Judge coverage and agentResponse from the transcript only. Provided context proves the interest exists, but does not prove the agent addressed it.",
+    "- evidence must be a short prospect quote or concise transcript-grounded observation; timestamp is the earliest relevant MM:SS or null. Leave evidence empty and timestamp null when a provided interest never appears in the transcript.",
+    "- intentStage is ready only with an explicit application, deposit, scheduling, or clear next-step signal; considering for concrete timing/pricing/comparison signals; exploring for early research; unknown when unsupported.",
+    "- conversionDrivers are specific actions, information, or property matches most likely to move this prospect forward.",
+    "- objections are unresolved concerns or friction, not generic coaching feedback.",
+    "- nextBestAction is one concrete, personalized action the agent should take next.",
+    "- Do not infer protected traits, demographics, finances, family status, disability, or other sensitive facts beyond what the prospect explicitly volunteered and what is directly relevant to their request.",
     "",
     "=== TRANSCRIPT ===",
     transcriptText
@@ -140,6 +169,98 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
         type: ["string", "null"],
         description: "Transcript-grounded 1-4 word topic: unit type(s) for tours, call purpose for calls; null if unsupported",
       },
+      prospectInsights: {
+        type: "object",
+        description: "Transcript-grounded profile of this prospect's needs and what will move them forward",
+        properties: {
+          summary: {
+            type: "string",
+            description: "Two concise sentences describing what this prospect wants and their decision context",
+          },
+          intentStage: {
+            type: "string",
+            enum: ["ready", "considering", "exploring", "unknown"],
+          },
+          intentRationale: {
+            type: "string",
+            description: "Brief transcript-grounded explanation for the intent stage",
+          },
+          interests: {
+            type: "array",
+            maxItems: 10,
+            items: {
+              type: "object",
+              properties: {
+                category: {
+                  type: "string",
+                  enum: [
+                    "budget_specials",
+                    "floor_plan",
+                    "move_in_timing",
+                    "amenities",
+                    "pets",
+                    "parking_transportation",
+                    "location_commute",
+                    "lease_terms",
+                    "accessibility",
+                    "community_security",
+                    "other",
+                  ],
+                },
+                detail: { type: "string", description: "Specific need or preference" },
+                importance: { type: "string", enum: ["high", "medium", "low"] },
+                source: { type: "string", enum: ["provided", "stated", "inferred"] },
+                evidence: { type: "string", description: "Short prospect quote or grounded observation" },
+                timestamp: {
+                  type: ["string", "null"],
+                  description: "Earliest relevant MM:SS timestamp or null",
+                },
+                agentResponse: {
+                  type: "string",
+                  description: "What the agent did to address this need; empty when not addressed",
+                },
+                coverage: {
+                  type: "string",
+                  enum: ["addressed", "partially_addressed", "missed", "not_discussed"],
+                },
+              },
+              required: [
+                "category",
+                "detail",
+                "importance",
+                "source",
+                "evidence",
+                "timestamp",
+                "agentResponse",
+                "coverage",
+              ],
+            },
+          },
+          conversionDrivers: {
+            type: "array",
+            maxItems: 5,
+            items: { type: "string" },
+          },
+          objections: {
+            type: "array",
+            maxItems: 5,
+            items: { type: "string" },
+          },
+          nextBestAction: {
+            type: "string",
+            description: "One concrete personalized action the agent should take next",
+          },
+        },
+        required: [
+          "summary",
+          "intentStage",
+          "intentRationale",
+          "interests",
+          "conversionDrivers",
+          "objections",
+          "nextBestAction",
+        ],
+      },
       strengths: { type: "array", items: { type: "string" } },
       opportunities: { type: "array", items: { type: "string" } },
       suggestedRewrite: { type: "string", description: "The weakest line, rewritten as a model script line" },
@@ -200,6 +321,7 @@ function buildAnalysisTool(totalPoints: number): ClaudeTool {
       "identifiedAgentNameFirstMentionTimestamp",
       "identifiedProspectNameFirstMentionTimestamp",
       "topicSummary",
+      "prospectInsights",
       "strengths",
       "opportunities",
       "suggestedRewrite",
@@ -257,6 +379,9 @@ export async function generateFollowUpActions(
     "Opportunities:",
     analysis.opportunities.map((o) => `  - ${o}`).join("\n"),
     "",
+    "Prospect conversion context:",
+    formatProspectInsightsForPrompt(analysis),
+    "",
     "Weakest sections:",
     [...analysis.sectionScores]
       .sort((a, b) => a.score - b.score)
@@ -293,6 +418,20 @@ export async function generateFollowUpActions(
       suggestedMessage: typeof a.suggestedMessage === "string" ? a.suggestedMessage : null
     };
   });
+}
+
+function formatProspectInsightsForPrompt(analysis: AnalysisResult) {
+  const insights = normalizeProspectInsights(analysis.prospectInsights);
+  if (!insights) return "  - Not available";
+  return [
+    `  - Intent: ${insights.intentStage}${insights.intentRationale ? ` — ${insights.intentRationale}` : ""}`,
+    ...insights.interests.map((interest) =>
+      `  - Need: ${interest.detail} (${interest.coverage.replaceAll("_", " ")})`
+    ),
+    ...insights.conversionDrivers.map((driver) => `  - Conversion driver: ${driver}`),
+    ...insights.objections.map((objection) => `  - Open concern: ${objection}`),
+    ...(insights.nextBestAction ? [`  - Next best action: ${insights.nextBestAction}`] : []),
+  ].join("\n");
 }
 
 const ACTIONS_TOOL: ClaudeTool = {
@@ -379,6 +518,7 @@ function safeParseAnalysis(parsed: Record<string, unknown>): AnalysisWithPartici
     });
 
     const participantNames = normalizeAnalysisParticipantNames(parsed);
+    const prospectInsights = normalizeProspectInsights(parsed.prospectInsights);
 
     return {
       overallScore: parsed.overallScore,
@@ -395,6 +535,7 @@ function safeParseAnalysis(parsed: Record<string, unknown>): AnalysisWithPartici
       fairHousingFlags: Array.isArray(parsed.fairHousingFlags) ? parsed.fairHousingFlags as string[] : [],
       exactMoments: parsed.exactMoments as AnalysisResult["exactMoments"],
       ...(participantNames ? { participantNames } : {}),
+      ...(prospectInsights ? { prospectInsights } : {}),
     };
   } catch {
     return null;

@@ -179,7 +179,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
         </div>
       </div>
 
-      {session.leads.length > 0 && (
+      {session.leads.length > 0 && !hasAnalysis && (
         <section className="card" style={{ marginBottom: 16 }} aria-labelledby="checked-in-heading">
           <div className="card-header">
             <div>
@@ -254,6 +254,9 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
             initialAudioInsightsStatus={session.audioInsightsStatus}
             initialAudioInsights={audioInsights}
             participants={participants}
+            prospectName={session.prospectName}
+            leads={session.leads}
+            customerInterests={session.customerInterests ?? []}
             rubric={rubric ? { id: rubric.id, name: rubric.name, analysisModel: rubric.analysisModel } : null}
             readOnly={isReadOnlyExternal}
           />
@@ -272,6 +275,7 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
               prospectName={session.prospectName}
               location={session.location}
               notes={session.notes}
+              customerInterests={session.customerInterests ?? []}
             />
           </div>
         </div>

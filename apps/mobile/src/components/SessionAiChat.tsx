@@ -1,4 +1,4 @@
-import type { AnalysisResult } from "@tour/shared";
+import { appendDictationText, type AnalysisResult } from "@tour/shared";
 import { ArrowUp, Sparkles } from "lucide-react-native";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
@@ -25,6 +25,7 @@ import {
   type SessionAiPrompt,
 } from "../session-ai-prompts";
 import { AiChatText } from "./AiChatText";
+import { ElevenLabsDictationButton } from "./ElevenLabsDictationButton";
 import { Icon } from "@/components/ui/icon";
 
 const C = {
@@ -57,6 +58,7 @@ export function SessionAiChat({ sessionId, analysis, onSeek, showHeader = true, 
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [dictationError, setDictationError] = useState<string | null>(null);
   const listRef = useRef<ScrollView>(null);
   const insets = useSafeAreaInsets();
 
@@ -209,7 +211,11 @@ export function SessionAiChat({ sessionId, analysis, onSeek, showHeader = true, 
             </View>
           ))
         )}
-        {error && <Text style={styles.error}>{error.message || "Something went wrong."}</Text>}
+        {(error || dictationError) && (
+          <Text style={styles.error}>
+            {dictationError || error?.message || "Something went wrong."}
+          </Text>
+        )}
       </ScrollView>
 
       <View
@@ -255,6 +261,13 @@ export function SessionAiChat({ sessionId, analysis, onSeek, showHeader = true, 
             style={styles.input}
             multiline
             editable={!isBusy}
+          />
+          <ElevenLabsDictationButton
+            disabled={isBusy}
+            onError={setDictationError}
+            onTranscript={(text) => {
+              setInput((current) => appendDictationText(current, text));
+            }}
           />
           <Pressable
             disabled={!input.trim() || isBusy}

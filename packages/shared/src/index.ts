@@ -14,3 +14,4 @@ export * from "./audio-insights-status";
 export * from "./conversation-stats";
 export * from "./speaker-labels";
 export * from "./presigned-upload";
+export * from "./dictation";

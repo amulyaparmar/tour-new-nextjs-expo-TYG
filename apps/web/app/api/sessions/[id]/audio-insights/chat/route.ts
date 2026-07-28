@@ -7,6 +7,7 @@ import {
   createGeminiAudioFileRef,
   isGeminiAudioFileExpired,
 } from "@/lib/audio-insights";
+import { safeAiChatError } from "@/lib/safe-ai-error";
 import { getAudioInsights, getSessionById, saveAudioInsights } from "@/lib/sessions";
 import { fetchRecordingFile } from "@/lib/storage";
 import type { GeminiChatMessage } from "@/lib/gemini-client";
@@ -125,8 +126,9 @@ export async function POST(request: Request, context: Context) {
       audioFileExpiresAt: insights.audioFile?.expiresAt ?? null,
     });
   } catch (error) {
+    console.error("Audio insights chat failed", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to chat with recording." },
+      { error: safeAiChatError(error) },
       { status: 500 }
     );
   }

@@ -18,8 +18,9 @@ import {
   UserRound
 } from "lucide-react";
 
-import { formatRecordingUploadTitle } from "@tour/shared";
+import { formatRecordingUploadTitle, type SessionCustomerInterest } from "@tour/shared";
 
+import { CustomerInterestsField } from "../CustomerInterestsField";
 import { SmartSessionForm } from "../SmartSessionForm";
 import { RubricSelector } from "../RubricSelector";
 import { detectMediaDurationSeconds, uploadFileWithPresign } from "@/lib/client-upload";
@@ -75,6 +76,7 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
   const [bulkProcessing, setBulkProcessing] = useState(false);
   const [uploaderIsAgent, setUploaderIsAgent] = useState(false);
   const [sharedRubricId, setSharedRubricId] = useState<string | null>(null);
+  const [customerInterests, setCustomerInterests] = useState<SessionCustomerInterest[]>([]);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStage, setUploadStage] = useState<string | null>(null);
   const defaultSessionTitle = cleanDateTourTitle(new Date());
@@ -246,6 +248,7 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
             uploaderIsAgent,
             location: item.location.trim() || null,
             notes: item.notes.trim() || null,
+            customerInterests: item.customerInterests,
             rubricId: effectiveRubricId || null,
           }),
         });
@@ -380,6 +383,7 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
           uploaderIsAgent: fd.get("uploaderIsAgent") === "on",
           location: String(fd.get("location") ?? "").trim() || null,
           notes: String(fd.get("notes") ?? "").trim() || null,
+          customerInterests,
           rubricId: String(fd.get("rubricId") ?? "").trim() || null
         })
       });
@@ -420,7 +424,7 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
       setUploadProgress(0);
       setPhase("details");
     }
-  }, [draftType, recordedBlob, router]);
+  }, [customerInterests, draftType, recordedBlob, router]);
 
   // ── Choose: Record or Upload ──
   if (phase === "choose") {
@@ -869,6 +873,10 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
                     <small>Use my profile name for this session. Leave unchecked to let AI identify the agent from audio.</small>
                   </span>
                 </label>
+                <CustomerInterestsField
+                  value={customerInterests}
+                  onChange={setCustomerInterests}
+                />
               </>
             )}
             {draftType === "session" ? (
@@ -976,6 +984,7 @@ function createUploadDraft(file: File, date: Date, index: number): SessionUpload
     prospectName: "",
     location: "",
     notes: "",
+    customerInterests: [],
     rubricId: null,
     usesRubricOverride: false,
     expanded: false,

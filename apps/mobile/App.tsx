@@ -171,6 +171,7 @@ import { CommunityPickerModal } from "@/components/community-picker-modal";
 import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import { CheckInSheet } from "./src/components/check-in/check-in-sheet";
 import { ProfileEditorScreen, resolveCardAccent } from "./src/components/profile/profile-editor-screen";
+import { VideoAssetRecorder, type RecordedVideoAsset } from "./src/assets/VideoAssetRecorder";
 import {
   queryKeys,
   useCalendarEventsQuery,
@@ -1186,7 +1187,6 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
                 materials={materials}
                 tourLibrary={tourLibrary}
                 loading={materialsLoading}
-                onCreate={onCreate}
                 onReload={async () => { await materialsQuery.refetch(); }}
                 onBack={closeMaterials}
                 onCommunityPress={() => setCommunityPickerOpen(true)}
@@ -2479,9 +2479,10 @@ const assetSt = StyleSheet.create({
   tourLibraryLinkMeta: { color: C.textSec, fontSize: 11, fontWeight: "700", marginTop: 2 },
 });
 
-function MaterialsScreen({ materials, tourLibrary, loading, onCreate, onReload, onBack, onCommunityPress, property }: { materials: Material[]; tourLibrary: TourLibraryLink | null; loading: boolean; onCreate: () => void; onReload: () => Promise<void>; onBack: () => void; onCommunityPress: () => void; property: string }) {
+function MaterialsScreen({ materials, tourLibrary, loading, onReload, onBack, onCommunityPress, property }: { materials: Material[]; tourLibrary: TourLibraryLink | null; loading: boolean; onReload: () => Promise<void>; onBack: () => void; onCommunityPress: () => void; property: string }) {
   const [uploading, setUploading] = useState(false);
   const [selected, setSelected] = useState<Material | null>(null);
+  const [videoRecorderOpen, setVideoRecorderOpen] = useState(false);
 
   async function addAsset() {
     try {
@@ -2500,6 +2501,16 @@ function MaterialsScreen({ materials, tourLibrary, loading, onCreate, onReload, 
     } finally {
       setUploading(false);
     }
+  }
+
+  async function uploadRecordedVideo(asset: RecordedVideoAsset) {
+    await uploadMaterial(asset.uri, asset.mimeType, asset.fileName, {
+      name: asset.name,
+      description: asset.description,
+      type: "recording",
+    });
+    await onReload().catch(() => undefined);
+    showToast("Video asset added to this community", "success");
   }
 
   return (
@@ -2540,8 +2551,8 @@ function MaterialsScreen({ materials, tourLibrary, loading, onCreate, onReload, 
             <Ionicons name="open-outline" size={18} color={C.brand} />
           </Pressable>
         ) : null}
-        <Pressable onPress={onCreate} style={({ pressed }) => [assetSt.recordButton, pressed && st.pressed]}>
-          <Ionicons name="radio-button-on-outline" size={16} color={C.purple} />
+        <Pressable onPress={() => setVideoRecorderOpen(true)} style={({ pressed }) => [assetSt.recordButton, pressed && st.pressed]}>
+          <Ionicons name="videocam-outline" size={17} color={C.purple} />
           <Text style={assetSt.recordButtonText}>Record Projects</Text>
         </Pressable>
       </View>
@@ -2581,6 +2592,11 @@ function MaterialsScreen({ materials, tourLibrary, loading, onCreate, onReload, 
       )}
 
       <MaterialPreviewModal material={selected} onClose={() => setSelected(null)} />
+      <VideoAssetRecorder
+        visible={videoRecorderOpen}
+        onClose={() => setVideoRecorderOpen(false)}
+        onUpload={uploadRecordedVideo}
+      />
     </View>
   );
 }

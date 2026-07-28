@@ -1,7 +1,5 @@
 import type { Rubric, RubricDefinition } from "@tour/shared";
 
-export type RubricStatus = "active" | "draft";
-
 export type RubricItem = {
   id: string;
   text: string;
@@ -28,7 +26,6 @@ export type DisplayRubricCategory = {
 
 export type DisplayRubric = Rubric & {
   version: string;
-  status: RubricStatus;
   propertyIds: string[];
   sessionCount: number;
   lastUpdated: string;
@@ -92,10 +89,9 @@ export function mapRubricToDisplay(
   return {
     ...rubric,
     version: "v1",
-    status: rubric.isDefault ? "active" : "draft",
     propertyIds: [communityId],
     sessionCount,
-    lastUpdated: new Date(rubric.createdAt).toLocaleDateString(undefined, {
+    lastUpdated: new Date(rubric.createdAt).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",

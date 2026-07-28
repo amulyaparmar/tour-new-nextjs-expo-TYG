@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import type { SessionStatus } from "@tour/shared";
+import { normalizeSessionCustomerInterests, type SessionStatus } from "@tour/shared";
 import { deleteSession, getAnalysisBySessionId, getConversationPhases, getSessionById, setSessionStatus, updateSession } from "@/lib/sessions";
 import { getRecordingPlaybackPath, getRecordingUrl, isLegacyLocalUrl } from "@/lib/storage";
 import { AdminAuthError } from "@/lib/admin-auth";
@@ -80,6 +80,9 @@ export async function PATCH(request: Request, context: Context) {
       agentName: typeof body.agentName === "string" ? body.agentName : undefined,
       location: typeof body.location === "string" ? body.location : undefined,
       notes: typeof body.notes === "string" ? body.notes : undefined,
+      customerInterests: Array.isArray(body.customerInterests)
+        ? normalizeSessionCustomerInterests(body.customerInterests)
+        : undefined,
       rubricId: body.rubricId === null || typeof body.rubricId === "string" ? body.rubricId as string | null : undefined,
       agentId: body.agentId === null || typeof body.agentId === "string" ? body.agentId as string | null : undefined,
       propertyId: body.propertyId === null || typeof body.propertyId === "string" ? body.propertyId as string | null : undefined,

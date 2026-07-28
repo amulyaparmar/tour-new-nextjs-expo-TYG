@@ -8,6 +8,7 @@ import {
 
 import { getBedrockLanguageModelForAnalysis } from "@/lib/bedrock-language-model";
 import { getTranscriptForSession } from "@/lib/evidence";
+import { safeAiChatError } from "@/lib/safe-ai-error";
 import { buildSessionAiInstructions } from "@/lib/session-ai-context";
 import { getAnalysisBySessionId } from "@/lib/sessions";
 import { normalizeAnalysisModelId } from "@tour/shared";
@@ -42,8 +43,9 @@ export async function POST(request: Request, context: Context) {
       stream: toUIMessageStream({ stream: result.stream }),
     });
   } catch (error) {
+    console.error("Session AI chat failed", error);
     return Response.json(
-      { error: error instanceof Error ? error.message : "Failed to generate response." },
+      { error: safeAiChatError(error) },
       { status: 500 }
     );
   }

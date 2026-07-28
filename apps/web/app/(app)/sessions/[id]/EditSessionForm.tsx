@@ -3,6 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import type { SessionCustomerInterest } from "@tour/shared";
+
+import { CustomerInterestsField } from "../../CustomerInterestsField";
+
 type Props = {
   sessionId: string;
   title: string;
@@ -11,6 +15,7 @@ type Props = {
   prospectName: string | null;
   location: string | null;
   notes: string | null;
+  customerInterests: SessionCustomerInterest[];
 };
 
 function toLocalDatetime(iso: string | null): string {
@@ -29,16 +34,22 @@ export function EditSessionForm({
   prospectName,
   location,
   notes,
+  customerInterests,
 }: Props) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
+  const [customerInterestsDraft, setCustomerInterestsDraft] = useState(customerInterests);
+  const closeEditor = () => {
+    setCustomerInterestsDraft(customerInterests);
+    setOpen(false);
+  };
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
     const fd = new FormData(e.currentTarget);
-    const body: Record<string, string> = {};
+    const body: Record<string, unknown> = {};
 
     const newTitle = String(fd.get("title") ?? "").trim();
     if (newTitle && newTitle !== title) body.title = newTitle;
@@ -57,6 +68,10 @@ export function EditSessionForm({
 
     const n = String(fd.get("notes") ?? "").trim();
     if (n !== (notes ?? "")) body.notes = n;
+
+    if (JSON.stringify(customerInterestsDraft) !== JSON.stringify(customerInterests)) {
+      body.customerInterests = customerInterestsDraft;
+    }
 
     if (Object.keys(body).length > 0) {
       await fetch(`/api/sessions/${sessionId}`, {
@@ -100,6 +115,11 @@ export function EditSessionForm({
         <label htmlFor="location" className="form-label">Location</label>
         <input id="location" name="location" type="text" className="form-input" defaultValue={location ?? ""} placeholder="Tower A - Unit 1204" />
       </div>
+      <CustomerInterestsField
+        value={customerInterestsDraft}
+        onChange={setCustomerInterestsDraft}
+        compact
+      />
       <div className="form-group">
         <label htmlFor="notes" className="form-label">Notes</label>
         <textarea id="notes" name="notes" rows={2} className="form-textarea" defaultValue={notes ?? ""} placeholder="Focus on parking, lease timeline..." />
@@ -108,7 +128,7 @@ export function EditSessionForm({
         <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
           {saving ? "Saving…" : "Save"}
         </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(false)}>Cancel</button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={closeEditor}>Cancel</button>
       </div>
     </form>
   );

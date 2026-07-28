@@ -3,6 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { appendDictationText } from "@tour/shared"
 import {
   ArrowRight,
   BarChart2,
@@ -13,7 +14,6 @@ import {
   ChevronRight,
   Code2,
   Copy,
-  AudioLines,
   ThumbsDown,
   ThumbsUp,
   Loader2,
@@ -27,6 +27,7 @@ import {
 } from "lucide-react"
 import { Inter, Plus_Jakarta_Sans } from "next/font/google"
 import tourExamplesTYG from "./tour-examples-TYG"
+import { ElevenLabsDictationButton } from "./ElevenLabsDictationButton"
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -2142,6 +2143,7 @@ function TourAssistantComposer({
 }) {
   const isModal = mode === "modal"
   const inputId = `${idPrefix}-query`
+  const [dictationError, setDictationError] = useState<string | null>(null)
 
   return (
     <div
@@ -2233,17 +2235,23 @@ function TourAssistantComposer({
               readOnly={!isModal}
               autoComplete="off"
             />
-            <button
-              type="button"
-              onClick={onOpen}
-              className="mr-[7px] grid h-11 w-11 shrink-0 place-items-center rounded-full bg-zinc-100 text-zinc-900 transition hover:bg-zinc-200"
-              aria-label="Start voice"
-            >
-              <AudioLines className="h-5 w-5" />
-            </button>
+            <ElevenLabsDictationButton
+              variant="landing"
+              disabled={!isInteractive}
+              onBeforeStart={() => {
+                if (!isModal) onOpen()
+              }}
+              onError={setDictationError}
+              onTranscript={(text) => onQueryChange(appendDictationText(query, text))}
+            />
           </div>
         </div>
       </form>
+      {dictationError ? (
+        <p className="px-4 text-center text-xs font-semibold text-red-600" role="alert">
+          {dictationError}
+        </p>
+      ) : null}
     </div>
   )
 }

@@ -60,6 +60,25 @@ export async function POST(request: Request) {
       ].join(""),
     });
     if (!delivery.configured || delivery.delivered < 1) {
+      if (canUseLocalOtpFallback()) {
+        console.info(
+          [
+            "",
+            "Tour local sign-in code",
+            `Email: ${email}`,
+            `Code: ${challengeCode}`,
+            `Expires: ${challenge.expiresAt}`,
+            "",
+          ].join("\n")
+        );
+        return NextResponse.json({
+          sent: true,
+          email,
+          challengeId: challenge.challengeId,
+          expiresAt: challenge.expiresAt,
+          delivery: "local-terminal",
+        });
+      }
       await invalidateAdminOtpChallenge(challenge.challengeId, email);
       return NextResponse.json(
         { error: "Could not send a sign-in code." },
@@ -92,4 +111,11 @@ function escapeHtml(value: string) {
     "\"": "&quot;",
     "'": "&#39;",
   })[character] ?? character);
+}
+
+function canUseLocalOtpFallback() {
+  return (
+    process.env.NODE_ENV !== "production" &&
+    process.env.TOUR_DISABLE_LOCAL_OTP_FALLBACK !== "true"
+  );
 }

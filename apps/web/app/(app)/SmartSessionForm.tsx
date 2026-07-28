@@ -14,10 +14,12 @@ import {
   Phone,
   Plus,
   Search,
-  User,
   Users
 } from "lucide-react";
 
+import type { SessionCustomerInterest } from "@tour/shared";
+
+import { CustomerInterestsField } from "./CustomerInterestsField";
 import { RubricSelector } from "./RubricSelector";
 import { contactCard, propertyTour } from "./contact-card-data";
 
@@ -44,7 +46,6 @@ const budgetOptions = [
 ];
 
 const moveInOptions = ["Not sure yet", "ASAP", "Within 30 days", "1-3 months", "3+ months"];
-const interestOptions = ["Studio", "1 bed", "2 bed", "Parking", "Amenities", "Pet friendly"];
 
 export function SmartSessionForm({ mode = "inline", onDone, onCancel }: SmartSessionFormProps) {
   const router = useRouter();
@@ -56,10 +57,9 @@ export function SmartSessionForm({ mode = "inline", onDone, onCancel }: SmartSes
   const [source, setSource] = useState("");
   const [sourceNote, setSourceNote] = useState("");
   const [moveInWindow, setMoveInWindow] = useState("");
-  const [interestsSelected, setInterestsSelected] = useState<string[]>([]);
   const [budget, setBudget] = useState("");
   const [budgetNote, setBudgetNote] = useState("");
-  const [interests, setInterests] = useState("");
+  const [customerInterests, setCustomerInterests] = useState<SessionCustomerInterest[]>([]);
   const [rubricId, setRubricId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,11 +92,22 @@ export function SmartSessionForm({ mode = "inline", onDone, onCancel }: SmartSes
       source.trim() ? `Heard from: ${source.trim()}` : null,
       sourceNote.trim() ? `Heard from note: ${sourceNote.trim()}` : null,
       moveInWindow ? `Move-in timing: ${moveInWindow}` : null,
-      interestsSelected.length ? `Interested in: ${interestsSelected.join(", ")}` : null,
       budget.trim() ? `Budget: ${budget.trim()}` : null,
       budgetNote.trim() ? `Budget note: ${budgetNote.trim()}` : null,
-      interests.trim() ? `Notes / preferences: ${interests.trim()}` : null
     ].filter(Boolean).join("\n");
+    const submittedCustomerInterests: SessionCustomerInterest[] = [
+      ...(moveInWindow ? [{
+        id: "lead-move-in-timing",
+        category: "move_in_timing" as const,
+        detail: `Planning to move ${moveInWindow.toLowerCase()}.`,
+      }] : []),
+      ...(budget || budgetNote.trim() ? [{
+        id: "lead-budget",
+        category: "budget_specials" as const,
+        detail: [budget, budgetNote.trim()].filter(Boolean).join(". "),
+      }] : []),
+      ...customerInterests,
+    ];
 
     try {
       const response = await fetch("/api/sessions", {
@@ -108,6 +119,7 @@ export function SmartSessionForm({ mode = "inline", onDone, onCancel }: SmartSes
           prospectName: normalizedLeadName,
           location: propertyTour.name,
           notes,
+          customerInterests: submittedCustomerInterests,
           rubricId
         })
       });
@@ -125,14 +137,6 @@ export function SmartSessionForm({ mode = "inline", onDone, onCancel }: SmartSes
       setError(err instanceof Error ? err.message : "Failed to create session.");
       setSaving(false);
     }
-  }
-
-  function toggleInterest(value: string) {
-    setInterestsSelected((current) => (
-      current.includes(value)
-        ? current.filter((item) => item !== value)
-        : [...current, value]
-    ));
   }
 
   return (
@@ -224,6 +228,11 @@ export function SmartSessionForm({ mode = "inline", onDone, onCancel }: SmartSes
         </div>
       </div>
 
+      <CustomerInterestsField
+        value={customerInterests}
+        onChange={setCustomerInterests}
+      />
+
       <details className="smart-session-optional">
         <summary>+ Optional Fields</summary>
         <div className="form-grid smart-session-grid">
@@ -312,35 +321,6 @@ export function SmartSessionForm({ mode = "inline", onDone, onCancel }: SmartSes
             />
           </div>
 
-          <div className="form-group smart-session-wide">
-            <span className="form-label">Interested in</span>
-            <div className="smart-session-pill-row">
-              {interestOptions.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  className="smart-session-pill"
-                  data-selected={interestsSelected.includes(option)}
-                  onClick={() => toggleInterest(option)}
-                >
-                  <User size={15} />
-                  {option}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="form-group smart-session-wide">
-            <label htmlFor={`${mode}-interests`} className="form-label">Prospect notes</label>
-            <textarea
-              id={`${mode}-interests`}
-              value={interests}
-              onChange={(event) => setInterests(event.target.value)}
-              rows={3}
-              className="form-textarea"
-              placeholder="Pets, roommates, must-haves, objections, follow-up reminders..."
-            />
-          </div>
         </div>
       </details>
 

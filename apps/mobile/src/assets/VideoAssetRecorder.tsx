@@ -1,4 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Asset } from "expo-asset";
+import Constants from "expo-constants";
 import * as Haptics from "expo-haptics";
 import * as MediaLibrary from "expo-media-library";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -31,6 +33,8 @@ import { tourColors as C } from "../theme/tour-brand";
 
 const MAX_RECORDING_SECONDS = 10 * 60;
 const MAX_RECORDING_BYTES = 500 * 1024 * 1024;
+const MOCK_CAMERA_VIDEO = require("../../assets/videos/login-bg.mp4");
+const USE_SIMULATOR_CAMERA = __DEV__ && !(Constants.isDevice ?? false);
 
 type RecordedVideoAsset = {
   uri: string;
@@ -56,6 +60,45 @@ function defaultAssetName() {
     month: "short",
     day: "numeric",
   }).format(new Date())}`;
+}
+
+async function resolveMockCameraVideo() {
+  const asset = Asset.fromModule(MOCK_CAMERA_VIDEO);
+  if (!asset.localUri) {
+    await asset.downloadAsync();
+  }
+  const uri = asset.localUri ?? asset.uri;
+  if (!uri) {
+    throw new Error("The simulator camera sample could not be loaded.");
+  }
+  return uri;
+}
+
+function SimulatorCameraPreview({ position }: { position: "back" | "front" }) {
+  const player = useVideoPlayer(MOCK_CAMERA_VIDEO, (instance) => {
+    instance.loop = true;
+    instance.muted = true;
+    instance.play();
+  });
+
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <VideoView
+        player={player}
+        style={[
+          StyleSheet.absoluteFill,
+          position === "front" && styles.simulatorPreviewFront,
+        ]}
+        contentFit="cover"
+        nativeControls={false}
+      />
+      <View pointerEvents="none" style={styles.simulatorPreviewTint} />
+      <View pointerEvents="none" style={styles.simulatorBadge}>
+        <Ionicons name="construct-outline" size={13} color="#fff" />
+        <Text style={styles.simulatorBadgeText}>SIMULATOR CAMERA</Text>
+      </View>
+    </View>
+  );
 }
 
 function PermissionGate({
@@ -257,7 +300,7 @@ export function VideoAssetRecorder({ visible, onClose, onUpload }: VideoAssetRec
   useEffect(() => () => clearTimer(), [clearTimer]);
 
   useEffect(() => {
-    setCameraReady(false);
+    setCameraReady(USE_SIMULATOR_CAMERA);
     setTorchEnabled(false);
   }, [position]);
 
@@ -297,6 +340,16 @@ export function VideoAssetRecorder({ visible, onClose, onUpload }: VideoAssetRec
     if (!cameraReady || isRecording || recorderRef.current) return;
     setError(null);
     setSaved(false);
+    if (USE_SIMULATOR_CAMERA) {
+      recordingStartedAtRef.current = Date.now();
+      setIsRecording(true);
+      setDurationSec(0);
+      timerRef.current = setInterval(() => {
+        setDurationSec(Math.max(0, Math.floor((Date.now() - recordingStartedAtRef.current) / 1000)));
+      }, 500);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      return;
+    }
     try {
       const recorder = await videoOutput.createRecorder({
         maxDuration: MAX_RECORDING_SECONDS,
@@ -327,6 +380,17 @@ export function VideoAssetRecorder({ visible, onClose, onUpload }: VideoAssetRec
   }, [cameraReady, clearTimer, finishRecording, isRecording, videoOutput]);
 
   const stopRecording = useCallback(async () => {
+    if (USE_SIMULATOR_CAMERA && isRecording) {
+      try {
+        const uri = await resolveMockCameraVideo();
+        finishRecording(uri);
+      } catch (caught) {
+        clearTimer();
+        setIsRecording(false);
+        setError(caught instanceof Error ? caught.message : "Could not prepare the simulator recording.");
+      }
+      return;
+    }
     const recorder = recorderRef.current;
     if (!recorder || !isRecording) return;
     try {
@@ -337,7 +401,7 @@ export function VideoAssetRecorder({ visible, onClose, onUpload }: VideoAssetRec
       setIsRecording(false);
       setError(caught instanceof Error ? caught.message : "Could not stop video recording.");
     }
-  }, [clearTimer, isRecording]);
+  }, [clearTimer, finishRecording, isRecording]);
 
   const requestClose = useCallback(() => {
     if (!isRecording && (!recordedUri || saved)) {
@@ -414,7 +478,8 @@ export function VideoAssetRecorder({ visible, onClose, onUpload }: VideoAssetRec
     }
   }, [onClose, onUpload, recordedDurationSec, recordedUri, resetCapture, uploading]);
 
-  const hasPermissions = cameraPermission.hasPermission && microphonePermission.hasPermission;
+  const hasPermissions = USE_SIMULATOR_CAMERA
+    || (cameraPermission.hasPermission && microphonePermission.hasPermission);
 
   return (
     <Modal
@@ -447,7 +512,9 @@ export function VideoAssetRecorder({ visible, onClose, onUpload }: VideoAssetRec
         />
       ) : (
         <View style={styles.cameraPage}>
-          {device ? (
+          {USE_SIMULATOR_CAMERA ? (
+            <SimulatorCameraPreview position={position} />
+          ) : device ? (
             <Camera
               style={StyleSheet.absoluteFill}
               device={device}
@@ -479,9 +546,12 @@ export function VideoAssetRecorder({ visible, onClose, onUpload }: VideoAssetRec
             </View>
             <Pressable
               accessibilityLabel={torchEnabled ? "Turn flash off" : "Turn flash on"}
-              disabled={!device?.hasTorch || isRecording}
+              disabled={USE_SIMULATOR_CAMERA || !device?.hasTorch || isRecording}
               onPress={() => setTorchEnabled((current) => !current)}
-              style={[styles.cameraButton, (!device?.hasTorch || isRecording) && styles.cameraButtonDisabled]}
+              style={[
+                styles.cameraButton,
+                (USE_SIMULATOR_CAMERA || !device?.hasTorch || isRecording) && styles.cameraButtonDisabled,
+              ]}
             >
               <Ionicons name={torchEnabled ? "flash" : "flash-off"} size={20} color="#fff" />
             </Pressable>
@@ -579,6 +649,21 @@ const styles = StyleSheet.create({
   },
   permissionButtonText: { color: "#fff", fontSize: 15, fontWeight: "900" },
   cameraPage: { flex: 1, overflow: "hidden", backgroundColor: "#020617" },
+  simulatorPreviewFront: { transform: [{ scaleX: -1 }] },
+  simulatorPreviewTint: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(2,6,23,0.1)" },
+  simulatorBadge: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 116 : 84,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: "rgba(2,6,23,0.58)",
+  },
+  simulatorBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900", letterSpacing: 0.7 },
   cameraLoading: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, backgroundColor: "#020617" },
   cameraLoadingText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   cameraHeader: {

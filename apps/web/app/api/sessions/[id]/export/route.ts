@@ -46,6 +46,7 @@ export async function GET(request: Request, context: Context) {
       analysisCreatedAt: analysisRun.createdAt,
       sessionUrl: `${requestUrl.origin}/sessions/${encodeURIComponent(id)}${version ? `?version=${encodeURIComponent(version)}` : ""}`,
       audioDownloadUrl: `${requestUrl.origin}/api/sessions/${encodeURIComponent(id)}/recording?download=1`,
+      transcriptDownloadUrl: `${requestUrl.origin}/api/sessions/${encodeURIComponent(id)}/transcript?download=1`,
     });
     const filename = `${safeFilename(session.title) || "session"}-evaluation.pdf`;
 

@@ -12,6 +12,7 @@ type SessionReportInput = {
   analysisCreatedAt: string;
   sessionUrl: string;
   audioDownloadUrl: string;
+  transcriptDownloadUrl: string;
 };
 
 const PAGE_WIDTH = 612;
@@ -91,14 +92,21 @@ function drawPageHeader(doc: PDFKit.PDFDocument, input: SessionReportInput) {
       align: "right",
       lineBreak: false,
     });
-  drawHeaderLink(doc, "VIEW SESSION", input.sessionUrl, MARGIN + 342, 42, 74);
+  drawHeaderLink(doc, "VIEW SESSION", input.sessionUrl, MARGIN + 260, 42, 64);
   doc
-    .moveTo(MARGIN + 424, 41)
-    .lineTo(MARGIN + 424, 51)
+    .moveTo(MARGIN + 332, 41)
+    .lineTo(MARGIN + 332, 51)
     .lineWidth(0.6)
     .strokeColor(COLORS.line)
     .stroke();
-  drawHeaderLink(doc, "DOWNLOAD AUDIO", input.audioDownloadUrl, MARGIN + 436, 42, 84);
+  drawHeaderLink(doc, "DOWNLOAD AUDIO", input.audioDownloadUrl, MARGIN + 340, 42, 74);
+  doc
+    .moveTo(MARGIN + 422, 41)
+    .lineTo(MARGIN + 422, 51)
+    .lineWidth(0.6)
+    .strokeColor(COLORS.line)
+    .stroke();
+  drawHeaderLink(doc, "DOWNLOAD TRANSCRIPT", input.transcriptDownloadUrl, MARGIN + 430, 42, 90);
   doc
     .moveTo(MARGIN, 62)
     .lineTo(PAGE_WIDTH - MARGIN, 62)

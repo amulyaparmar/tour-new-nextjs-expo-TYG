@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Download, FileAudio, FileText, LoaderCircle } from "lucide-react";
+import { AlignLeft, ChevronDown, Download, FileAudio, FileText, LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import styles from "./session-detail.module.css";
@@ -8,10 +8,11 @@ import styles from "./session-detail.module.css";
 type Props = {
   href: string;
   audioHref: string;
+  transcriptHref: string | null;
   sessionTitle: string;
 };
 
-export function ExportSessionButton({ href, audioHref, sessionTitle }: Props) {
+export function ExportSessionButton({ href, audioHref, transcriptHref, sessionTitle }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -91,6 +92,21 @@ export function ExportSessionButton({ href, audioHref, sessionTitle }: Props) {
               <small>Download the original recording</small>
             </span>
           </a>
+          {transcriptHref && (
+            <a
+              href={transcriptHref}
+              download
+              role="menuitem"
+              className={styles.exportOption}
+              onClick={() => setOpen(false)}
+            >
+              <span className={styles.exportOptionIcon}><AlignLeft size={17} aria-hidden="true" /></span>
+              <span>
+                <strong>Session transcript</strong>
+                <small>Download timestamped speaker text</small>
+              </span>
+            </a>
+          )}
           <button
             type="button"
             role="menuitem"

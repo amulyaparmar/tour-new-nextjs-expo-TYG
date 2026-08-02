@@ -458,7 +458,7 @@ function drawCoachingReview(doc: PDFKit.PDFDocument, analysis: AnalysisResult) {
     .fillColor(COLORS.muted)
     .font("Helvetica")
     .fontSize(9)
-    .text("Use the coaching observations below to reinforce strengths and practice the next best response.");
+    .text("Use the transcript evidence below to reinforce strengths and practice the next best response.");
   doc.moveDown(1.1);
 
   drawListSection(doc, "STRENGTHS", analysis.strengths, COLORS.greenSoft, COLORS.green);
@@ -495,7 +495,7 @@ function drawCoachingReview(doc: PDFKit.PDFDocument, analysis: AnalysisResult) {
     .font("Helvetica-Oblique")
     .fontSize(7.5)
     .text(
-      "This report is generated from the selected rubric and recorded-session analysis. Managers should review the supporting session evidence before using results for formal performance decisions.",
+      "This report is generated from the selected rubric and recorded-session analysis. Managers should review transcript evidence before using results for formal performance decisions.",
       MARGIN,
       doc.y,
       { width: CONTENT_WIDTH, align: "center", lineGap: 1 }
@@ -507,13 +507,15 @@ function drawMoment(
   moment: AnalysisResult["exactMoments"][number],
   index: number
 ) {
+  const quote = plain(moment.transcriptQuote || "No quote captured.");
   const explanation = plain(moment.explanation || "No explanation captured.");
   const improvement = plain(moment.suggestedImprovement || "No suggested improvement captured.");
   const width = CONTENT_WIDTH - 28;
   const contentHeight =
+    doc.heightOfString(quote, { width, lineGap: 1 }) +
     doc.heightOfString(explanation, { width, lineGap: 1 }) +
-    doc.heightOfString(improvement, { width, lineGap: 1 }) + 52;
-  const height = Math.max(78, contentHeight);
+    doc.heightOfString(improvement, { width, lineGap: 1 }) + 62;
+  const height = Math.max(92, contentHeight);
   ensureSpace(doc, Math.min(height, CONTENT_BOTTOM - 82));
   const y = doc.y;
 
@@ -527,10 +529,15 @@ function drawMoment(
       characterSpacing: 0.5,
     });
   doc
+    .fillColor(COLORS.ink)
+    .font("Helvetica-Oblique")
+    .fontSize(8.5)
+    .text(`"${quote}"`, MARGIN + 14, doc.y + 6, { width, lineGap: 1 });
+  doc
     .fillColor(COLORS.muted)
     .font("Helvetica")
     .fontSize(8)
-    .text(explanation, MARGIN + 14, doc.y + 8, { width, lineGap: 1 });
+    .text(explanation, MARGIN + 14, doc.y + 7, { width, lineGap: 1 });
   doc
     .fillColor(COLORS.indigoDark)
     .font("Helvetica-Bold")

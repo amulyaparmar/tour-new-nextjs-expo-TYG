@@ -173,6 +173,9 @@ export default async function SessionDetailPage({ params, searchParams }: Props)
               href={`/api/sessions/${encodeURIComponent(id)}/export${analysisRun && !analysisRun.isCurrent ? `?version=${analysisRun.version}` : ""}`}
               audioHref={`/api/sessions/${encodeURIComponent(id)}/recording?download=1`}
               transcriptHref={transcript.length > 0 ? `/api/sessions/${encodeURIComponent(id)}/transcript?download=1` : null}
+              coachingMomentsHref={analysis?.exactMoments.length
+                ? `/api/sessions/${encodeURIComponent(id)}/coaching-moments${analysisRun && !analysisRun.isCurrent ? `?version=${analysisRun.version}` : ""}`
+                : null}
               sessionTitle={sessionTitle}
             />
           )}

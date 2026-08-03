@@ -360,9 +360,8 @@ export async function generateAudioInsights(params: {
     uploadedFile,
     requestOptions: {
       timeoutMs: getGeminiAudioInsightsTimeoutMs(),
-      // A full ten-minute provider timeout is already retried by the workflow
-      // step. Do not retry timeouts within each model before failover.
-      retryTimeouts: false,
+      // This is the total per-model retry budget; the SDK divides it across
+      // bounded attempts before our audio-model fallback advances.
     },
   });
 

@@ -1,6 +1,14 @@
 import "server-only";
 
 import {
+  ApiError,
+  GoogleGenAI,
+  ServiceTier,
+  type Content,
+  type HttpOptions,
+  type Part,
+} from "@google/genai";
+import {
   DEFAULT_GEMINI_AUDIO_MODEL,
   GEMINI_AUDIO_MODELS,
   isGeminiAudioModelId,
@@ -198,16 +206,56 @@ function getGeminiServiceTier(): GeminiServiceTier {
 }
 
 function reportGeminiServiceTier(
-  response: Response,
+  headers: Record<string, string> | undefined,
   requestedTier: GeminiServiceTier,
   label: string,
 ): void {
-  const servedTier = response.headers.get("x-gemini-service-tier")?.trim().toLowerCase();
+  const servedTier = Object.entries(headers ?? {}).find(
+    ([name]) => name.toLowerCase() === "x-gemini-service-tier",
+  )?.[1]?.trim().toLowerCase();
   if (servedTier && servedTier !== requestedTier) {
     console.warn(
       `[gemini] ${label} requested ${requestedTier} service tier but was served by ${servedTier}`,
     );
   }
+}
+
+function toSdkServiceTier(serviceTier: GeminiServiceTier): ServiceTier {
+  if (serviceTier === "flex") return ServiceTier.FLEX;
+  if (serviceTier === "standard") return ServiceTier.STANDARD;
+  return ServiceTier.PRIORITY;
+}
+
+function geminiRetryBackoffSeconds(attempts: number): number {
+  let total = 0;
+  for (let retry = 0; retry < attempts - 1; retry++) {
+    total += Math.min(4, 2 ** retry);
+  }
+  return total;
+}
+
+function getGeminiSdkHttpOptions(
+  label: string,
+  options: GeminiRetryOptions = {},
+): HttpOptions {
+  const attempts = options.maxAttempts ?? getGeminiModelMaxAttempts();
+  const configuredBudgetMs = options.timeoutMs;
+  const retryBackoffMs = geminiRetryBackoffSeconds(attempts) * 1_000;
+  const timeout = configuredBudgetMs
+    ? Math.max(1_000, Math.floor((configuredBudgetMs - retryBackoffMs) / attempts))
+    : geminiRequestTimeoutMs(label);
+
+  return {
+    timeout,
+    retryOptions: {
+      attempts,
+      initialDelay: 1,
+      maxDelay: 4,
+      expBase: 2,
+      jitter: 1,
+      httpStatusCodes: Array.from(GEMINI_RETRYABLE_STATUSES),
+    },
+  };
 }
 
 function normalizeConfiguredAudioModel(value: string | undefined): GeminiAudioModelId {
@@ -241,6 +289,9 @@ function getGeminiAudioModelCandidates(primaryModel: string): GeminiAudioModelId
 }
 
 function shouldFallbackGeminiAudioModel(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return ![400, 401, 403].includes(error.status);
+  }
   if (!(error instanceof Error)) return true;
   // Authentication and malformed requests cannot be repaired by changing models.
   return !/\berror (?:400|401|403)\b/i.test(error.message);
@@ -401,17 +452,18 @@ export async function geminiChatWithAudioFile(params: {
   model?: string;
 }): Promise<string> {
   const { apiKey, model: defaultModel, serviceTier } = getGeminiConfig();
+  const client = new GoogleGenAI({ apiKey });
   const models = getGeminiAudioModelCandidates(params.model ?? defaultModel);
 
   if (params.messages.length === 0) {
     throw new Error("At least one message is required.");
   }
 
-  const contents = params.messages.map((message, index) => {
-    const parts: Array<GeminiAudioPart | { text: string }> = [{ text: message.content }];
+  const contents: Content[] = params.messages.map((message, index) => {
+    const parts: Part[] = [{ text: message.content }];
     if (index === 0 && message.role === "user") {
       parts.unshift({
-        file_data: { mime_type: params.file.mimeType, file_uri: params.file.uri },
+        fileData: { mimeType: params.file.mimeType, fileUri: params.file.uri },
       });
     }
     return {
@@ -424,29 +476,21 @@ export async function geminiChatWithAudioFile(params: {
   for (let index = 0; index < models.length; index++) {
     const model = models[index]!;
     try {
-      const response = await fetchWithGeminiRetry(
-        `${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": apiKey,
-          },
-          body: JSON.stringify({ contents, service_tier: serviceTier }),
+      const response = await client.models.generateContent({
+        model,
+        contents,
+        config: {
+          serviceTier: toSdkServiceTier(serviceTier),
+          httpOptions: getGeminiSdkHttpOptions(`Gemini audio chat (${model})`),
         },
+      });
+      reportGeminiServiceTier(
+        response.sdkHttpResponse?.headers,
+        serviceTier,
         `Gemini audio chat (${model})`,
-        { maxAttempts: getGeminiModelMaxAttempts() },
       );
-      reportGeminiServiceTier(response, serviceTier, `Gemini audio chat (${model})`);
 
-      const payload = (await response.json()) as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      };
-
-      const text = payload.candidates?.[0]?.content?.parts
-        ?.map((part) => part.text ?? "")
-        .join("")
-        .trim();
+      const text = response.text?.trim();
 
       if (!text) throw new Error("Gemini returned an empty chat response");
       return text;
@@ -464,15 +508,13 @@ export async function geminiChatWithAudioFile(params: {
 }
 
 type GeminiAudioPart =
-  | { file_data: { mime_type: string; file_uri: string } }
-  | { inline_data: { mime_type: string; data: string } };
+  | { fileData: { mimeType: string; fileUri: string } }
+  | { inlineData: { mimeType: string; data: string } };
 
 function buildAudioPart(
-  buffer: Buffer,
-  mimeType: string,
   uploaded: GeminiUploadedFile
 ): GeminiAudioPart {
-  return { file_data: { mime_type: uploaded.mimeType, file_uri: uploaded.uri } };
+  return { fileData: { mimeType: uploaded.mimeType, fileUri: uploaded.uri } };
 }
 
 export async function geminiGenerateJson<T>(params: {
@@ -487,6 +529,7 @@ export async function geminiGenerateJson<T>(params: {
   requestOptions?: GeminiRetryOptions;
 }): Promise<{ value: T; model: GeminiAudioModelId }> {
   const { apiKey, model: defaultModel, serviceTier } = getGeminiConfig();
+  const client = new GoogleGenAI({ apiKey });
   const models = getGeminiAudioModelCandidates(params.model ?? defaultModel);
   const mimeType = geminiMimeTypeForRecording(params.mimeType, params.fileName);
 
@@ -497,58 +540,38 @@ export async function geminiGenerateJson<T>(params: {
       params.fileName ?? "recording"
     );
 
-  const generationConfig: Record<string, unknown> = {
-    responseMimeType: "application/json",
-  };
-  if (params.useResponseSchema !== false) {
-    generationConfig.responseSchema = params.schema;
-  }
-
-  const body = {
-    contents: [
-      {
-        parts: [
-          { text: params.prompt },
-          buildAudioPart(params.audioBuffer, mimeType, uploaded),
-        ],
-      },
+  const contents: Content[] = [{
+    role: "user",
+    parts: [
+      { text: params.prompt },
+      buildAudioPart(uploaded),
     ],
-    generationConfig,
-    service_tier: serviceTier,
-  };
+  }];
 
   let lastError: unknown;
   for (let index = 0; index < models.length; index++) {
     const model = models[index]!;
     try {
-      const response = await fetchWithGeminiRetry(
-        `${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": apiKey,
-          },
-          body: JSON.stringify(body),
+      const response = await client.models.generateContent({
+        model,
+        contents,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: params.useResponseSchema === false ? undefined : params.schema,
+          serviceTier: toSdkServiceTier(serviceTier),
+          httpOptions: getGeminiSdkHttpOptions(
+            `Gemini generateContent (${model})`,
+            params.requestOptions,
+          ),
         },
+      });
+      reportGeminiServiceTier(
+        response.sdkHttpResponse?.headers,
+        serviceTier,
         `Gemini generateContent (${model})`,
-        {
-          maxAttempts: getGeminiModelMaxAttempts(),
-          ...params.requestOptions,
-        },
       );
-      reportGeminiServiceTier(response, serviceTier, `Gemini generateContent (${model})`);
 
-      const payload = (await response.json()) as {
-        candidates?: Array<{
-          content?: { parts?: Array<{ text?: string }> };
-        }>;
-      };
-
-      const text = payload.candidates?.[0]?.content?.parts
-        ?.map((part) => part.text ?? "")
-        .join("")
-        .trim();
+      const text = response.text?.trim();
 
       if (!text) throw new Error("Gemini returned an empty response");
 

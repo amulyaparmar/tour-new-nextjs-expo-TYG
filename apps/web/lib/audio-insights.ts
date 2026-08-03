@@ -350,7 +350,7 @@ export async function generateAudioInsights(params: {
     params.fileName ?? "recording"
   );
 
-  const payload = await geminiGenerateJson<GeminiAudioInsightsPayload>({
+  const { value: payload, model: resolvedModel } = await geminiGenerateJson<GeminiAudioInsightsPayload>({
     prompt: buildAudioInsightsPrompt(params.rubricContext),
     schema: AUDIO_INSIGHTS_SCHEMA,
     audioBuffer: params.audioBuffer,
@@ -361,14 +361,14 @@ export async function generateAudioInsights(params: {
     requestOptions: {
       timeoutMs: getGeminiAudioInsightsTimeoutMs(),
       // A full ten-minute provider timeout is already retried by the workflow
-      // step. Do not multiply it by the client's six-attempt retry loop.
+      // step. Do not retry timeouts within each model before failover.
       retryTimeouts: false,
     },
   });
 
   const insights: AudioInsights = {
     provider: "gemini",
-    model,
+    model: resolvedModel,
     summary: payload.summary,
     topicSummary: payload.topicSummary,
     overallSentiment: payload.overallSentiment,

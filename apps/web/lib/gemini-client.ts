@@ -1,6 +1,11 @@
 import "server-only";
 
-import { DEFAULT_GEMINI_AUDIO_MODEL } from "@tour/shared";
+import {
+  DEFAULT_GEMINI_AUDIO_MODEL,
+  GEMINI_AUDIO_MODELS,
+  isGeminiAudioModelId,
+  type GeminiAudioModelId,
+} from "@tour/shared";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com";
 const GEMINI_UPLOAD_BASE = "https://generativelanguage.googleapis.com/upload";
@@ -8,6 +13,7 @@ const GEMINI_UPLOAD_BASE = "https://generativelanguage.googleapis.com/upload";
 /** Transient Gemini / upstream failures — retried with backoff. */
 const GEMINI_RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const GEMINI_MAX_ATTEMPTS = 6;
+const GEMINI_MODEL_MAX_ATTEMPTS = 2;
 const GEMINI_BASE_DELAY_MS = 3_000;
 const GEMINI_MAX_DELAY_MS = 90_000;
 const GEMINI_DEFAULT_TIMEOUT_MS = 60_000;
@@ -28,6 +34,10 @@ function readPositiveIntEnv(name: string): number | null {
   if (!value) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+}
+
+function getGeminiModelMaxAttempts(): number {
+  return readPositiveIntEnv("GEMINI_MODEL_MAX_ATTEMPTS") ?? GEMINI_MODEL_MAX_ATTEMPTS;
 }
 
 function geminiRequestTimeoutMs(label: string): number {
@@ -170,11 +180,89 @@ export type GeminiUploadedFile = {
   name?: string;
 };
 
+export type GeminiServiceTier = "priority" | "standard" | "flex";
+
+const DEFAULT_GEMINI_AUDIO_MODEL_CHAIN = GEMINI_AUDIO_MODELS.map(({ id }) => id);
+
+function getGeminiServiceTier(): GeminiServiceTier {
+  const configuredTier = process.env.GEMINI_SERVICE_TIER?.trim().toLowerCase();
+  if (
+    configuredTier === "priority"
+    || configuredTier === "standard"
+    || configuredTier === "flex"
+  ) {
+    return configuredTier;
+  }
+
+  return "priority";
+}
+
+function reportGeminiServiceTier(
+  response: Response,
+  requestedTier: GeminiServiceTier,
+  label: string,
+): void {
+  const servedTier = response.headers.get("x-gemini-service-tier")?.trim().toLowerCase();
+  if (servedTier && servedTier !== requestedTier) {
+    console.warn(
+      `[gemini] ${label} requested ${requestedTier} service tier but was served by ${servedTier}`,
+    );
+  }
+}
+
+function normalizeConfiguredAudioModel(value: string | undefined): GeminiAudioModelId {
+  if (!value) return DEFAULT_GEMINI_AUDIO_MODEL;
+  if (isGeminiAudioModelId(value)) return value;
+
+  console.warn(
+    `[gemini] Ignoring unsupported audio model "${value}"; using ${DEFAULT_GEMINI_AUDIO_MODEL}`,
+  );
+  return DEFAULT_GEMINI_AUDIO_MODEL;
+}
+
+function getGeminiAudioModelCandidates(primaryModel: string): GeminiAudioModelId[] {
+  const primary = normalizeConfiguredAudioModel(primaryModel);
+  const configuredFallbacks = process.env.GEMINI_AUDIO_FALLBACK_MODELS?.trim();
+  if (configuredFallbacks?.toLowerCase() === "none") return [primary];
+
+  const fallbackModels = configuredFallbacks
+    ? configuredFallbacks
+      .split(",")
+      .map((model) => model.trim())
+      .filter((model): model is GeminiAudioModelId => {
+        if (!model) return false;
+        if (isGeminiAudioModelId(model)) return true;
+        console.warn(`[gemini] Ignoring unsupported fallback audio model "${model}"`);
+        return false;
+      })
+    : DEFAULT_GEMINI_AUDIO_MODEL_CHAIN;
+
+  return Array.from(new Set([primary, ...fallbackModels]));
+}
+
+function shouldFallbackGeminiAudioModel(error: unknown): boolean {
+  if (!(error instanceof Error)) return true;
+  // Authentication and malformed requests cannot be repaired by changing models.
+  return !/\berror (?:400|401|403)\b/i.test(error.message);
+}
+
+function reportGeminiModelFallback(
+  failedModel: GeminiAudioModelId,
+  nextModel: GeminiAudioModelId,
+  error: unknown,
+): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  console.warn(
+    `[gemini] Audio inference failed with ${failedModel}; falling back to ${nextModel}: ${reason}`,
+  );
+}
+
 export function getGeminiConfig() {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
-  const model = process.env.GEMINI_AUDIO_MODEL?.trim() || DEFAULT_GEMINI_AUDIO_MODEL;
-  return { apiKey, model };
+  const model = normalizeConfiguredAudioModel(process.env.GEMINI_AUDIO_MODEL?.trim());
+  const serviceTier = getGeminiServiceTier();
+  return { apiKey, model, serviceTier };
 }
 
 export function isGeminiConfigured(): boolean {
@@ -312,8 +400,8 @@ export async function geminiChatWithAudioFile(params: {
   messages: GeminiChatMessage[];
   model?: string;
 }): Promise<string> {
-  const { apiKey, model: defaultModel } = getGeminiConfig();
-  const model = params.model ?? defaultModel;
+  const { apiKey, model: defaultModel, serviceTier } = getGeminiConfig();
+  const models = getGeminiAudioModelCandidates(params.model ?? defaultModel);
 
   if (params.messages.length === 0) {
     throw new Error("At least one message is required.");
@@ -332,30 +420,47 @@ export async function geminiChatWithAudioFile(params: {
     };
   });
 
-  const response = await fetchWithGeminiRetry(
-    `${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({ contents }),
-    },
-    "Gemini audio chat"
-  );
+  let lastError: unknown;
+  for (let index = 0; index < models.length; index++) {
+    const model = models[index]!;
+    try {
+      const response = await fetchWithGeminiRetry(
+        `${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: JSON.stringify({ contents, service_tier: serviceTier }),
+        },
+        `Gemini audio chat (${model})`,
+        { maxAttempts: getGeminiModelMaxAttempts() },
+      );
+      reportGeminiServiceTier(response, serviceTier, `Gemini audio chat (${model})`);
 
-  const payload = (await response.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
+      const payload = (await response.json()) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      };
 
-  const text = payload.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text ?? "")
-    .join("")
-    .trim();
+      const text = payload.candidates?.[0]?.content?.parts
+        ?.map((part) => part.text ?? "")
+        .join("")
+        .trim();
 
-  if (!text) throw new Error("Gemini returned an empty chat response");
-  return text;
+      if (!text) throw new Error("Gemini returned an empty chat response");
+      return text;
+    } catch (error) {
+      lastError = error;
+      const nextModel = models[index + 1];
+      if (!nextModel || !shouldFallbackGeminiAudioModel(error)) throw error;
+      reportGeminiModelFallback(model, nextModel, error);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Gemini audio chat failed across all configured models");
 }
 
 type GeminiAudioPart =
@@ -380,9 +485,9 @@ export async function geminiGenerateJson<T>(params: {
   uploadedFile?: GeminiUploadedFile;
   useResponseSchema?: boolean;
   requestOptions?: GeminiRetryOptions;
-}): Promise<T> {
-  const { apiKey, model: defaultModel } = getGeminiConfig();
-  const model = params.model ?? defaultModel;
+}): Promise<{ value: T; model: GeminiAudioModelId }> {
+  const { apiKey, model: defaultModel, serviceTier } = getGeminiConfig();
+  const models = getGeminiAudioModelCandidates(params.model ?? defaultModel);
   const mimeType = geminiMimeTypeForRecording(params.mimeType, params.fileName);
 
   const uploaded = params.uploadedFile
@@ -409,40 +514,60 @@ export async function geminiGenerateJson<T>(params: {
       },
     ],
     generationConfig,
+    service_tier: serviceTier,
   };
 
-  const response = await fetchWithGeminiRetry(
-    `${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify(body),
-    },
-    "Gemini generateContent",
-    params.requestOptions,
-  );
+  let lastError: unknown;
+  for (let index = 0; index < models.length; index++) {
+    const model = models[index]!;
+    try {
+      const response = await fetchWithGeminiRetry(
+        `${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: JSON.stringify(body),
+        },
+        `Gemini generateContent (${model})`,
+        {
+          maxAttempts: getGeminiModelMaxAttempts(),
+          ...params.requestOptions,
+        },
+      );
+      reportGeminiServiceTier(response, serviceTier, `Gemini generateContent (${model})`);
 
-  const payload = (await response.json()) as {
-    candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> };
-    }>;
-  };
+      const payload = (await response.json()) as {
+        candidates?: Array<{
+          content?: { parts?: Array<{ text?: string }> };
+        }>;
+      };
 
-  const text = payload.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text ?? "")
-    .join("")
-    .trim();
+      const text = payload.candidates?.[0]?.content?.parts
+        ?.map((part) => part.text ?? "")
+        .join("")
+        .trim();
 
-  if (!text) throw new Error("Gemini returned an empty response");
+      if (!text) throw new Error("Gemini returned an empty response");
 
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new Error(`Gemini response was not valid JSON: ${text.slice(0, 400)}`);
+      try {
+        return { value: JSON.parse(text) as T, model };
+      } catch {
+        throw new Error(`Gemini response was not valid JSON: ${text.slice(0, 400)}`);
+      }
+    } catch (error) {
+      lastError = error;
+      const nextModel = models[index + 1];
+      if (!nextModel || !shouldFallbackGeminiAudioModel(error)) throw error;
+      reportGeminiModelFallback(model, nextModel, error);
+    }
   }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Gemini audio inference failed across all configured models");
 }
 
 /** Parse MM:SS or HH:MM:SS timestamps from Gemini into seconds. */

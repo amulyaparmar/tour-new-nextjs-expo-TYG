@@ -1,8 +1,17 @@
+import type { Metadata } from "next";
+
 import { requireTourWorkspace } from "@/lib/tour-auth";
 import { BottomNav } from "../BottomNav";
 import { QueryProvider } from "../QueryProvider";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import "../globals.css";
+
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 export default async function AppLayout({
   children

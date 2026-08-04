@@ -85,13 +85,13 @@ export function buildSessionMoments(
 ): SessionMoment[] {
   const moments: SessionMoment[] = [];
 
-  for (const moment of analysis.exactMoments) {
+  for (const [index, moment] of analysis.exactMoments.entries()) {
     const sec = parseTimestampToSeconds(moment.timestamp);
     if (sec < 0) continue;
     if (moments.some((item) => Math.abs(item.timestamp - sec) < 5)) continue;
     const phase = findPhaseForTimestamp(sec, phases);
     moments.push({
-      id: `em-${moment.timestamp}`,
+      id: `em-${index}-${moment.timestamp}`,
       timestamp: sec,
       label: moment.explanation || moment.timestamp,
       type: "moment",

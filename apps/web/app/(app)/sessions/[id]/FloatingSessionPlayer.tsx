@@ -85,7 +85,22 @@ export function FloatingSessionPlayer({
   );
   const phaseTracks = useMemo(() => buildPhaseTracks(phases, duration), [phases, duration]);
   const playheadPct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
-  const activeMoment = moments[selectedMomentIndex] ?? null;
+  const activeMoment = useMemo(() => {
+    let closest: SessionMoment | null = null;
+    let closestDistance = Infinity;
+
+    for (const moment of moments) {
+      const elapsed = currentTime - moment.timestamp;
+      if (elapsed < -0.75 || elapsed > 8) continue;
+      const distance = Math.abs(elapsed);
+      if (distance < closestDistance) {
+        closest = moment;
+        closestDistance = distance;
+      }
+    }
+
+    return closest;
+  }, [currentTime, moments]);
   const hasCommentNav = commentNavTotal > 0;
 
   const hasSideControls = moments.length > 0;

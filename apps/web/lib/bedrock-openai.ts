@@ -24,17 +24,16 @@ type ResponsesFunctionCall = {
   arguments: string;
 };
 
-type ResponsesMessage = {
-  type: "message";
-  content?: Array<{ type: string; text?: string }>;
-};
-
-type ResponsesOutput = ResponsesFunctionCall | ResponsesMessage | { type: string; [key: string]: unknown };
+type ResponsesOutput = ResponsesFunctionCall | { type: string; [key: string]: unknown };
 
 type ResponsesResult = {
+  status?: string;
   output?: ResponsesOutput[];
   error?: { message?: string } | null;
+  incomplete_details?: { reason?: string } | null;
 };
+
+const BEDROCK_OPENAI_REASONING_MIN_OUTPUT_TOKENS = 16_384;
 
 export function getBedrockOpenAiConfig() {
   const token = process.env.AWS_BEARER_TOKEN_BEDROCK;
@@ -63,6 +62,21 @@ export function bedrockOpenAiSupportsSamplingParams(modelId: string): boolean {
   return !id.includes("gpt-5");
 }
 
+function bedrockOpenAiSupportsReasoningParams(modelId: string): boolean {
+  return modelId.toLowerCase().includes("gpt-5");
+}
+
+function describeMissingToolCall(data: ResponsesResult): string {
+  const outputTypes = Array.from(new Set((data.output ?? []).map((item) => item.type)));
+  return [
+    data.status ? `status=${data.status}` : null,
+    data.incomplete_details?.reason
+      ? `reason=${data.incomplete_details.reason}`
+      : null,
+    outputTypes.length > 0 ? `output=${outputTypes.join(",")}` : "output=empty",
+  ].filter(Boolean).join("; ");
+}
+
 /** Forces an OpenAI function call and returns the parsed arguments object. */
 export async function invokeOpenAiTool<T = Record<string, unknown>>(params: {
   system?: string;
@@ -74,11 +88,14 @@ export async function invokeOpenAiTool<T = Record<string, unknown>>(params: {
 }): Promise<T> {
   const { token, baseUrl } = getBedrockOpenAiConfig();
   const schema = prepareStructuredJsonSchema(params.tool.input_schema);
+  const reasoningModel = bedrockOpenAiSupportsReasoningParams(params.modelId);
   const body: Record<string, unknown> = {
     model: params.modelId,
     ...(params.system ? { instructions: params.system } : {}),
     input: buildOpenAiResponsesInput(params.messages),
-    max_output_tokens: params.maxTokens ?? 8192,
+    max_output_tokens: reasoningModel
+      ? Math.max(params.maxTokens ?? 8192, BEDROCK_OPENAI_REASONING_MIN_OUTPUT_TOKENS)
+      : params.maxTokens ?? 8192,
     tools: [
       {
         type: "function",
@@ -88,7 +105,8 @@ export async function invokeOpenAiTool<T = Record<string, unknown>>(params: {
         strict: true
       }
     ],
-    tool_choice: { type: "function", name: params.tool.name }
+    tool_choice: { type: "function", name: params.tool.name },
+    store: false
   };
 
   if (bedrockOpenAiSupportsSamplingParams(params.modelId) && params.temperature != null) {
@@ -122,12 +140,16 @@ export async function invokeOpenAiTool<T = Record<string, unknown>>(params: {
   );
 
   if (!toolCall?.arguments) {
-    throw new Error(`Bedrock OpenAI response did not include a ${params.tool.name} function call`);
+    throw new Error(
+      `Bedrock OpenAI ${params.modelId} response did not include a ${params.tool.name} function call (${describeMissingToolCall(data)})`
+    );
   }
 
   try {
     return JSON.parse(toolCall.arguments) as T;
   } catch {
-    throw new Error(`Bedrock OpenAI function call was not valid JSON: ${toolCall.arguments.slice(0, 200)}`);
+    throw new Error(
+      `Bedrock OpenAI ${params.modelId} function call was not valid JSON: ${toolCall.arguments.slice(0, 200)}`
+    );
   }
 }

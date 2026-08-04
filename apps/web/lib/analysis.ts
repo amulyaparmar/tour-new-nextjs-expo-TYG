@@ -111,7 +111,7 @@ export async function generateAnalysis(params: {
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
     tool: buildAnalysisTool(totalPoints),
-    maxTokens: 8192,
+    maxTokens: 16_384,
     temperature: 0.3,
     analysisModel: params.analysisModel
   });

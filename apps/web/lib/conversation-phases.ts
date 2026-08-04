@@ -57,7 +57,7 @@ export async function segmentConversationPhases(
       }
     ],
     tool: SEGMENTATION_TOOL,
-    maxTokens: 8192,
+    maxTokens: 16_384,
     temperature: 0.2
   });
 

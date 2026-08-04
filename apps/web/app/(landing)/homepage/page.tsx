@@ -1,9 +1,9 @@
 import { LandingPage } from "@/components/landing-page";
 
 export const metadata = {
-  title: "Tour.new - AI guided tours for every renter",
+  title: "AI Mystery Shopping for Multifamily Leasing",
   description:
-    "Tour.video turns anonymous website visitors into qualified leasing conversations with video tours, AI answers, scheduling, and attribution."
+    "Tour records and evaluates property-tour conversations so multifamily teams can mystery shop consistently, coach leasing agents, and improve follow-up."
 };
 
 export default function Page() {

@@ -388,7 +388,6 @@ export function SessionDetailExperience({
           transcript={transcript}
           participants={participants}
           phases={phases}
-          summary={analysis.summary}
           currentTime={currentTime}
           duration={effectiveDuration}
           isPlaying={isPlaying}
@@ -396,6 +395,7 @@ export function SessionDetailExperience({
           comments={topLevelComments}
           showComments={showComments}
           activeCommentId={activeCommentId}
+          selectedMomentId={moments[selectedMomentIndex]?.id ?? null}
           seekTo={(seconds) => seekTo(seconds, { play: true })}
           onScrollTimeChange={handleScrollTimeChange}
           onCommentsUpdated={refreshComments}

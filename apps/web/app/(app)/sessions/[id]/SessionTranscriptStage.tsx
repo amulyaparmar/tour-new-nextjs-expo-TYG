@@ -2,8 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConversationPhaseSegmentation, SessionParticipants } from "@tour/shared";
-import { findPhaseForTimestamp, formatSegmentTimeRange, formatSpeakerAnnotation, shortPhaseLabel } from "@tour/shared";
-import { MessageSquare, MoreHorizontal, Pencil, Search, Tag, Trash2 } from "lucide-react";
+import { findPhaseForTimestamp, formatSegmentTimeRange, formatSpeakerAnnotation } from "@tour/shared";
+import {
+  ChevronLeft,
+  ChevronRight,
+  MapPin,
+  MessageSquare,
+  MoreHorizontal,
+  Pencil,
+  Search,
+  Sparkles,
+  Tag,
+  Trash2,
+} from "lucide-react";
 
 import styles from "./session-detail.module.css";
 import { InlineCommentComposer } from "./InlineCommentComposer";
@@ -26,7 +37,6 @@ type Props = {
   transcript: TranscriptSegment[];
   participants: SessionParticipants;
   phases?: ConversationPhaseSegmentation | null;
-  summary?: string | null;
   currentTime: number;
   duration: number;
   isPlaying: boolean;
@@ -34,6 +44,7 @@ type Props = {
   comments: SessionComment[];
   showComments: boolean;
   activeCommentId: string | null;
+  selectedMomentId: string | null;
   seekTo: (seconds: number) => void;
   onScrollTimeChange: (seconds: number) => void;
   onCommentsUpdated: () => void;
@@ -64,7 +75,6 @@ export function SessionTranscriptStage({
   transcript,
   participants,
   phases,
-  summary,
   currentTime,
   duration,
   isPlaying,
@@ -72,6 +82,7 @@ export function SessionTranscriptStage({
   comments,
   showComments,
   activeCommentId,
+  selectedMomentId,
   seekTo,
   onScrollTimeChange,
   onCommentsUpdated,
@@ -133,6 +144,37 @@ export function SessionTranscriptStage({
       return active;
     }, null) ?? transcript[0]!;
   }, [currentTime, transcript]);
+
+  const phaseBySegmentId = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof findPhaseForTimestamp>>();
+    for (const segment of transcript) {
+      map.set(segment.id, findPhaseForTimestamp(segment.startTime, phases));
+    }
+    return map;
+  }, [phases, transcript]);
+
+  const activePhase = activeSegment
+    ? phaseBySegmentId.get(activeSegment.id)
+    : undefined;
+  const activePhaseIndex = activePhase
+    ? (phases?.spans.findIndex((span) => span.id === activePhase.id) ?? -1)
+    : -1;
+  const phaseCount = phases?.spans.length ?? 0;
+  const activePhaseProgress = activePhase && activePhase.endTime > activePhase.startTime
+    ? Math.min(
+        100,
+        Math.max(
+          0,
+          ((currentTime - activePhase.startTime) / (activePhase.endTime - activePhase.startTime)) * 100,
+        ),
+      )
+    : 0;
+
+  const navigatePhase = useCallback((direction: -1 | 1) => {
+    if (activePhaseIndex < 0) return;
+    const nextPhase = phases?.spans[activePhaseIndex + direction];
+    if (nextPhase) seekTo(nextPhase.startTime);
+  }, [activePhaseIndex, phases, seekTo]);
 
   const labelForSpeaker = useCallback(
     (speaker: string | null | undefined) => formatSpeakerAnnotation(speaker, participants),
@@ -296,39 +338,76 @@ export function SessionTranscriptStage({
             aria-label="Search transcript"
           />
         </div>
+        {activeSegment && !readOnly ? (
+          <div className={styles.transcriptToolbarActions}>
+            <button
+              type="button"
+              className={styles.transcriptToolbarAction}
+              onClick={() => openInlineCompose(activeSegment)}
+              title="Comment on the current line"
+              aria-label="Comment on the current line"
+            >
+              <MessageSquare size={15} />
+            </button>
+            <button
+              type="button"
+              className={styles.transcriptToolbarAction}
+              onClick={() => openKeyMomentCompose(activeSegment)}
+              title="Mark the current line as a key moment"
+              aria-label="Mark the current line as a key moment"
+            >
+              <Tag size={15} />
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className={styles.stageBody}>
-        {activeSegment && !readOnly && (
-          <div className={styles.transcriptShortcuts}>
-            <button
-              type="button"
-              className={styles.transcriptCommentShortcut}
-              onClick={() => openInlineCompose(activeSegment)}
-              title="Comment on active line (Enter)"
-            >
-              <MessageSquare size={14} />
-              <kbd>enter</kbd>
-            </button>
-            <button
-              type="button"
-              className={styles.transcriptCommentShortcut}
-              onClick={() => openKeyMomentCompose(activeSegment)}
-              title="Tag key moment (T)"
-            >
-              <Tag size={14} />
-              <kbd>t</kbd>
-            </button>
-          </div>
-        )}
-
         <div className={styles.transcriptScroll} ref={scrollRef} onScroll={handleScroll}>
-          {summary && (
-            <div className={styles.stageSummary}>
-              <span className={styles.stageSummaryLabel}>AI summary</span>
-              <p>{summary}</p>
+          {activePhase ? (
+            <div className={styles.transcriptSegmentDock}>
+              <button
+                type="button"
+                className={styles.transcriptSegmentDockMain}
+                onClick={() => seekTo(activePhase.startTime)}
+                aria-label={`Go to segment ${activePhaseIndex + 1}: ${activePhase.title}`}
+              >
+                <span className={styles.transcriptSegmentDockIndex}>{activePhaseIndex + 1}</span>
+                <span className={styles.transcriptSegmentDockCopy}>
+                  <span className={styles.transcriptSegmentDockEyebrow}>
+                    Segment {activePhaseIndex + 1} of {phaseCount}
+                  </span>
+                  <strong>{activePhase.title}</strong>
+                </span>
+                <span className={styles.transcriptSegmentDockTime}>
+                  {formatSegmentTimeRange(activePhase.startTime, activePhase.endTime)}
+                </span>
+              </button>
+              <div className={styles.transcriptSegmentDockNav} aria-label="Navigate transcript segments">
+                <button
+                  type="button"
+                  onClick={() => navigatePhase(-1)}
+                  disabled={activePhaseIndex <= 0}
+                  aria-label="Previous segment"
+                  title="Previous segment"
+                >
+                  <ChevronLeft size={16} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigatePhase(1)}
+                  disabled={activePhaseIndex >= phaseCount - 1}
+                  aria-label="Next segment"
+                  title="Next segment"
+                >
+                  <ChevronRight size={16} aria-hidden="true" />
+                </button>
+              </div>
+              <span className={styles.transcriptSegmentDockProgress} aria-hidden="true">
+                <span style={{ width: `${activePhaseProgress}%` }} />
+              </span>
             </div>
-          )}
+          ) : null}
 
           {filteredTranscript.length === 0 ? (
             <div className={styles.transcriptEmpty}>No transcript available yet.</div>
@@ -338,9 +417,9 @@ export function SessionTranscriptStage({
               const active = activeSegment?.id === seg.id;
               const segMoments = momentsBySegment.get(seg.id) ?? [];
               const segComments = commentsBySegment.get(seg.id) ?? [];
-              const phase = findPhaseForTimestamp(seg.startTime, phases);
+              const phase = phaseBySegmentId.get(seg.id);
               const prevPhase = index > 0
-                ? findPhaseForTimestamp(filteredTranscript[index - 1]!.startTime, phases)
+                ? phaseBySegmentId.get(filteredTranscript[index - 1]!.id)
                 : undefined;
               const showSegmentHeader = phase && phase.id !== prevPhase?.id;
               const segmentNumber = phase
@@ -350,73 +429,96 @@ export function SessionTranscriptStage({
               return (
                 <div key={seg.id}>
                   {showSegmentHeader && phase && (
-                    <div className={styles.tourSegmentHeader}>
+                    <div className={styles.transcriptSegmentLandmark}>
                       <button
                         type="button"
-                        className={styles.tourSegmentHeaderButton}
+                        className={styles.transcriptSegmentLandmarkButton}
                         onClick={() => seekTo(phase.startTime)}
                       >
-                        <div className={styles.tourSegmentHeaderTitle}>
-                          {segmentNumber}. {phase.title}
-                        </div>
-                        <div className={styles.tourSegmentHeaderMeta}>
-                          <span>{formatSegmentTimeRange(phase.startTime, phase.endTime)}</span>
-                          {phase.location ? (
-                            <span className={styles.tourSegmentLocation}>{phase.location}</span>
+                        <span className={styles.transcriptSegmentLandmarkIndex}>{segmentNumber}</span>
+                        <span className={styles.transcriptSegmentLandmarkCopy}>
+                          <span className={styles.transcriptSegmentLandmarkHead}>
+                            <strong>{phase.title}</strong>
+                            <span>{formatSegmentTimeRange(phase.startTime, phase.endTime)}</span>
+                          </span>
+                          {phase.summary ? (
+                            <span className={styles.transcriptSegmentLandmarkSummary}>{phase.summary}</span>
                           ) : null}
-                        </div>
-                        {phase.highlights && phase.highlights.length > 0 && (
-                          <ul className={styles.tourSegmentHighlights}>
-                            {phase.highlights.map((highlight) => (
-                              <li key={highlight}>{highlight}</li>
-                            ))}
-                          </ul>
-                        )}
+                        </span>
+                        <span className={styles.transcriptSegmentLandmarkMeta}>
+                          {phase.location ? (
+                            <span title={phase.location}>
+                              <MapPin size={13} />
+                              {phase.location}
+                            </span>
+                          ) : null}
+                          {phase.highlights?.length ? (
+                            <span title={`${phase.highlights.length} segment highlights`}>
+                              <Sparkles size={13} />
+                              {phase.highlights.length}
+                            </span>
+                          ) : null}
+                          <ChevronRight size={15} aria-hidden="true" />
+                        </span>
                       </button>
                     </div>
                   )}
 
-                <div
-                  className={`${styles.transcriptBlock} ${active ? styles.transcriptBlockActive : ""}`}
-                  ref={(node) => { rowRefs.current[seg.id] = node; }}
-                >
-                  {segMoments.map((moment) => (
-                    <button
-                      key={moment.id}
-                      type="button"
-                      className={styles.keyMomentBanner}
-                      onClick={() => onMomentClick(moment)}
-                    >
-                      <span className={styles.keyMomentTag}>+ Key Moment</span>
-                      <span className={styles.keyMomentTitle}>{moment.label}</span>
-                    </button>
-                  ))}
-
-                  <div className={`${styles.transcriptRowWrap} ${useCommentLayout ? styles.transcriptRowWrapComments : ""}`}>
-                    <button
-                      type="button"
-                      className={styles.transcriptRow}
-                      onClick={() => seekTo(seg.startTime)}
-                      onDoubleClick={(event) => {
-                        if (readOnly) return;
-                        event.preventDefault();
-                        openInlineCompose(seg);
-                      }}
-                    >
-                      <span className={styles.transcriptAvatar} style={{ background: palette.soft, color: palette.color }}>
-                        {initialsFor(labelForSpeaker(seg.speaker))}
-                      </span>
-                      <span className={styles.transcriptCopy}>
-                        <span className={styles.transcriptMeta}>
-                          <strong style={{ color: palette.color }}>{labelForSpeaker(seg.speaker)}</strong>
-                          {phase && (
-                            <span className={styles.transcriptPhase}>{shortPhaseLabel(phase.label)}</span>
-                          )}
-                          <span>{formatTime(seg.startTime)}</span>
+                  <div
+                    className={`${styles.transcriptBlock} ${active ? styles.transcriptBlockActive : ""}`}
+                    ref={(node) => { rowRefs.current[seg.id] = node; }}
+                  >
+                    <div className={`${styles.transcriptRowWrap} ${useCommentLayout ? styles.transcriptRowWrapComments : ""}`}>
+                    <div className={styles.transcriptTurn}>
+                      <button
+                        type="button"
+                        className={styles.transcriptRow}
+                        onClick={() => seekTo(seg.startTime)}
+                        onDoubleClick={(event) => {
+                          if (readOnly) return;
+                          event.preventDefault();
+                          openInlineCompose(seg);
+                        }}
+                      >
+                        <span className={styles.transcriptAvatar} style={{ background: palette.soft, color: palette.color }}>
+                          {initialsFor(labelForSpeaker(seg.speaker))}
                         </span>
-                        <span className={styles.transcriptText}>{seg.text}</span>
-                      </span>
-                    </button>
+                        <span className={styles.transcriptCopy}>
+                          <span className={styles.transcriptMeta}>
+                            <strong style={{ color: palette.color }}>{labelForSpeaker(seg.speaker)}</strong>
+                            <span>{formatTime(seg.startTime)}</span>
+                          </span>
+                          <span className={styles.transcriptText}>{seg.text}</span>
+                        </span>
+                      </button>
+
+                      {segMoments.length > 0 ? (
+                        <div className={styles.transcriptMomentMarkers} aria-label="Key moments on this line">
+                          {segMoments.map((moment) => (
+                            <button
+                              key={moment.id}
+                              type="button"
+                              className={`${styles.transcriptMomentMarker} ${selectedMomentId === moment.id ? styles.transcriptMomentMarkerActive : ""}`}
+                              onClick={() => onMomentClick(moment)}
+                              title={`Open key moment: ${moment.label}`}
+                              aria-current={selectedMomentId === moment.id ? "true" : undefined}
+                            >
+                              <span className={styles.transcriptMomentMarkerIcon}>
+                                <Sparkles size={14} aria-hidden="true" />
+                              </span>
+                              <span className={styles.transcriptMomentMarkerCopy}>
+                                <span className={styles.transcriptMomentMarkerMeta}>
+                                  <span>Key moment</span>
+                                  <time>{formatTime(moment.timestamp)}</time>
+                                </span>
+                                <span className={styles.transcriptMomentMarkerText}>{moment.label}</span>
+                              </span>
+                              <ChevronRight className={styles.transcriptMomentMarkerChevron} size={15} aria-hidden="true" />
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
 
                     {!readOnly && inlineCompose?.segmentId === seg.id && (
                       <InlineCommentComposer
@@ -523,8 +625,8 @@ export function SessionTranscriptStage({
                         </div>
                       )
                     )}
+                    </div>
                   </div>
-                </div>
                 </div>
               );
             })

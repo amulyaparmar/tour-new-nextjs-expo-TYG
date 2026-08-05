@@ -38,11 +38,12 @@ const chipColors = {
 export const PracticeHistory = ({ onOpen }) => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [scope, setScope] = useState("mine"); // mine | team
 
   const load = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/roleplay/attempts");
+      const res = await fetch(`/api/roleplay/attempts?scope=${scope}`);
       const data = await res.json();
       if (!data.success) throw new Error(data.message || "Request failed");
       setRows(data.attempts || []);
@@ -56,14 +57,33 @@ export const PracticeHistory = ({ onOpen }) => {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [scope]);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">
-          {loading ? "Loading…" : `${rows.length} session${rows.length === 1 ? "" : "s"}`}
-        </p>
+        <div className="flex items-center gap-3">
+          <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5">
+            {[
+              ["mine", "Mine"],
+              ["team", "Team"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setScope(id)}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                  scope === id ? "bg-blue-600 text-white" : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-sm text-gray-500">
+            {loading ? "Loading…" : `${rows.length} session${rows.length === 1 ? "" : "s"}`}
+          </p>
+        </div>
         <button
           onClick={load}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors"

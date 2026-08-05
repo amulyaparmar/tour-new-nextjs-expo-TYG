@@ -1,5 +1,7 @@
 // Roleplay practice-attempt persistence.
-// GET  /api/roleplay/attempts            -> { success, attempts } (current property, newest first)
+// GET  /api/roleplay/attempts            -> { success, attempts } (current property, newest first;
+//                                           ?scope=mine (default) limits to the signed-in agent,
+//                                           ?scope=team shows the whole property)
 // GET  /api/roleplay/attempts?id=<uuid>  -> { success, attempt }  (full row incl. transcript_json)
 // POST /api/roleplay/attempts            -> { success, attempt }
 //   body: { vapiCallId, scenarioId?, scenarioName?, scenarioDifficulty?, score?,
@@ -41,10 +43,14 @@ export async function GET(request: NextRequest) {
       return json({ success: true, attempt });
     }
 
-    // Default listing scopes to the CURRENT property so the history below the
+    // Listing scopes to the CURRENT property so the history below the
     // scenario list matches the workspace switcher, like the session lists.
+    // Default lens is the signed-in agent's own attempts; ?scope=team widens
+    // to the whole property (peer visibility is a feature, not a leak).
+    const scope = request.nextUrl.searchParams.get("scope") === "team" ? "team" : "mine";
     const attempts = await listRoleplayAttempts({
       propertyIds: [workspace.community.propertyTygId],
+      agentId: scope === "mine" ? `user:${workspace.user.id}` : undefined,
       limit: 100,
     });
     return json({ success: true, attempts });

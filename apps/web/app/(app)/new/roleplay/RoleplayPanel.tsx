@@ -8,6 +8,7 @@
 // practice history below.
 
 import { Plus } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ScenarioList } from "./ScenarioList";
@@ -18,13 +19,40 @@ import { PracticeHistory } from "./PracticeHistory";
 import { HistoryDetail } from "./HistoryDetail";
 
 export function RoleplayPanel({ profileName }) {
-  const [view, setView] = useState("home"); // home | edit | run | scorecard | history-detail
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [view, setView] = useState("home"); // home | edit | run | scorecard
   const [scenarios, setScenarios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeScenario, setActiveScenario] = useState(null); // for edit/run
   const [lastCallId, setLastCallId] = useState(null); // for scorecard
   const [lastTranscript, setLastTranscript] = useState([]); // live turns for scorecard
-  const [historyAttemptId, setHistoryAttemptId] = useState(null);
+  // The opened history attempt lives in the URL (?attempt=<id>) so browser
+  // back/forward steps between the detail view and the panel home. Run and
+  // scorecard stay local state on purpose — a restored URL cannot resurrect
+  // an in-flight call. The attempt param takes precedence over local view.
+  const historyAttemptId = searchParams.get("attempt");
+  const effectiveView = historyAttemptId ? "history-detail" : view;
+
+  const withParams = (mutate) => {
+    const params = new URLSearchParams(searchParams.toString());
+    mutate(params);
+    const query = params.toString();
+    return query ? `/new?${query}` : "/new";
+  };
+  const openAttempt = (attemptId) =>
+    router.push(
+      withParams((params) => {
+        params.set("tab", "roleplay");
+        params.set("attempt", attemptId);
+      }),
+      { scroll: false }
+    );
+  const closeAttempt = () =>
+    router.push(
+      withParams((params) => params.delete("attempt")),
+      { scroll: false }
+    );
 
   const loadScenarios = async () => {
     try {
@@ -74,7 +102,7 @@ export function RoleplayPanel({ profileName }) {
 
   return (
     <div>
-      {view === "home" && (
+      {effectiveView === "home" && (
         <div className="flex flex-col gap-4 w-full">
           {/* Scenarios — top */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -113,25 +141,21 @@ export function RoleplayPanel({ profileName }) {
           <div className="mt-2 border-t border-gray-200 pt-4">
             <h2 className="text-lg font-semibold text-gray-900">Practice history</h2>
             <p className="text-sm text-gray-500 mb-3">
-              Graded attempts for this property, newest first.
+              Your graded attempts, newest first — switch to Team to see everyone at this
+              property.
             </p>
-            <PracticeHistory
-              onOpen={(attemptId) => {
-                setHistoryAttemptId(attemptId);
-                setView("history-detail");
-              }}
-            />
+            <PracticeHistory onOpen={openAttempt} />
           </div>
         </div>
       )}
 
-      {view !== "home" && (
+      {effectiveView !== "home" && (
         <div>
-          {view === "history-detail" && historyAttemptId && (
+          {effectiveView === "history-detail" && (
             <HistoryDetail
               attemptId={historyAttemptId}
               scenarios={scenarios}
-              onBack={() => setView("home")}
+              onBack={closeAttempt}
             />
           )}
 

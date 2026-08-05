@@ -97,6 +97,8 @@ export async function saveRoleplayAttempt(
 
 export async function listRoleplayAttempts(params: {
   propertyIds: string[];
+  // When set, only this agent's attempts (the "Mine" scope) — e.g. `user:<uuid>`.
+  agentId?: string;
   limit?: number;
 }): Promise<RoleplayAttemptRow[]> {
   const supabase = getSupabaseServiceClient();
@@ -107,6 +109,9 @@ export async function listRoleplayAttempts(params: {
     .limit(Math.min(200, Math.max(1, params.limit ?? 100)));
   if (params.propertyIds.length > 0) {
     query = query.in("property_id", params.propertyIds);
+  }
+  if (params.agentId) {
+    query = query.eq("agent_id", params.agentId);
   }
   const { data, error } = await query;
   if (error) throw storeError(error.message);

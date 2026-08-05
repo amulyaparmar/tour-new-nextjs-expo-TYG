@@ -68,7 +68,22 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [phase, setPhase] = useState<Phase>("choose");
-  const [activeTab, setActiveTab] = useState<CreateTab>("session");
+  // The active tab lives in the URL (?tab=roleplay|content; session is the
+  // bare /new) so browser back/forward steps between tabs and the roleplay
+  // panel's deep views instead of leaving the page.
+  const tabParam = searchParams.get("tab");
+  const activeTab: CreateTab =
+    tabParam === "roleplay" || tabParam === "content" ? tabParam : "session";
+  const setActiveTab = (tab: CreateTab) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (tab === "session") params.delete("tab");
+    else params.set("tab", tab);
+    // Switching tabs exits any deep view / phase carried in the URL.
+    params.delete("attempt");
+    params.delete("mode");
+    const query = params.toString();
+    router.push(query ? `/new?${query}` : "/new", { scroll: false });
+  };
   const [recordingMode, setRecordingMode] = useState<RecordingMode>("audio");
   const [draftType, setDraftType] = useState<DraftType>("session");
   const [elapsed, setElapsed] = useState(0);

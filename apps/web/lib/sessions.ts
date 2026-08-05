@@ -107,6 +107,11 @@ type SessionRow = {
 const SESSION_COLUMNS =
   "id,title,prospect_name,agent_name,scheduled_at,location,status,source,session_kind,leads,attachments,customer_interests,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,analysis_workflow_run_id,analysis_workflow_started_at,analysis_workflow_completed_at,analysis_workflow_error,analysis_workflow_attempts,audio_insights_workflow_run_id,audio_insights_started_at,audio_insights_completed_at,audio_insights_error,audio_insights_attempts,card_summary,needs_improvement";
 
+// Keep the sessions index readable while newer workflow/identity migrations are
+// still being rolled out. These optional fields are not used by the list UI.
+const SESSION_READ_COLUMNS =
+  "id,title,prospect_name,agent_name,scheduled_at,location,status,source,session_kind,leads,attachments,customer_interests,rubric_id,agent_id,property_id,unit_label,external_provider,external_event_id,external_application_id,overall_score,notes,video_url,audio_url,duration,created_at,audio_insights_status,analysis_workflow_run_id,analysis_workflow_started_at,analysis_workflow_completed_at,analysis_workflow_error,analysis_workflow_attempts,audio_insights_workflow_run_id,audio_insights_started_at,audio_insights_completed_at,audio_insights_error,audio_insights_attempts,card_summary,needs_improvement";
+
 export type SessionWorkflowKind = "analysis" | "audioInsights";
 
 type AnalysisRow = {
@@ -204,7 +209,7 @@ export async function listSessionsPaginated(params?: ListSessionsParams): Promis
     const supabase = getSupabaseServiceClient();
     let query = supabase
       .from("sessions")
-      .select(SESSION_COLUMNS, { count: "exact" });
+      .select(SESSION_READ_COLUMNS, { count: "exact" });
 
     if (params?.status) {
       query = query.eq("status", params.status);
@@ -536,7 +541,7 @@ export async function getSessionById(sessionId: string): Promise<SessionDetail |
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
       .from("sessions")
-      .select(SESSION_COLUMNS)
+      .select(SESSION_READ_COLUMNS)
       .eq("id", sessionId)
       .maybeSingle<SessionRow>();
 

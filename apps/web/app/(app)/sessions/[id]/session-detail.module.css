@@ -516,6 +516,11 @@
   flex-shrink: 0;
 }
 
+.transcriptToolbarActionHint {
+  position: relative;
+  display: inline-flex;
+}
+
 .transcriptToolbarAction {
   display: inline-flex;
   align-items: center;
@@ -540,7 +545,79 @@
   outline: none;
 }
 
+.transcriptToolbarAction:focus-visible {
+  box-shadow: 0 0 0 2px #c7d2fe;
+}
+
+.transcriptToolbarActionTooltip {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  z-index: 90;
+  display: none;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: 270px;
+  padding: 9px 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--slate-700);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s;
+  visibility: hidden;
+}
+
+.transcriptToolbarActionTooltip > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.transcriptToolbarActionTooltip strong {
+  color: var(--slate-900);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.transcriptToolbarActionTooltip small {
+  color: var(--slate-500);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.transcriptToolbarActionTooltip kbd {
+  min-width: 32px;
+  padding: 4px 6px;
+  border: 1px solid var(--slate-200);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--slate-50);
+  color: var(--slate-700);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.transcriptToolbarActionHint:hover .transcriptToolbarActionTooltip,
+.transcriptToolbarActionHint:focus-within .transcriptToolbarActionTooltip {
+  display: flex;
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
 .stageToolbar {
+  position: relative;
+  z-index: 45;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -549,18 +626,49 @@
   background: white;
 }
 
+.transcriptToolbarRailWrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.transcriptToolbarRail {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  overflow: hidden;
+  border: 1px solid var(--slate-200);
+  border-radius: 10px;
+  background: white;
+  color: var(--slate-500);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.transcriptToolbarRail:hover,
+.transcriptToolbarRail:focus-within {
+  border-color: #b8c8df;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.05);
+}
+
 .stageSearch {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
-  min-width: 0;
-  height: 34px;
+  flex: 1 1 auto;
+  min-width: 220px;
+  max-width: none;
+  height: 100%;
   padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid var(--slate-200);
-  background: white;
   color: var(--slate-400);
+}
+
+.stageSearch:only-child {
+  flex: 1;
+  max-width: none;
 }
 
 .stageSearch input {
@@ -568,9 +676,376 @@
   outline: none;
   background: transparent;
   flex: 1;
+  min-width: 0;
   font-size: 13px;
   color: var(--slate-700);
   font-family: inherit;
+}
+
+.transcriptToolbarDivider {
+  width: 1px;
+  height: 22px;
+  flex-shrink: 0;
+  background: var(--slate-200);
+}
+
+.transcriptToolbarPhase {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  flex: 0 1 clamp(260px, 36%, 520px);
+  gap: 8px;
+  align-self: stretch;
+  min-width: 220px;
+  max-width: 520px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.transcriptToolbarPhaseCopy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+}
+
+.transcriptToolbarPhase:hover,
+.transcriptToolbarPhase:focus-visible {
+  background: var(--slate-50);
+  outline: none;
+}
+
+.transcriptToolbarPhase:focus-visible {
+  box-shadow: inset 0 0 0 2px #c7d2fe;
+}
+
+.transcriptToolbarPhaseStatic {
+  cursor: default;
+}
+
+.transcriptToolbarPhaseStatic:hover {
+  background: transparent;
+}
+
+.transcriptToolbarPhaseEyebrow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--slate-400);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.025em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.transcriptToolbarPhasePosition {
+  overflow: hidden;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+}
+
+.transcriptToolbarPhaseTitle {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--slate-700);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcriptToolbarPhaseTitle strong {
+  color: var(--slate-900);
+  font-weight: 800;
+}
+
+.transcriptToolbarPhaseName {
+  color: inherit;
+}
+
+.transcriptToolbarPhaseChevron,
+.transcriptToolbarPhaseChevronOpen {
+  flex-shrink: 0;
+  color: var(--slate-400);
+  transition: transform 0.16s ease, color 0.16s ease;
+}
+
+.transcriptToolbarPhaseChevronOpen {
+  color: var(--indigo-600);
+  transform: rotate(180deg);
+}
+
+.transcriptToolbarReturnToPlayback {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #2563eb;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.transcriptToolbarReturnToPlayback:hover,
+.transcriptToolbarReturnToPlayback:focus-visible {
+  border-color: #93c5fd;
+  background: #dbeafe;
+  outline: none;
+}
+
+.transcriptToolbarReturnToPlayback:focus-visible {
+  box-shadow: 0 0 0 2px #bfdbfe;
+}
+
+.transcriptToolbarReturnToPlaybackTime {
+  font-variant-numeric: tabular-nums;
+}
+
+.transcriptToolbarPhaseNav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding-right: 6px;
+}
+
+.transcriptToolbarPhaseNav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--slate-200);
+  border-radius: 7px;
+  background: white;
+  color: var(--slate-600);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.transcriptToolbarPhaseNav button:hover:not(:disabled),
+.transcriptToolbarPhaseNav button:focus-visible {
+  border-color: #b8c8df;
+  background: var(--indigo-50);
+  color: var(--indigo-700);
+  outline: none;
+}
+
+.transcriptToolbarPhaseNav button:focus-visible {
+  box-shadow: 0 0 0 2px #c7d2fe;
+}
+
+.transcriptToolbarPhaseNav button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.transcriptToolbarPhaseProgress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 4px;
+  overflow: hidden;
+  background: var(--slate-100);
+}
+
+.transcriptToolbarPlaybackProgress,
+.transcriptToolbarViewedProgress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  display: block;
+  border-radius: 0 999px 999px 0;
+  transition: width 0.12s linear;
+}
+
+.transcriptToolbarPlaybackProgress {
+  z-index: 1;
+  height: 4px;
+  background: #bfdbfe;
+}
+
+.transcriptToolbarViewedProgress {
+  z-index: 2;
+  height: 2px;
+  background: var(--indigo-600);
+}
+
+.transcriptSegmentPopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(430px, 62dvh);
+  overflow: hidden;
+  border: 1px solid var(--slate-200);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.2);
+  transform-origin: top right;
+  animation: transcript-segment-popover-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes transcript-segment-popover-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.transcriptSegmentPopoverHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 13px 10px;
+  border-bottom: 1px solid var(--slate-100);
+}
+
+.transcriptSegmentPopoverHead > span:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.transcriptSegmentPopoverHead strong {
+  color: var(--slate-900);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.transcriptSegmentPopoverHead small,
+.transcriptSegmentPopoverHead > span:last-child {
+  color: var(--slate-400);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.transcriptSegmentPopoverList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.transcriptSegmentPopoverOption {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--slate-700);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.transcriptSegmentPopoverOption:hover,
+.transcriptSegmentPopoverOption:focus-visible {
+  border-color: #dbeafe;
+  background: #f8fbff;
+  outline: none;
+}
+
+.transcriptSegmentPopoverOption:focus-visible {
+  box-shadow: inset 0 0 0 1px #bfdbfe;
+}
+
+.transcriptSegmentPopoverOptionActive {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.transcriptSegmentPopoverIndex {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--slate-100);
+  color: var(--slate-500);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.transcriptSegmentPopoverOptionActive .transcriptSegmentPopoverIndex {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.transcriptSegmentPopoverCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.transcriptSegmentPopoverCopy strong {
+  overflow: hidden;
+  color: var(--slate-800);
+  font-size: 11px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcriptSegmentPopoverCopy small {
+  color: var(--slate-400);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.transcriptSegmentPopoverMeta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  color: #2563eb;
+}
+
+.transcriptSegmentPopoverPlaying {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #2563eb;
+  font-size: 9px;
+  font-weight: 800;
 }
 
 .stageToggle {
@@ -620,148 +1095,6 @@
 
 .stageBody .transcriptScroll {
   min-width: 0;
-}
-
-.transcriptSegmentDock {
-  position: sticky;
-  top: 0;
-  z-index: 14;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-  margin: 0 0 10px;
-  padding: 7px 8px 9px 10px;
-  overflow: hidden;
-  border: 1px solid #d9e2f0;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.09);
-  color: var(--slate-800);
-  backdrop-filter: blur(10px);
-}
-
-.transcriptSegmentDock:hover,
-.transcriptSegmentDock:focus-within {
-  border-color: #b8c8df;
-}
-
-.transcriptSegmentDockMain {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-}
-
-.transcriptSegmentDockMain:focus-visible {
-  border-radius: 6px;
-  outline: 2px solid #c7d2fe;
-  outline-offset: 2px;
-}
-
-.transcriptSegmentDockIndex {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 7px;
-  background: var(--indigo-50);
-  color: var(--indigo-700);
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.transcriptSegmentDockCopy {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.transcriptSegmentDockCopy strong {
-  overflow: hidden;
-  color: var(--slate-900);
-  font-size: 13px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.transcriptSegmentDockEyebrow {
-  color: var(--slate-500);
-  font-size: 10px;
-  font-weight: 750;
-}
-
-.transcriptSegmentDockTime {
-  color: var(--slate-500);
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.transcriptSegmentDockNav {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 4px;
-}
-
-.transcriptSegmentDockNav button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--slate-200);
-  border-radius: 7px;
-  background: white;
-  color: var(--slate-600);
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.transcriptSegmentDockNav button:hover:not(:disabled),
-.transcriptSegmentDockNav button:focus-visible {
-  border-color: #b8c8df;
-  background: var(--indigo-50);
-  color: var(--indigo-700);
-  outline: none;
-}
-
-.transcriptSegmentDockNav button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.transcriptSegmentDockProgress {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  overflow: hidden;
-  background: var(--slate-100);
-}
-
-.transcriptSegmentDockProgress > span {
-  display: block;
-  height: 100%;
-  border-radius: 0 999px 999px 0;
-  background: var(--indigo-600);
-  transition: width 0.12s linear;
 }
 
 .transcriptEmpty {
@@ -4111,6 +4444,7 @@
   .floatingCommentNav {
     right: 8px;
   }
+
 }
 
 @media (max-width: 640px) {
@@ -4122,22 +4456,48 @@
     padding-inline: 12px;
   }
 
-  .transcriptSegmentDock {
-    grid-template-columns: minmax(0, 1fr) auto;
-    padding-inline: 9px;
+  .transcriptToolbarRail {
+    height: 40px;
   }
 
-  .transcriptSegmentDockMain {
-    grid-template-columns: 30px minmax(0, 1fr);
+  .stageSearch {
+    flex: 1 1 auto;
+    min-width: 100px;
+    max-width: none;
+    padding-inline: 10px;
   }
 
-  .transcriptSegmentDockIndex {
-    width: 30px;
-    height: 30px;
+  .transcriptToolbarPhase {
+    flex-basis: 42%;
+    min-width: 104px;
+    max-width: 42%;
+    padding-inline: 8px;
   }
 
-  .transcriptSegmentDockTime {
-    display: none;
+  .transcriptToolbarPhaseEyebrow {
+    font-size: 8px;
+  }
+
+  .transcriptToolbarPhaseTitle {
+    font-size: 10.5px;
+  }
+
+  .transcriptToolbarPhaseNav {
+    gap: 2px;
+    padding-right: 4px;
+  }
+
+  .transcriptToolbarPhaseNav button {
+    width: 26px;
+    height: 26px;
+  }
+
+  .transcriptSegmentPopover {
+    right: auto;
+    left: 0;
+    width: 100%;
+    min-width: 0;
+    transform-origin: top left;
   }
 
   .transcriptSegmentLandmarkButton {
@@ -4155,6 +4515,53 @@
 
   .transcriptMomentMarkers {
     margin-left: 42px;
+  }
+}
+
+@media (max-width: 420px) {
+  .stageToolbar {
+    gap: 6px;
+    padding: 9px 8px;
+  }
+
+  .stageSearch {
+    min-width: 70px;
+    max-width: none;
+    padding-inline: 8px;
+  }
+
+  .stageSearch input {
+    font-size: 12px;
+  }
+
+  .transcriptToolbarPhase {
+    flex-basis: 84px;
+    min-width: 84px;
+    max-width: 84px;
+    padding-inline: 6px;
+  }
+
+  .transcriptToolbarActions {
+    gap: 4px;
+  }
+
+  .transcriptToolbarAction {
+    width: 30px;
+    height: 30px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transcriptToolbarPlaybackProgress,
+  .transcriptToolbarViewedProgress,
+  .transcriptToolbarPhaseChevron,
+  .transcriptToolbarPhaseChevronOpen,
+  .transcriptToolbarActionTooltip {
+    transition: none;
+  }
+
+  .transcriptSegmentPopover {
+    animation: none;
   }
 }
 

@@ -50,7 +50,7 @@ const CheckpointMoment = ({ checkpoint, onSeek }) => {
       title={tooltip}
       className="rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-gray-600"
     >
-      at {timestamp}
+      {timestamp}
     </span>
   );
 };

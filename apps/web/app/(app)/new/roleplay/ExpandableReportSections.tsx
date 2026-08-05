@@ -54,7 +54,7 @@ const MomentChip = ({ item, tone, onSeek }) => {
   const timestamp = formatMomentTimestamp(time);
   if (!timestamp) return null;
   const strength = tone === "strength";
-  const label = strength ? `at ${timestamp}` : `moment: ${timestamp}`;
+  const label = timestamp;
   const quote = typeof item?.evidenceQuote === "string" && item.evidenceQuote ? `“${item.evidenceQuote}”` : undefined;
   if (onSeek) {
     return (

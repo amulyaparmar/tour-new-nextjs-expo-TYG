@@ -1,0 +1,103 @@
+// Roleplay practice-attempt persistence.
+// GET  /api/roleplay/attempts            -> { success, attempts } (current property, newest first)
+// GET  /api/roleplay/attempts?id=<uuid>  -> { success, attempt }  (full row incl. transcript_json)
+// POST /api/roleplay/attempts            -> { success, attempt }
+//   body: { vapiCallId, scenarioId?, scenarioName?, scenarioDifficulty?, score?,
+//           gradeStatus?, durationSeconds?, summary?, transcript?, transcriptJson?, evaluations? }
+//
+// Auth is STRICT (requireRoleplayWorkspace — no demo fallback; the roleplay UI
+// is behind the login-gated /new page). Identity is stamped SERVER-SIDE:
+// property_id = workspace.community.propertyTygId, agent_id =
+// `user:<auth uuid>`, agent_name from the signed-in profile. The client never
+// supplies identity.
+
+import { NextRequest, NextResponse } from "next/server";
+
+import { requireRoleplayWorkspace } from "@/lib/roleplay/apiAuth";
+import {
+  getRoleplayAttempt,
+  listRoleplayAttempts,
+  saveRoleplayAttempt,
+} from "@/lib/roleplay/roleplayAttempts";
+
+export const dynamic = "force-dynamic";
+
+const json = (body: unknown, status = 200) => NextResponse.json(body, { status });
+
+export async function GET(request: NextRequest) {
+  try {
+    const { workspace, response } = await requireRoleplayWorkspace(request);
+    if (!workspace) return response;
+
+    const id = request.nextUrl.searchParams.get("id");
+    if (id) {
+      const attempt = await getRoleplayAttempt(id);
+      const accessible = new Set(
+        (workspace.communities ?? []).map((community) => community.propertyTygId)
+      );
+      if (!attempt || (attempt.property_id && !accessible.has(attempt.property_id))) {
+        return json({ success: false, message: "Attempt not found." }, 404);
+      }
+      return json({ success: true, attempt });
+    }
+
+    // Default listing scopes to the CURRENT property so the history below the
+    // scenario list matches the workspace switcher, like the session lists.
+    const attempts = await listRoleplayAttempts({
+      propertyIds: [workspace.community.propertyTygId],
+      limit: 100,
+    });
+    return json({ success: true, attempts });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load attempts.";
+    console.error("roleplay attempts GET failed:", message);
+    return json({ success: false, message }, 500);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const { workspace, response } = await requireRoleplayWorkspace(request);
+    if (!workspace) return response;
+
+    const body = await request.json();
+    const vapiCallId = String(body?.vapiCallId ?? "").trim();
+    if (!vapiCallId) {
+      return json({ success: false, message: "vapiCallId is required." }, 400);
+    }
+
+    const finiteOrNull = (value: unknown) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    };
+    const textOrNull = (value: unknown) => {
+      const text = String(value ?? "").trim();
+      return text ? text : null;
+    };
+
+    const attempt = await saveRoleplayAttempt({
+      vapiCallId,
+      agentId: `user:${workspace.user.id}`,
+      agentName:
+        workspace.user.fullName ?? workspace.teamMember.name ?? workspace.user.email ?? null,
+      propertyId: workspace.community.propertyTygId,
+      scenarioId: textOrNull(body?.scenarioId),
+      scenarioName: textOrNull(body?.scenarioName),
+      scenarioDifficulty: textOrNull(body?.scenarioDifficulty),
+      score: finiteOrNull(body?.score),
+      gradeStatus: ["passed", "not-passed", "needs-review"].includes(body?.gradeStatus)
+        ? body.gradeStatus
+        : null,
+      durationSeconds: finiteOrNull(body?.durationSeconds),
+      summary: textOrNull(body?.summary),
+      transcript: textOrNull(body?.transcript),
+      transcriptJson: Array.isArray(body?.transcriptJson) ? body.transcriptJson : [],
+      evaluations: Array.isArray(body?.evaluations) ? body.evaluations : [],
+    });
+    return json({ success: true, attempt }, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to save attempt.";
+    console.error("roleplay attempts POST failed:", message);
+    return json({ success: false, message }, 500);
+  }
+}

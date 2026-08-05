@@ -4279,7 +4279,10 @@ button { border: 0; font: inherit; cursor: pointer; }
 
 .create-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* Equal-width column per tab, however many there are (2 before the AI
+     Roleplay tab on /new, 3 after). */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 4px;
   padding: 4px;
   margin-bottom: 14px;
@@ -6357,4 +6360,24 @@ audio.recording-upload-player {
 /* Manager dashboards need more horizontal room than the default mobile-first app pages. */
 .main-content:has(.manager-page) {
   max-width: 1120px;
+}
+
+/* ── AI Roleplay Training (ported from usevoice.ai-TYG) ── */
+/* Waypoint completion pop (app/(app)/new/roleplay/WaypointCarousel.tsx). */
+@keyframes waypoint-check-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.waypoint-check-pop {
+  animation: waypoint-check-pop 0.3s ease-out;
 }

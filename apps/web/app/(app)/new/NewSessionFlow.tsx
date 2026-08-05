@@ -18,6 +18,8 @@ import {
   UserRound
 } from "lucide-react";
 
+import { Toaster } from "sonner";
+
 import { formatRecordingUploadTitle, type SessionCustomerInterest } from "@tour/shared";
 
 import { CustomerInterestsField } from "../CustomerInterestsField";
@@ -28,9 +30,10 @@ import {
   SessionRecordingUploadCard,
   type SessionUploadDraft,
 } from "./SessionRecordingUploadCard";
+import { RoleplayPanel } from "./roleplay/RoleplayPanel";
 
 type Phase = "choose" | "lead" | "recording" | "details" | "saving" | "bulk";
-type CreateTab = "session" | "content";
+type CreateTab = "session" | "roleplay" | "content";
 type RecordingMode = "audio" | "video";
 type DraftType = "session" | "content";
 
@@ -430,6 +433,9 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
   if (phase === "choose") {
     return (
       <>
+        {/* Mounted at flow level (not inside the roleplay panel) so toasts
+            survive tab switches. sonner is only used by the roleplay feature. */}
+        <Toaster position="top-right" />
         <button type="button" className="back-link" onClick={() => router.back()}>&larr; Back</button>
         <div className="page-header create-page-header">
           <h1>Add to Tour</h1>
@@ -449,6 +455,15 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
           <button
             type="button"
             role="tab"
+            aria-selected={activeTab === "roleplay"}
+            className="create-tab"
+            onClick={() => setActiveTab("roleplay")}
+          >
+            New Practice Session
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={activeTab === "content"}
             className="create-tab"
             onClick={() => setActiveTab("content")}
@@ -457,7 +472,7 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
           </button>
         </div>
 
-        {activeTab === "session" ? (
+        {activeTab === "session" && (
           <div className="create-panel" role="tabpanel">
             <div className="create-panel-heading">
               <h2>New Session</h2>
@@ -499,7 +514,15 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
               <span>No upcoming tours yet.</span>
             </div>
           </div>
-        ) : (
+        )}
+
+        {activeTab === "roleplay" && (
+          <div className="create-panel" role="tabpanel">
+            <RoleplayPanel profileName={profileName} />
+          </div>
+        )}
+
+        {activeTab === "content" && (
           <div className="create-panel" role="tabpanel">
             <div className="create-panel-heading">
               <h2>New Content</h2>

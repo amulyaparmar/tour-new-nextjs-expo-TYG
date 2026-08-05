@@ -545,7 +545,7 @@ export function buildRoleplayInitObj(
         // debrief, so keep it disabled to avoid a second contaminated result.
         successEvaluationPlan: { enabled: false },
       },
-      silenceTimeoutSeconds: clamp(scenario.knobs?.silenceTimeoutSeconds, 10, 3600, 30),
+      silenceTimeoutSeconds: clamp(scenario.knobs?.silenceTimeoutSeconds, 10, 3600, 90),
       maxDurationSeconds: clamp(scenario.knobs?.maxDurationSeconds, 10, 43200, 600),
       metadata: {
         scenarioId: scenario.id,

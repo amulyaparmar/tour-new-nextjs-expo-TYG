@@ -26,9 +26,17 @@ GOOGLE_PLACES_API_KEY=<secret>
 OPENAI_API_KEY=<secret>
 OPENAI_MODEL=gpt-4.1-mini
 NEXT_PUBLIC_SITE_URL=https://tour.you
+NEXT_PUBLIC_VAPI_PUBLIC_KEY=<vapi-web-public-key>
+NEXT_PUBLIC_VAPI_ASSISTANT_ID=<vapi-base-assistant-id>
+VAPI_PRIVATE_KEY=<secret>
 ```
 
-Do not set `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_PLACES_API_KEY`, or `OPENAI_API_KEY` as `NEXT_PUBLIC_*` values.
+The three `VAPI` values power the AI Roleplay Training tab on `/new`. Without
+`VAPI_PRIVATE_KEY`, live practice calls still run but everything post-call
+fails: scorecard grading, the recording player in practice history, and the
+waypoint-generation fallback.
+
+Do not set `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_PLACES_API_KEY`, `OPENAI_API_KEY`, or `VAPI_PRIVATE_KEY` as `NEXT_PUBLIC_*` values.
 
 ## Domain
 

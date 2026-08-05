@@ -52,7 +52,7 @@ const DEFAULTS = {
   waypoints: [emptyWaypoint(), emptyWaypoint()],
   checkpoints: [emptyCheckpoint()],
   rubric: [emptyRubricRow()],
-  knobs: { silenceTimeoutSeconds: 30, maxDurationSeconds: 600, temperature: 0.6 },
+  knobs: { silenceTimeoutSeconds: 90, maxDurationSeconds: 600, temperature: 0.6 },
 };
 
 const slugify = (s) =>
@@ -858,11 +858,11 @@ export const ScenarioEditor = ({ scenario, onSaved, onCancel }) => {
                 <input
                   type="number"
                   className={inputCls}
-                  value={form.knobs?.silenceTimeoutSeconds ?? 30}
+                  value={form.knobs?.silenceTimeoutSeconds ?? 90}
                   onChange={(e) =>
                     set("knobs", {
                       ...form.knobs,
-                      silenceTimeoutSeconds: Number(e.target.value) || 30,
+                      silenceTimeoutSeconds: Number(e.target.value) || 90,
                     })
                   }
                 />

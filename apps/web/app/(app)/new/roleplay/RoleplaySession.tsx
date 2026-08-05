@@ -30,10 +30,10 @@ import { ROLEPLAY_VOICES } from "./voices";
 const VAPI_PUBLIC_KEY =
   process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY ?? "b8125470-e12b-443d-9300-c7e0fd79eeab";
 
-// Dev-only debugging aids, compiled out of production builds. "Pause" freezes
-// the RENDERED transcript (snapshot) and mutes the mic while every handler
-// keeps capturing underneath — transient caption states can be inspected
-// without losing or altering the data the scorecard will receive.
+// Dev-only debugging aids, compiled out of production builds. (The Pause
+// button itself is trainee-facing and always available; ROLEPLAY_DEBUG gates
+// the raw event log, the long-timeout checkbox, the simulate-waypoint button,
+// and the Copy-debug-log action.)
 const ROLEPLAY_DEBUG = process.env.NODE_ENV !== "production";
 const DEBUG_EVENT_CAP = 2000;
 
@@ -1417,9 +1417,11 @@ export const RoleplaySession = ({
     }
   };
 
-  // Debug pause: freeze the rendered transcript (snapshot) and mute the mic.
-  // Handlers keep capturing into state/refs, so resuming re-syncs the display
-  // and the scorecard still receives the full, unaltered transcript.
+  // Pause (trainee-facing): freeze the rendered transcript (snapshot) and
+  // mute the mic. The Vapi call stays live underneath — the prospect can still
+  // hit the silence timeout — and handlers keep capturing into state/refs, so
+  // resuming re-syncs the display and the scorecard still receives the full,
+  // unaltered transcript.
   const toggleDebugPause = () => {
     if (status !== "live") return;
     const pausing = !debugPaused;
@@ -1479,6 +1481,13 @@ export const RoleplaySession = ({
 
   const fmtTime = (s) =>
     `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+  // What the trainee should expect while paused: the call's actual compiled
+  // silence timeout (dev debug calls get the long-timeout override).
+  const pauseSilenceLimitS =
+    ROLEPLAY_DEBUG && debugLongTimeouts
+      ? 3600
+      : Math.min(3600, Math.max(10, Number(scenario.knobs?.silenceTimeoutSeconds) || 90));
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -1557,7 +1566,7 @@ export const RoleplaySession = ({
               <PhoneOff size={18} /> End Call
             </button>
           )}
-          {ROLEPLAY_DEBUG && status === "live" && (
+          {status === "live" && (
             <button
               onClick={toggleDebugPause}
               className={`flex items-center gap-2 border font-medium py-2.5 px-4 rounded-lg transition-colors ${
@@ -1619,16 +1628,18 @@ export const RoleplaySession = ({
       {debugPaused && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <span>
-            Debug pause: transcript frozen · mic muted · events still captured (
-            {debugEventsRef.current.length} so far)
+            Paused — your mic is muted and the transcript is frozen. The prospect may
+            hang up after ~{pauseSilenceLimitS}s of silence.
           </span>
-          <button
-            type="button"
-            onClick={copyDebugLog}
-            className="rounded border border-amber-400 bg-white px-2 py-1 font-medium text-amber-700 hover:bg-amber-100"
-          >
-            Copy debug log
-          </button>
+          {ROLEPLAY_DEBUG && (
+            <button
+              type="button"
+              onClick={copyDebugLog}
+              className="rounded border border-amber-400 bg-white px-2 py-1 font-medium text-amber-700 hover:bg-amber-100"
+            >
+              Copy debug log
+            </button>
+          )}
         </div>
       )}
       <LiveTranscript

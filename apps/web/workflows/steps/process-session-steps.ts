@@ -81,6 +81,7 @@ export async function segmentPhasesStep(sessionId: string) {
   const { segmentation } = await segmentConversationPhases(transcript, {
     segmentationPrompt: rubric.segmentationPrompt,
     sessionType: rubric.sessionType,
+    analysisModel: rubric.analysisModel,
   });
   await saveConversationPhases(sessionId, segmentation);
 
@@ -89,7 +90,7 @@ export async function segmentPhasesStep(sessionId: string) {
 
 export async function analyzeSessionStep(
   sessionId: string,
-  updateSessionIdentity = true,
+  updateSessionIdentity = false,
 ) {
   "use step";
 

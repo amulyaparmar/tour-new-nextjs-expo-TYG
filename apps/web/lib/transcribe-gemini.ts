@@ -57,7 +57,7 @@ export async function transcribeWithGemini(
   if (audioBuffer.length === 0) throw new Error("Empty audio buffer");
 
   const { model } = getGeminiConfig();
-  const payload = await geminiGenerateJson<GeminiTranscriptPayload>({
+  const { value: payload } = await geminiGenerateJson<GeminiTranscriptPayload>({
     prompt: TRANSCRIPT_PROMPT,
     schema: TRANSCRIPT_SCHEMA,
     audioBuffer,

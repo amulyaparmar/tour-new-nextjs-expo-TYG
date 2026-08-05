@@ -6,6 +6,7 @@ import {
   normalizeParticipantNameConfidence,
   type AudioInsights,
   type GeminiAudioFileRef,
+  type SessionParticipants,
 } from "@tour/shared";
 
 import {
@@ -16,6 +17,7 @@ import {
   parseGeminiTimestamp,
   uploadGeminiAudioFile,
   type GeminiChatMessage,
+  type GeminiUploadedFile,
 } from "./gemini-client";
 
 const GEMINI_FILE_TTL_MS = 48 * 60 * 60 * 1000;
@@ -103,43 +105,6 @@ const AUDIO_INSIGHTS_SCHEMA = {
         required: ["timestamp", "label", "explanation"],
       },
     },
-    participants: {
-      type: "object",
-      properties: {
-        agentName: {
-          type: "string",
-          description: "Name bound by voice continuity to the person conducting the session; empty string if unknown",
-        },
-        prospectName: {
-          type: "string",
-          description: "Name bound by voice continuity to the person shopping for housing; empty string if unknown",
-        },
-        agentNameConfidence: {
-          type: "number",
-          description: "0-100 confidence the agent name is correct; 0 when unknown",
-        },
-        prospectNameConfidence: {
-          type: "number",
-          description: "0-100 confidence the prospect name is correct; 0 when unknown",
-        },
-        agentNameFirstMentionTimestamp: {
-          type: "string",
-          description: "MM:SS of the earliest audible mention of the agent's name; empty string if unavailable",
-        },
-        prospectNameFirstMentionTimestamp: {
-          type: "string",
-          description: "MM:SS of the earliest audible mention of the prospect's name; empty string if unavailable",
-        },
-      },
-      required: [
-        "agentName",
-        "prospectName",
-        "agentNameConfidence",
-        "prospectNameConfidence",
-        "agentNameFirstMentionTimestamp",
-        "prospectNameFirstMentionTimestamp",
-      ],
-    },
     conversationStats: {
       type: "object",
       properties: {
@@ -197,8 +162,33 @@ const AUDIO_INSIGHTS_SCHEMA = {
     "topicSummary",
     "overallSentiment",
     "segments",
-    "participants",
     "conversationStats",
+  ],
+} as const;
+
+const AUDIO_PARTICIPANTS_SCHEMA = {
+  type: "object",
+  properties: {
+    agentName: {
+      type: "string",
+      description: "Exact spoken name of the leasing agent; empty string when unsupported",
+    },
+    prospectName: {
+      type: "string",
+      description: "Exact spoken name of the prospect; empty string when unsupported",
+    },
+    agentNameConfidence: { type: "number" },
+    prospectNameConfidence: { type: "number" },
+    agentNameFirstMentionTimestamp: { type: "string" },
+    prospectNameFirstMentionTimestamp: { type: "string" },
+  },
+  required: [
+    "agentName",
+    "prospectName",
+    "agentNameConfidence",
+    "prospectNameConfidence",
+    "agentNameFirstMentionTimestamp",
+    "prospectNameFirstMentionTimestamp",
   ],
 } as const;
 
@@ -228,14 +218,6 @@ type GeminiAudioInsightsPayload = {
     label: string;
     explanation: string;
   }>;
-  participants: {
-    agentName: string;
-    prospectName: string;
-    agentNameConfidence: number;
-    prospectNameConfidence: number;
-    agentNameFirstMentionTimestamp: string;
-    prospectNameFirstMentionTimestamp: string;
-  };
   conversationStats: {
     talkRatioPercent: number;
     repTalkTimeSeconds: number;
@@ -262,7 +244,7 @@ function buildAudioInsightsPrompt(
   const lines = [
     "Analyze this leasing tour or phone shop recording for coaching insights.",
     "Use the audio directly — tone, pacing, pauses, enthusiasm, and non-speech ambience matter.",
-    "Listen through the audio and establish the distinct voices, who conducts the session, and who is shopping before assigning names or computing role-based statistics.",
+    "Listen through the audio and establish the distinct voices, who conducts the session, and who is shopping before computing role-based statistics.",
     "",
     "Requirements:",
     "1. Identify distinct speakers and estimate talk time per speaker.",
@@ -276,22 +258,7 @@ function buildAudioInsightsPrompt(
     "   - For a call, state the purpose (for example, \"Availability Inquiry\" or \"Application Follow-Up\").",
     "   - Avoid generic labels like \"Tour\" or \"Call\" when the audio supports something more specific.",
     "   - Use an empty string when no specific topic is supported by the recording.",
-    "8. Extract participant names from audio understanding:",
-    "   - agentName: leasing agent or staff member conducting the tour/call; use empty string if unknown",
-    "   - prospectName: prospect, customer, visitor, or shopper; use empty string if unknown",
-    "   - agentNameConfidence and prospectNameConfidence: whole-number confidence from 0-100; use 0 when the corresponding name is unknown",
-    "   - Use 90-100 only for an explicit introduction or repeated unambiguous address; 60-89 for strong contextual evidence; below 60 for a tentative phonetic/contextual reading.",
-    "   - Return names without confidence symbols or prefixes; the application adds its own low-confidence marker.",
-    "   - agentNameFirstMentionTimestamp and prospectNameFirstMentionTimestamp: earliest point where the corresponding returned name is audibly spoken by anyone, in MM:SS; use empty string if the name is unknown or is never audibly spoken.",
-    "   - Resolve identity in this order: distinguish the voices, attach each audible name to the correct voice, then infer that voice's role from the whole interaction. Apply that same mapping consistently to participants, speaker dynamics, segments, and conversation stats.",
-    "   - A self-introduction (for example, \"I'm Camilla\") names the speaker. A direct address (for example, \"Camilla, ...\") names the listener. Do not assign a name to a role merely because the other person spoke it.",
-    "   - Around every candidate name, re-listen to the audio immediately before and after the mention, bind the name to that voice, and follow that same voice across the recording before assigning Agent or Prospect.",
-    "   - Split turns whenever the voice changes. If the audio cannot support both the name-to-voice link and the voice-to-role link, return the name as unknown.",
-    "   - The recording is the only source of truth for participant names. Ignore names in rubric context, criteria, examples, prior metadata or analyses, and tool/schema text.",
-    "   - Track the voice that gives a spoken introduction or is unambiguously addressed, then infer that voice's role from what they do across the recording (for example: conducting the tour and explaining the property versus shopping for housing).",
-    "   - Prefer spoken introductions and unambiguous direct address. Resolve ambiguous local phrases using voice continuity and the full conversational behavior.",
-    "   - agentName must belong to the person conducting this session. Do not use a name heard only when that person addresses or calls a colleague, manager, maintenance worker, or other third party.",
-    "9. Compute conversationStats from the audio:",
+    "8. Compute conversationStats from the audio:",
     "   - talkRatioPercent: rep/agent talk time ÷ total talk time × 100",
     "   - repTalkTimeSeconds: total rep/agent speaking time",
     "   - longestProspectTalkSeconds: longest uninterrupted prospect/customer monologue",
@@ -350,7 +317,7 @@ export async function generateAudioInsights(params: {
     params.fileName ?? "recording"
   );
 
-  const payload = await geminiGenerateJson<GeminiAudioInsightsPayload>({
+  const { value: payload, model: resolvedModel } = await geminiGenerateJson<GeminiAudioInsightsPayload>({
     prompt: buildAudioInsightsPrompt(params.rubricContext),
     schema: AUDIO_INSIGHTS_SCHEMA,
     audioBuffer: params.audioBuffer,
@@ -360,15 +327,14 @@ export async function generateAudioInsights(params: {
     uploadedFile,
     requestOptions: {
       timeoutMs: getGeminiAudioInsightsTimeoutMs(),
-      // A full ten-minute provider timeout is already retried by the workflow
-      // step. Do not multiply it by the client's six-attempt retry loop.
-      retryTimeouts: false,
+      // This is the total per-model retry budget; the SDK divides it across
+      // bounded attempts before our audio-model fallback advances.
     },
   });
 
   const insights: AudioInsights = {
     provider: "gemini",
-    model,
+    model: resolvedModel,
     summary: payload.summary,
     topicSummary: payload.topicSummary,
     overallSentiment: payload.overallSentiment,
@@ -410,20 +376,6 @@ export async function generateAudioInsights(params: {
       label: item.label,
       explanation: item.explanation,
     })),
-    participants: {
-      agentName: normalizeParticipantName(payload.participants?.agentName),
-      prospectName: normalizeParticipantName(payload.participants?.prospectName),
-      agentNameConfidence:
-        normalizeParticipantNameConfidence(payload.participants?.agentNameConfidence) ?? 0,
-      prospectNameConfidence:
-        normalizeParticipantNameConfidence(payload.participants?.prospectNameConfidence) ?? 0,
-      agentNameFirstMentionSeconds: parseOptionalMentionTimestamp(
-        payload.participants?.agentNameFirstMentionTimestamp
-      ),
-      prospectNameFirstMentionSeconds: parseOptionalMentionTimestamp(
-        payload.participants?.prospectNameFirstMentionTimestamp
-      ),
-    },
     conversationStats: {
       talkRatioPercent: payload.conversationStats.talkRatioPercent,
       repTalkTimeSeconds: payload.conversationStats.repTalkTimeSeconds,
@@ -440,6 +392,61 @@ export async function generateAudioInsights(params: {
   const normalized = normalizeAudioInsights(insights);
   if (!normalized) throw new Error("Gemini audio insights failed normalization");
   return normalized;
+}
+
+type GeminiAudioParticipantsPayload = {
+  agentName: string;
+  prospectName: string;
+  agentNameConfidence: number;
+  prospectNameConfidence: number;
+  agentNameFirstMentionTimestamp: string;
+  prospectNameFirstMentionTimestamp: string;
+};
+
+const AUDIO_PARTICIPANTS_PROMPT = [
+  "Who is the agent and who is the prospect?",
+  "Listen only to the recording. First distinguish the voices, then attach a name using a self-introduction or unambiguous direct address, and finally infer the role from what that same voice does across the interaction.",
+  "The agent conducts the leasing tour or call. The prospect is shopping for housing.",
+  "Do not use a transcript, speaker labels, metadata, rubric context, or prior analysis.",
+  "A self-introduction names the speaker; direct address names the listener. Return an empty name with confidence 0 if either the name-to-voice or voice-to-role link is unsupported.",
+  "Return exact spoken names, 0-100 confidence, and the earliest audible name mention as MM:SS.",
+].join("\n");
+
+export async function identifyAudioParticipants(params: {
+  audioBuffer: Buffer;
+  mimeType: string;
+  fileName?: string;
+  model?: string;
+  uploadedFile: GeminiUploadedFile;
+}): Promise<SessionParticipants> {
+  const { value } = await geminiGenerateJson<GeminiAudioParticipantsPayload>({
+    prompt: AUDIO_PARTICIPANTS_PROMPT,
+    schema: AUDIO_PARTICIPANTS_SCHEMA,
+    audioBuffer: params.audioBuffer,
+    mimeType: params.mimeType,
+    fileName: params.fileName,
+    model: params.model,
+    uploadedFile: params.uploadedFile,
+    temperature: 0,
+    requestOptions: {
+      timeoutMs: getGeminiAudioInsightsTimeoutMs(),
+    },
+  });
+
+  return {
+    agentName: normalizeParticipantName(value.agentName),
+    prospectName: normalizeParticipantName(value.prospectName),
+    agentNameConfidence:
+      normalizeParticipantNameConfidence(value.agentNameConfidence) ?? 0,
+    prospectNameConfidence:
+      normalizeParticipantNameConfidence(value.prospectNameConfidence) ?? 0,
+    agentNameFirstMentionSeconds: parseOptionalMentionTimestamp(
+      value.agentNameFirstMentionTimestamp,
+    ),
+    prospectNameFirstMentionSeconds: parseOptionalMentionTimestamp(
+      value.prospectNameFirstMentionTimestamp,
+    ),
+  };
 }
 
 function buildGeminiAudioFileRef(file: {

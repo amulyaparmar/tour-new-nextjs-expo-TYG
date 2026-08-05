@@ -3,12 +3,14 @@ import "server-only";
 import {
   DEFAULT_SEGMENTATION_PROMPT,
   normalizeConversationPhaseSpan,
+  type AnalysisModelId,
   type ConversationPhaseSegmentation,
   type ConversationPhaseSegmentationResult,
   type ConversationPhaseSpan,
 } from "@tour/shared";
 
-import { invokeClaudeTool, type ClaudeTool } from "./bedrock";
+import type { ClaudeTool } from "./bedrock";
+import { invokeAnalysisTool } from "./analysis-model-invoke";
 import type { TranscriptSegment } from "./transcribe";
 
 export {
@@ -25,6 +27,7 @@ export async function segmentConversationPhases(
   options?: {
     segmentationPrompt?: string | null;
     sessionType?: string | null;
+    analysisModel?: AnalysisModelId | null;
   }
 ): Promise<ConversationPhaseSegmentationResult> {
   if (transcript.length === 0) {
@@ -43,7 +46,7 @@ export async function segmentConversationPhases(
     ? `Session type: ${options.sessionType.trim()}\n\n`
     : "";
 
-  const raw = await invokeClaudeTool<Record<string, unknown>>({
+  const raw = await invokeAnalysisTool<Record<string, unknown>>({
     system: systemPrompt,
     messages: [
       {
@@ -57,8 +60,9 @@ export async function segmentConversationPhases(
       }
     ],
     tool: SEGMENTATION_TOOL,
-    maxTokens: 8192,
-    temperature: 0.2
+    maxTokens: 16_384,
+    temperature: 0.2,
+    analysisModel: options?.analysisModel,
   });
 
   return {

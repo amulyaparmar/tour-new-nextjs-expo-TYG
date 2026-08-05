@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConversationPhaseSegmentation, SessionParticipants } from "@tour/shared";
 import { findPhaseForTimestamp, formatSegmentTimeRange, formatSpeakerAnnotation } from "@tour/shared";
 import {
+  Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   MapPin,
@@ -67,7 +69,7 @@ type KeyMomentCompose = {
 
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
-  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+  return Boolean(target.closest("input, textarea, select, button, [contenteditable='true']"));
 }
 
 export function SessionTranscriptStage({
@@ -96,7 +98,9 @@ export function SessionTranscriptStage({
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const scrollRafRef = useRef<number | null>(null);
   const skipAutoScrollRef = useRef(false);
+  const phaseMenuRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
+  const [phaseMenuOpen, setPhaseMenuOpen] = useState(false);
   const [inlineCompose, setInlineCompose] = useState<InlineCompose | null>(null);
   const [keyMomentCompose, setKeyMomentCompose] = useState<KeyMomentCompose | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -173,8 +177,16 @@ export function SessionTranscriptStage({
   const navigatePhase = useCallback((direction: -1 | 1) => {
     if (activePhaseIndex < 0) return;
     const nextPhase = phases?.spans[activePhaseIndex + direction];
-    if (nextPhase) seekTo(nextPhase.startTime);
+    if (nextPhase) {
+      seekTo(nextPhase.startTime);
+      setPhaseMenuOpen(false);
+    }
   }, [activePhaseIndex, phases, seekTo]);
+
+  const selectPhase = useCallback((startTime: number) => {
+    seekTo(startTime);
+    setPhaseMenuOpen(false);
+  }, [seekTo]);
 
   const labelForSpeaker = useCallback(
     (speaker: string | null | undefined) => formatSpeakerAnnotation(speaker, participants),
@@ -299,6 +311,26 @@ export function SessionTranscriptStage({
     return () => window.removeEventListener("click", closeMenu);
   }, [openCommentMenuId]);
 
+  useEffect(() => {
+    if (!phaseMenuOpen) return;
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!phaseMenuRef.current?.contains(event.target as Node)) {
+        setPhaseMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPhaseMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [phaseMenuOpen]);
+
   useEffect(() => () => {
     if (scrollRafRef.current != null) window.cancelAnimationFrame(scrollRafRef.current);
   }, []);
@@ -328,15 +360,99 @@ export function SessionTranscriptStage({
   return (
     <div className={styles.stage}>
       <div className={styles.stageToolbar}>
-        <div className={styles.stageSearch}>
-          <Search size={15} />
-          <input
-            type="search"
-            placeholder="Search transcript..."
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label="Search transcript"
-          />
+        <div className={styles.stageSearchShell} ref={phaseMenuRef}>
+          <div className={styles.stageSearch}>
+            <Search size={15} aria-hidden="true" />
+            <input
+              type="search"
+              placeholder={activePhase ? `Search in ${activePhase.title}...` : "Search transcript..."}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              aria-label="Search transcript"
+            />
+            {activePhase ? (
+              <div className={styles.transcriptPhaseControl}>
+                <button
+                  type="button"
+                  className={styles.transcriptPhaseArrow}
+                  onClick={() => navigatePhase(-1)}
+                  disabled={activePhaseIndex <= 0}
+                  aria-label="Previous segment"
+                  title="Previous segment"
+                >
+                  <ChevronLeft size={14} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className={styles.transcriptPhaseTrigger}
+                  onClick={() => setPhaseMenuOpen((open) => !open)}
+                  aria-expanded={phaseMenuOpen}
+                  aria-haspopup="listbox"
+                  aria-label={`Segment ${activePhaseIndex + 1} of ${phaseCount}: ${activePhase.title}`}
+                >
+                  <span className={styles.transcriptPhaseIndex}>{activePhaseIndex + 1}</span>
+                  <span className={styles.transcriptPhaseCurrent}>
+                    <span>Segment {activePhaseIndex + 1} of {phaseCount}</span>
+                    <strong>{activePhase.title}</strong>
+                  </span>
+                  <ChevronDown
+                    className={phaseMenuOpen ? styles.transcriptPhaseChevronOpen : undefined}
+                    size={14}
+                    aria-hidden="true"
+                  />
+                  <span className={styles.transcriptPhaseProgress} aria-hidden="true">
+                    <span style={{ width: `${activePhaseProgress}%` }} />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={styles.transcriptPhaseArrow}
+                  onClick={() => navigatePhase(1)}
+                  disabled={activePhaseIndex >= phaseCount - 1}
+                  aria-label="Next segment"
+                  title="Next segment"
+                >
+                  <ChevronRight size={14} aria-hidden="true" />
+                </button>
+              </div>
+            ) : null}
+          </div>
+          {phaseMenuOpen && phases?.spans.length ? (
+            <div className={styles.transcriptPhasePopover} role="listbox" aria-label="Transcript segments">
+              <div className={styles.transcriptPhasePopoverHeader}>
+                <div>
+                  <strong>Transcript segments</strong>
+                  <span>Jump to a section of the conversation</span>
+                </div>
+                <span>{phaseCount}</span>
+              </div>
+              <div className={styles.transcriptPhaseList}>
+                {phases.spans.map((phase, index) => {
+                  const isActive = phase.id === activePhase?.id;
+                  return (
+                    <button
+                      key={phase.id}
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      className={`${styles.transcriptPhaseOption} ${isActive ? styles.transcriptPhaseOptionActive : ""}`}
+                      onClick={() => selectPhase(phase.startTime)}
+                    >
+                      <span className={styles.transcriptPhaseOptionIndex}>{index + 1}</span>
+                      <span className={styles.transcriptPhaseOptionCopy}>
+                        <span>
+                          <strong>{phase.title}</strong>
+                          <time>{formatSegmentTimeRange(phase.startTime, phase.endTime)}</time>
+                        </span>
+                        {phase.summary ? <small>{phase.summary}</small> : null}
+                      </span>
+                      {isActive ? <Check size={15} aria-hidden="true" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
         {activeSegment && !readOnly ? (
           <div className={styles.transcriptToolbarActions}>
@@ -364,51 +480,6 @@ export function SessionTranscriptStage({
 
       <div className={styles.stageBody}>
         <div className={styles.transcriptScroll} ref={scrollRef} onScroll={handleScroll}>
-          {activePhase ? (
-            <div className={styles.transcriptSegmentDock}>
-              <button
-                type="button"
-                className={styles.transcriptSegmentDockMain}
-                onClick={() => seekTo(activePhase.startTime)}
-                aria-label={`Go to segment ${activePhaseIndex + 1}: ${activePhase.title}`}
-              >
-                <span className={styles.transcriptSegmentDockIndex}>{activePhaseIndex + 1}</span>
-                <span className={styles.transcriptSegmentDockCopy}>
-                  <span className={styles.transcriptSegmentDockEyebrow}>
-                    Segment {activePhaseIndex + 1} of {phaseCount}
-                  </span>
-                  <strong>{activePhase.title}</strong>
-                </span>
-                <span className={styles.transcriptSegmentDockTime}>
-                  {formatSegmentTimeRange(activePhase.startTime, activePhase.endTime)}
-                </span>
-              </button>
-              <div className={styles.transcriptSegmentDockNav} aria-label="Navigate transcript segments">
-                <button
-                  type="button"
-                  onClick={() => navigatePhase(-1)}
-                  disabled={activePhaseIndex <= 0}
-                  aria-label="Previous segment"
-                  title="Previous segment"
-                >
-                  <ChevronLeft size={16} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigatePhase(1)}
-                  disabled={activePhaseIndex >= phaseCount - 1}
-                  aria-label="Next segment"
-                  title="Next segment"
-                >
-                  <ChevronRight size={16} aria-hidden="true" />
-                </button>
-              </div>
-              <span className={styles.transcriptSegmentDockProgress} aria-hidden="true">
-                <span style={{ width: `${activePhaseProgress}%` }} />
-              </span>
-            </div>
-          ) : null}
-
           {filteredTranscript.length === 0 ? (
             <div className={styles.transcriptEmpty}>No transcript available yet.</div>
           ) : (

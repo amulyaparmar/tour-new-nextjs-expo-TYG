@@ -1026,14 +1026,19 @@ export async function getConversationPhases(
   }
 }
 
-export async function saveAudioInsights(sessionId: string, insights: AudioInsights) {
+export async function saveAudioInsights(
+  sessionId: string,
+  insights: AudioInsights,
+  options: { status?: AudioInsightsStatus } = {},
+) {
+  const status = options.status ?? "ready";
   try {
     const supabase = getSupabaseServiceClient();
     const { error } = await supabase
       .from("sessions")
       .update({
         audio_insights_json: insights,
-        audio_insights_status: "ready",
+        audio_insights_status: status,
       } as never)
       .eq("id", sessionId);
 
@@ -1041,7 +1046,7 @@ export async function saveAudioInsights(sessionId: string, insights: AudioInsigh
   } catch (error) {
     rethrowInProduction(error);
     await saveLocalAudioInsights(sessionId, insights);
-    await setLocalAudioInsightsStatus(sessionId, "ready");
+    await setLocalAudioInsightsStatus(sessionId, status);
   }
 }
 

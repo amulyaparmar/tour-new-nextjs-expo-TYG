@@ -553,7 +553,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
+  width: 100%;
   min-width: 0;
   height: 34px;
   padding: 0 12px;
@@ -561,6 +561,12 @@
   border: 1px solid var(--slate-200);
   background: white;
   color: var(--slate-400);
+}
+
+.stageSearchShell {
+  position: relative;
+  flex: 1;
+  min-width: 0;
 }
 
 .stageSearch input {
@@ -571,6 +577,270 @@
   font-size: 13px;
   color: var(--slate-700);
   font-family: inherit;
+  min-width: 80px;
+}
+
+.transcriptPhaseControl {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 3px;
+  padding-left: 8px;
+  border-left: 1px solid var(--slate-200);
+}
+
+.transcriptPhaseArrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--slate-500);
+  cursor: pointer;
+}
+
+.transcriptPhaseArrow:hover:not(:disabled),
+.transcriptPhaseArrow:focus-visible {
+  background: var(--slate-100);
+  color: var(--slate-800);
+  outline: none;
+}
+
+.transcriptPhaseArrow:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.transcriptPhaseTrigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 250px;
+  height: 28px;
+  padding: 0 8px 2px 5px;
+  overflow: hidden;
+  border: 1px solid #d9e2f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--slate-600);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.transcriptPhaseTrigger:hover,
+.transcriptPhaseTrigger:focus-visible,
+.transcriptPhaseTrigger[aria-expanded="true"] {
+  border-color: #b8c8df;
+  background: white;
+  color: var(--slate-900);
+  outline: none;
+}
+
+.transcriptPhaseIndex,
+.transcriptPhaseOptionIndex {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--indigo-50);
+  color: var(--indigo-700);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.transcriptPhaseCurrent {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.05;
+}
+
+.transcriptPhaseCurrent > span {
+  color: var(--slate-400);
+  font-size: 8px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.transcriptPhaseCurrent strong {
+  overflow: hidden;
+  color: var(--slate-700);
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcriptPhaseTrigger > svg {
+  flex-shrink: 0;
+  transition: transform 0.16s ease;
+}
+
+.transcriptPhaseChevronOpen {
+  transform: rotate(180deg);
+}
+
+.transcriptPhaseProgress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+  background: #e8edf5;
+}
+
+.transcriptPhaseProgress > span {
+  display: block;
+  height: 100%;
+  background: var(--indigo-600);
+  transition: width 0.12s linear;
+}
+
+.transcriptPhasePopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  width: min(440px, 100%);
+  overflow: hidden;
+  border: 1px solid #d9e2f0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(16px);
+}
+
+.transcriptPhasePopoverHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 15px 12px;
+  border-bottom: 1px solid var(--slate-100);
+}
+
+.transcriptPhasePopoverHeader > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.transcriptPhasePopoverHeader strong {
+  color: var(--slate-900);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.transcriptPhasePopoverHeader > div > span {
+  color: var(--slate-500);
+  font-size: 11px;
+}
+
+.transcriptPhasePopoverHeader > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--slate-100);
+  color: var(--slate-600);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.transcriptPhaseList {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.transcriptPhaseOption {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--slate-500);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.transcriptPhaseOption:hover,
+.transcriptPhaseOption:focus-visible {
+  background: var(--slate-50);
+  outline: none;
+}
+
+.transcriptPhaseOptionActive {
+  background: #f4f7fc;
+  color: var(--indigo-700);
+}
+
+.transcriptPhaseOptionIndex {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.transcriptPhaseOptionCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.transcriptPhaseOptionCopy > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.transcriptPhaseOptionCopy strong {
+  overflow: hidden;
+  color: var(--slate-800);
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcriptPhaseOptionCopy time {
+  flex-shrink: 0;
+  color: var(--slate-400);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.transcriptPhaseOptionCopy small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--slate-500);
+  font-size: 10px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .stageToggle {
@@ -620,148 +890,6 @@
 
 .stageBody .transcriptScroll {
   min-width: 0;
-}
-
-.transcriptSegmentDock {
-  position: sticky;
-  top: 0;
-  z-index: 14;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-  margin: 0 0 10px;
-  padding: 7px 8px 9px 10px;
-  overflow: hidden;
-  border: 1px solid #d9e2f0;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.09);
-  color: var(--slate-800);
-  backdrop-filter: blur(10px);
-}
-
-.transcriptSegmentDock:hover,
-.transcriptSegmentDock:focus-within {
-  border-color: #b8c8df;
-}
-
-.transcriptSegmentDockMain {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-}
-
-.transcriptSegmentDockMain:focus-visible {
-  border-radius: 6px;
-  outline: 2px solid #c7d2fe;
-  outline-offset: 2px;
-}
-
-.transcriptSegmentDockIndex {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 7px;
-  background: var(--indigo-50);
-  color: var(--indigo-700);
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.transcriptSegmentDockCopy {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.transcriptSegmentDockCopy strong {
-  overflow: hidden;
-  color: var(--slate-900);
-  font-size: 13px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.transcriptSegmentDockEyebrow {
-  color: var(--slate-500);
-  font-size: 10px;
-  font-weight: 750;
-}
-
-.transcriptSegmentDockTime {
-  color: var(--slate-500);
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.transcriptSegmentDockNav {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 4px;
-}
-
-.transcriptSegmentDockNav button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--slate-200);
-  border-radius: 7px;
-  background: white;
-  color: var(--slate-600);
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.transcriptSegmentDockNav button:hover:not(:disabled),
-.transcriptSegmentDockNav button:focus-visible {
-  border-color: #b8c8df;
-  background: var(--indigo-50);
-  color: var(--indigo-700);
-  outline: none;
-}
-
-.transcriptSegmentDockNav button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.transcriptSegmentDockProgress {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  overflow: hidden;
-  background: var(--slate-100);
-}
-
-.transcriptSegmentDockProgress > span {
-  display: block;
-  height: 100%;
-  border-radius: 0 999px 999px 0;
-  background: var(--indigo-600);
-  transition: width 0.12s linear;
 }
 
 .transcriptEmpty {
@@ -4122,22 +4250,18 @@
     padding-inline: 12px;
   }
 
-  .transcriptSegmentDock {
-    grid-template-columns: minmax(0, 1fr) auto;
-    padding-inline: 9px;
-  }
-
-  .transcriptSegmentDockMain {
-    grid-template-columns: 30px minmax(0, 1fr);
-  }
-
-  .transcriptSegmentDockIndex {
-    width: 30px;
-    height: 30px;
-  }
-
-  .transcriptSegmentDockTime {
+  .transcriptPhaseCurrent {
     display: none;
+  }
+
+  .transcriptPhaseTrigger {
+    padding-inline: 4px;
+  }
+
+  .transcriptPhasePopover {
+    right: auto;
+    left: 0;
+    width: 100%;
   }
 
   .transcriptSegmentLandmarkButton {

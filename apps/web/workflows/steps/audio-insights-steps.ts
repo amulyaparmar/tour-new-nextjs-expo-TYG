@@ -5,11 +5,12 @@ import {
   withRecordingParticipants,
 } from "@tour/shared";
 
-import { generateAudioInsights } from "@/lib/audio-insights";
+import { generateAudioInsights, identifyAudioParticipants } from "@/lib/audio-insights";
 import { isGeminiConfigured } from "@/lib/gemini-client";
 import { getRubricForSession } from "@/lib/rubrics";
 import {
   getSessionById,
+  getAudioInsights,
   saveAudioInsights,
   setAudioInsightsStatus,
   recordSessionWorkflowCompleted,
@@ -79,15 +80,53 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
       analysisInstructions: rubric.analysisPrompt,
     },
   });
-  await saveAudioInsights(sessionId, insights);
+  await saveAudioInsights(sessionId, insights, { status: "processing" });
+
+  return {
+    segmentCount: insights.segments.length,
+    sentiment: insights.overallSentiment,
+  };
+}
+analyzeAudioInsightsStep.maxRetries = 3;
+
+export async function identifyAudioParticipantsStep(sessionId: string) {
+  "use step";
+
+  const session = await getSessionById(sessionId);
+  if (!session) {
+    throw new FatalError("Session not found for participant identification.");
+  }
+
+  const [insights, file] = await Promise.all([
+    getAudioInsights(sessionId),
+    fetchRecordingFile(sessionId),
+  ]);
+  if (!insights?.audioFile) {
+    throw new FatalError("Gemini audio file is missing for participant identification.");
+  }
+  if (!file) {
+    throw new FatalError("No recording found for participant identification.");
+  }
+
+  const participants = await identifyAudioParticipants({
+    audioBuffer: file.buffer,
+    mimeType: file.mimeType,
+    fileName: file.fileName,
+    model: insights.model,
+    uploadedFile: insights.audioFile,
+  });
+  const updatedInsights = { ...insights, participants };
+  await saveAudioInsights(sessionId, updatedInsights, { status: "processing" });
+
+  const rubric = await getRubricForSession(session.rubricId, session.propertyId);
   const nameUpdates: { title?: string; agentName?: string; prospectName?: string } = {};
   const extractedAgentName = decorateParticipantNameByConfidence(
-    insights.participants?.agentName,
-    insights.participants?.agentNameConfidence,
+    participants.agentName,
+    participants.agentNameConfidence,
   );
   const extractedProspectName = decorateParticipantNameByConfidence(
-    insights.participants?.prospectName,
-    insights.participants?.prospectNameConfidence,
+    participants.prospectName,
+    participants.prospectNameConfidence,
   );
   if (
     extractedAgentName
@@ -121,15 +160,19 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
   if (Object.keys(nameUpdates).length > 0) {
     await updateSession(sessionId, nameUpdates);
   }
+
+  return participants;
+}
+identifyAudioParticipantsStep.maxRetries = 3;
+
+export async function finalizeAudioInsightsStep(sessionId: string) {
+  "use step";
+
   await setAudioInsightsStatus(sessionId, "ready");
   await recordSessionWorkflowCompleted(sessionId, "audioInsights");
 
-  return {
-    segmentCount: insights.segments.length,
-    sentiment: insights.overallSentiment,
-  };
+  return { ready: true };
 }
-analyzeAudioInsightsStep.maxRetries = 3;
 
 export async function markAudioInsightsFailedStep(sessionId: string, reason?: string) {
   "use step";

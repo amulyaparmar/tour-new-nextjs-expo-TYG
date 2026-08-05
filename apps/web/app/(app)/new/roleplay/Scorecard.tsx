@@ -46,6 +46,7 @@ export const Scorecard = ({ callId, scenario, traineeName, liveTranscript, onBac
   const [elapsed, setElapsed] = useState(0);
   const [result, setResult] = useState(null);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | failed
+  const [partialError, setPartialError] = useState(null); // last server error from exhausted polling
   const [resolvedPaceMetrics, setResolvedPaceMetrics] = useState(null);
   const upsertedRef = useRef(false);
   const abortRef = useRef(null);
@@ -146,7 +147,8 @@ export const Scorecard = ({ callId, scenario, traineeName, liveTranscript, onBac
 
     setPhase("polling");
     setElapsed(0);
-    const { ready, call } = await pollForAnalysis(callId, {
+    setPartialError(null);
+    const { ready, call, lastError } = await pollForAnalysis(callId, {
       onTick: (_attempt, elapsedS) => {
         if (!controller.signal.aborted) setElapsed(elapsedS);
       },
@@ -154,6 +156,7 @@ export const Scorecard = ({ callId, scenario, traineeName, liveTranscript, onBac
     });
     if (controller.signal.aborted) return;
     setResult(call);
+    setPartialError(lastError ?? null);
     setPhase(ready ? "ready" : "partial");
 
     if (ready && call?.analysis?.structuredData && !upsertedRef.current) {
@@ -239,6 +242,11 @@ export const Scorecard = ({ callId, scenario, traineeName, liveTranscript, onBac
           <div className="text-sm text-amber-700 mt-1">
             The call data below may be partial. You can retry fetching the evaluation.
           </div>
+          {partialError && (
+            <div className="mt-2 rounded-md bg-amber-100 px-2 py-1 font-mono text-xs text-amber-900">
+              Server said: {partialError}
+            </div>
+          )}
           <button
             onClick={runPoll}
             className="mt-3 flex items-center gap-1.5 text-sm bg-amber-600 hover:bg-amber-700 text-white py-1.5 px-4 rounded-lg"

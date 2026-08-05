@@ -35,8 +35,9 @@ export async function fetchCallAnalysis(
 export async function pollForAnalysis(
   callId: string,
   opts: { onTick?: (attempt: number, elapsedS: number) => void; signal?: AbortSignal } = {}
-): Promise<{ ready: boolean; call: RoleplayCallResult | null }> {
+): Promise<{ ready: boolean; call: RoleplayCallResult | null; lastError?: string }> {
   let last: RoleplayCallResult | null = null;
+  let lastError: string | undefined;
   let elapsedS = 0;
 
   for (let attempt = 0; attempt < POLL_DELAYS_S.length; attempt++) {
@@ -50,6 +51,11 @@ export async function pollForAnalysis(
     try {
       const res = await fetchCallAnalysis(callId);
       if (res.call) last = res.call;
+      // Surfaced when polling exhausts: a server-side failure (e.g. a missing
+      // VAPI_PRIVATE_KEY in the deploy env) looks identical to "analysis not
+      // ready" otherwise, which made a prod misconfiguration undiagnosable
+      // from the UI.
+      if (!res.success && res.message) lastError = res.message;
       if (res.success && res.ready && res.call) {
         return { ready: true, call: res.call };
       }
@@ -57,7 +63,7 @@ export async function pollForAnalysis(
       // Transient network error — keep polling.
     }
   }
-  return { ready: false, call: last };
+  return { ready: false, call: last, lastError };
 }
 
 const toSnake = (s: string) =>

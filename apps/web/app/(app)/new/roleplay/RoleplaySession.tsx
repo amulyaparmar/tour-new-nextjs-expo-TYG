@@ -105,13 +105,12 @@ export const RoleplaySession = ({
   // removeAllListeners), an effect-local buffer gives each set its own
   // dedupe and every duplicate passes.
   const recentEventsRef = useRef([]);
-  // Dev-only debug pause: raw event ring buffer + frozen display snapshot.
+  // Dev-only: raw event ring buffer.
   const debugEventsRef = useRef([]);
   // Lets code outside the listener effect (startCall) write to the ring buffer.
   const logDebugEventRef = useRef(null);
   const debugEventSeqRef = useRef(0);
   const [debugPaused, setDebugPaused] = useState(false);
-  const [debugFrozen, setDebugFrozen] = useState(null); // { lines, partial }
   const [debugLongTimeouts, setDebugLongTimeouts] = useState(ROLEPLAY_DEBUG);
   const waypoints = useMemo(() => ensureScenarioWaypoints(scenario), [scenario]);
   const validWaypointIds = useMemo(
@@ -823,7 +822,6 @@ export const RoleplaySession = ({
       setPartial(null);
       setAssistantSpeaking(false);
       setDebugPaused(false);
-      setDebugFrozen(null);
       // A call can die mid-turn: settle any still-live lines synchronously so
       // the transcript handed to the scorecard carries no in-progress markers.
       if (linesRef.current.some((line) => line.live)) {
@@ -1353,7 +1351,6 @@ export const RoleplaySession = ({
       debugEventsRef.current = [];
       debugEventSeqRef.current = 0;
       setDebugPaused(false);
-      setDebugFrozen(null);
 
       // Debug calls get long Vapi timeouts so a paused (muted) call is not
       // hung up by the silence timeout mid-inspection.
@@ -1417,11 +1414,10 @@ export const RoleplaySession = ({
     }
   };
 
-  // Pause (trainee-facing): freeze the rendered transcript (snapshot) and
-  // mute the mic. The Vapi call stays live underneath — the prospect can still
-  // hit the silence timeout — and handlers keep capturing into state/refs, so
-  // resuming re-syncs the display and the scorecard still receives the full,
-  // unaltered transcript.
+  // Pause (trainee-facing): mutes the trainee's mic only. The transcript
+  // keeps rendering live — the Vapi call stays up underneath, the prospect may
+  // keep talking, and it can still hit the silence timeout. Capture is
+  // untouched, so the scorecard always receives the full transcript.
   const toggleDebugPause = () => {
     if (status !== "live") return;
     const pausing = !debugPaused;
@@ -1430,7 +1426,6 @@ export const RoleplaySession = ({
     } catch (e) {
       console.warn("setMuted failed:", e);
     }
-    setDebugFrozen(pausing ? { lines: linesRef.current, partial } : null);
     setDebugPaused(pausing);
   };
 
@@ -1628,8 +1623,8 @@ export const RoleplaySession = ({
       {debugPaused && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <span>
-            Paused — your mic is muted and the transcript is frozen. The prospect may
-            hang up after ~{pauseSilenceLimitS}s of silence.
+            Paused — your mic is muted. The prospect may keep talking and can hang
+            up after ~{pauseSilenceLimitS}s of silence.
           </span>
           {ROLEPLAY_DEBUG && (
             <button
@@ -1642,10 +1637,7 @@ export const RoleplaySession = ({
           )}
         </div>
       )}
-      <LiveTranscript
-        lines={debugFrozen?.lines ?? lines}
-        partial={debugFrozen ? debugFrozen.partial : partial}
-      />
+      <LiveTranscript lines={lines} partial={partial} />
       <WaypointCarousel
         waypoints={waypoints}
         completedIds={completedWaypointIds}

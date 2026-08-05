@@ -1,15 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ConversationPhaseSegmentation, SessionParticipants } from "@tour/shared";
-import { findPhaseForTimestamp, formatSegmentTimeRange, formatSpeakerAnnotation } from "@tour/shared";
 import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
+import type { ConversationPhaseSegmentation, ConversationPhaseSpan, SessionParticipants } from "@tour/shared";
+import { formatSegmentTimeRange, formatSpeakerAnnotation } from "@tour/shared";
+import {
+  Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   MapPin,
   MessageSquare,
   MoreHorizontal,
   Pencil,
+  Play,
   Search,
   Sparkles,
   Tag,
@@ -46,7 +57,6 @@ type Props = {
   activeCommentId: string | null;
   selectedMomentId: string | null;
   seekTo: (seconds: number) => void;
-  onScrollTimeChange: (seconds: number) => void;
   onCommentsUpdated: () => void;
   onInlineComposeOpen?: () => void;
   onCommentSelect: (commentId: string) => void;
@@ -65,9 +75,47 @@ type KeyMomentCompose = {
   timestampSec: number;
 };
 
+type PhaseRelation = "current" | "next" | "finished";
+
+type PhasePosition = {
+  index: number;
+  relation: PhaseRelation;
+};
+
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
-  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+  return Boolean(target.closest(
+    "input, textarea, select, button, a[href], summary, [role='button'], [role='link'], [contenteditable='true']",
+  ));
+}
+
+function phaseSeekTime(phase: ConversationPhaseSpan) {
+  const nudge = Math.min(0.01, (phase.endTime - phase.startTime) / 2);
+  return phase.startTime + Math.max(0, nudge);
+}
+
+function resolvePhasePosition(
+  timestamp: number,
+  segmentation: ConversationPhaseSegmentation | null | undefined,
+): PhasePosition {
+  const spans = segmentation?.spans ?? [];
+  if (spans.length === 0) return { index: -1, relation: "current" };
+
+  for (let index = spans.length - 1; index >= 0; index -= 1) {
+    const span = spans[index]!;
+    if (timestamp >= span.startTime && timestamp <= span.endTime) {
+      return { index, relation: "current" };
+    }
+  }
+
+  const nextIndex = spans.findIndex((span) => timestamp < span.startTime);
+  if (nextIndex >= 0) return { index: nextIndex, relation: "next" };
+  return { index: spans.length - 1, relation: "finished" };
+}
+
+function progressPercent(position: number, total: number) {
+  if (!Number.isFinite(position) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.min(100, Math.max(0, (position / total) * 100));
 }
 
 export function SessionTranscriptStage({
@@ -84,7 +132,6 @@ export function SessionTranscriptStage({
   activeCommentId,
   selectedMomentId,
   seekTo,
-  onScrollTimeChange,
   onCommentsUpdated,
   onInlineComposeOpen,
   onCommentSelect,
@@ -96,7 +143,17 @@ export function SessionTranscriptStage({
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const scrollRafRef = useRef<number | null>(null);
   const skipAutoScrollRef = useRef(false);
+  const phaseTriggerRef = useRef<HTMLButtonElement>(null);
+  const phasePopoverRef = useRef<HTMLDivElement>(null);
+  const phaseOptionRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const phasePopoverId = useId();
+  const commentTooltipId = useId();
+  const keyMomentTooltipId = useId();
   const [query, setQuery] = useState("");
+  const [viewedSegmentId, setViewedSegmentId] = useState<string | null>(() => transcript[0]?.id ?? null);
+  const [isFollowingPlayback, setIsFollowingPlayback] = useState(true);
+  const [phasePopoverOpen, setPhasePopoverOpen] = useState(false);
+  const [toolbarHint, setToolbarHint] = useState<"comment" | "moment" | null>(null);
   const [inlineCompose, setInlineCompose] = useState<InlineCompose | null>(null);
   const [keyMomentCompose, setKeyMomentCompose] = useState<KeyMomentCompose | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -145,37 +202,6 @@ export function SessionTranscriptStage({
     }, null) ?? transcript[0]!;
   }, [currentTime, transcript]);
 
-  const phaseBySegmentId = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof findPhaseForTimestamp>>();
-    for (const segment of transcript) {
-      map.set(segment.id, findPhaseForTimestamp(segment.startTime, phases));
-    }
-    return map;
-  }, [phases, transcript]);
-
-  const activePhase = activeSegment
-    ? phaseBySegmentId.get(activeSegment.id)
-    : undefined;
-  const activePhaseIndex = activePhase
-    ? (phases?.spans.findIndex((span) => span.id === activePhase.id) ?? -1)
-    : -1;
-  const phaseCount = phases?.spans.length ?? 0;
-  const activePhaseProgress = activePhase && activePhase.endTime > activePhase.startTime
-    ? Math.min(
-        100,
-        Math.max(
-          0,
-          ((currentTime - activePhase.startTime) / (activePhase.endTime - activePhase.startTime)) * 100,
-        ),
-      )
-    : 0;
-
-  const navigatePhase = useCallback((direction: -1 | 1) => {
-    if (activePhaseIndex < 0) return;
-    const nextPhase = phases?.spans[activePhaseIndex + direction];
-    if (nextPhase) seekTo(nextPhase.startTime);
-  }, [activePhaseIndex, phases, seekTo]);
-
   const labelForSpeaker = useCallback(
     (speaker: string | null | undefined) => formatSpeakerAnnotation(speaker, participants),
     [participants]
@@ -190,6 +216,65 @@ export function SessionTranscriptStage({
       || labelForSpeaker(seg.speaker).toLowerCase().includes(trimmed)
     );
   }, [query, transcript, labelForSpeaker]);
+
+  const transcriptById = useMemo(
+    () => new Map(transcript.map((segment) => [segment.id, segment])),
+    [transcript],
+  );
+  const filteredSegmentIds = useMemo(
+    () => new Set(filteredTranscript.map((segment) => segment.id)),
+    [filteredTranscript],
+  );
+
+  const storedViewedSegment = viewedSegmentId ? transcriptById.get(viewedSegmentId) : undefined;
+  const viewedSegment = isFollowingPlayback
+    ? (activeSegment ?? storedViewedSegment ?? transcript[0] ?? null)
+    : (
+        storedViewedSegment && (filteredTranscript.length === 0 || filteredSegmentIds.has(storedViewedSegment.id))
+          ? storedViewedSegment
+          : filteredTranscript[0] ?? storedViewedSegment ?? activeSegment ?? transcript[0] ?? null
+      );
+
+  const phaseBySegmentId = useMemo(() => {
+    const map = new Map<string, ConversationPhaseSpan | undefined>();
+    for (const segment of transcript) {
+      const position = resolvePhasePosition(segment.startTime, phases);
+      map.set(segment.id, phases?.spans[position.index]);
+    }
+    return map;
+  }, [phases, transcript]);
+
+  const phaseCount = phases?.spans.length ?? 0;
+  const viewedPositionTime = isFollowingPlayback
+    ? currentTime
+    : viewedSegment?.startTime ?? currentTime;
+  const viewedPhasePosition = resolvePhasePosition(viewedPositionTime, phases);
+  const playbackPhasePosition = resolvePhasePosition(currentTime, phases);
+  const viewedPhase = phases?.spans[viewedPhasePosition.index];
+  const viewedPhaseId = viewedPhase?.id;
+  const viewedProgress = progressPercent(viewedPositionTime, duration);
+  const playbackProgress = progressPercent(currentTime, duration);
+  const isAwayFromPlayback = Boolean(
+    !isFollowingPlayback
+    && viewedSegment
+    && activeSegment
+    && viewedSegment.id !== activeSegment.id,
+  );
+  const phaseEyebrow = viewedPhasePosition.relation === "next"
+    ? "Coming next"
+    : viewedPhasePosition.relation === "finished"
+      ? "Just finished"
+      : "Currently viewing";
+  const playbackStateLabel = isPlaying ? "Playing" : "Paused";
+
+  const firstSegmentByPhaseId = useMemo(() => {
+    const map = new Map<string, TranscriptSegment>();
+    for (const segment of transcript) {
+      const phase = phaseBySegmentId.get(segment.id);
+      if (phase && !map.has(phase.id)) map.set(phase.id, segment);
+    }
+    return map;
+  }, [phaseBySegmentId, transcript]);
 
   const commentsBySegment = useMemo(() => {
     const map = new Map<string, SessionComment[]>();
@@ -211,9 +296,77 @@ export function SessionTranscriptStage({
     return map;
   }, [moments, transcript]);
 
-  const syncTimeFromScroll = useCallback(() => {
+  const scrollToTranscriptSegment = useCallback((segment: TranscriptSegment, fromChat = false) => {
+    const scrollToRow = () => {
+      const row = rowRefs.current[segment.id];
+      const container = scrollRef.current;
+      if (!row || !container) return false;
+      scrollTranscriptRowIntoView(container, row, { anchorRatio: 0.35, fromChat });
+      return true;
+    };
+
+    window.requestAnimationFrame(() => {
+      if (!scrollToRow()) window.requestAnimationFrame(scrollToRow);
+    });
+  }, []);
+
+  const browseToPhase = useCallback((phaseIndex: number, restoreTriggerFocus = false) => {
+    const phase = phases?.spans[phaseIndex];
+    if (!phase) return;
+    const target = firstSegmentByPhaseId.get(phase.id)
+      ?? findNearestSegment(phase.startTime, transcript);
+    if (!target) return;
+
+    setQuery("");
+    setIsFollowingPlayback(false);
+    setViewedSegmentId(target.id);
+    setPhasePopoverOpen(false);
+    scrollToTranscriptSegment(target);
+    if (restoreTriggerFocus) {
+      window.requestAnimationFrame(() => phaseTriggerRef.current?.focus());
+    }
+  }, [firstSegmentByPhaseId, phases, scrollToTranscriptSegment, transcript]);
+
+  const navigatePhase = useCallback((direction: -1 | 1) => {
+    if (viewedPhasePosition.index < 0) return;
+    browseToPhase(viewedPhasePosition.index + direction);
+  }, [browseToPhase, viewedPhasePosition.index]);
+
+  const playPhaseFromPopover = useCallback((phaseIndex: number) => {
+    const phase = phases?.spans[phaseIndex];
+    if (!phase) return;
+    const target = firstSegmentByPhaseId.get(phase.id)
+      ?? findNearestSegment(phase.startTime, transcript);
+
+    setQuery("");
+    setIsFollowingPlayback(true);
+    setViewedSegmentId(target?.id ?? null);
+    setPhasePopoverOpen(false);
+    if (target) scrollToTranscriptSegment(target);
+    seekTo(phaseSeekTime(phase));
+    window.requestAnimationFrame(() => phaseTriggerRef.current?.focus());
+  }, [firstSegmentByPhaseId, phases, scrollToTranscriptSegment, seekTo, transcript]);
+
+  const goToPlayingMoment = useCallback(() => {
+    if (!activeSegment) return;
+    setQuery("");
+    setIsFollowingPlayback(true);
+    setViewedSegmentId(activeSegment.id);
+    setPhasePopoverOpen(false);
+    scrollToTranscriptSegment(activeSegment);
+  }, [activeSegment, scrollToTranscriptSegment]);
+
+  const seekFromTranscript = useCallback((seconds: number) => {
+    const target = findNearestSegment(seconds, transcript);
+    setIsFollowingPlayback(true);
+    setViewedSegmentId(target?.id ?? null);
+    setPhasePopoverOpen(false);
+    seekTo(seconds);
+  }, [seekTo, transcript]);
+
+  const syncViewedSegmentFromScroll = useCallback(() => {
     const container = scrollRef.current;
-    if (!container || isPlaying) return;
+    if (!container) return;
 
     const centerY = container.scrollTop + container.clientHeight * 0.35;
     let bestSegment: TranscriptSegment | null = null;
@@ -232,26 +385,78 @@ export function SessionTranscriptStage({
     }
 
     if (bestSegment) {
-      onScrollTimeChange(bestSegment.startTime);
+      setViewedSegmentId(bestSegment.id);
     }
-  }, [filteredTranscript, isPlaying, onScrollTimeChange]);
+  }, [filteredTranscript]);
 
   const handleScroll = useCallback(() => {
-    if (isPlaying) return;
     if (scrollRafRef.current != null) return;
     scrollRafRef.current = window.requestAnimationFrame(() => {
       scrollRafRef.current = null;
-      syncTimeFromScroll();
+      syncViewedSegmentFromScroll();
     });
-  }, [isPlaying, syncTimeFromScroll]);
+  }, [syncViewedSegmentFromScroll]);
+
+  const beginBrowsingTranscript = useCallback(() => {
+    setIsFollowingPlayback(false);
+    setPhasePopoverOpen(false);
+  }, []);
+
+  const handleTranscriptBrowseKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.key === "ArrowUp"
+      || event.key === "ArrowDown"
+      || event.key === "PageUp"
+      || event.key === "PageDown"
+      || event.key === "Home"
+      || event.key === "End"
+      || event.key === " "
+    ) {
+      beginBrowsingTranscript();
+    }
+  }, [beginBrowsingTranscript]);
 
   useEffect(() => {
     if (skipAutoScrollRef.current) return;
-    if (!isPlaying || !activeSegment || !scrollRef.current) return;
+    if (!isPlaying || !isFollowingPlayback || !activeSegment || !scrollRef.current) return;
     const row = rowRefs.current[activeSegment.id];
     if (!row) return;
     scrollTranscriptRowIntoView(scrollRef.current, row);
-  }, [activeSegment?.id, isPlaying]);
+  }, [activeSegment?.id, isFollowingPlayback, isPlaying]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(syncViewedSegmentFromScroll);
+    return () => window.cancelAnimationFrame(frame);
+  }, [query, syncViewedSegmentFromScroll]);
+
+  useEffect(() => {
+    if (!phasePopoverOpen) return;
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      if (viewedPhaseId) phaseOptionRefs.current[viewedPhaseId]?.focus();
+    });
+
+    function closeOnOutsideClick(event: MouseEvent) {
+      const target = event.target as Node;
+      if (phaseTriggerRef.current?.contains(target)) return;
+      if (phasePopoverRef.current?.contains(target)) return;
+      setPhasePopoverOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setPhasePopoverOpen(false);
+      phaseTriggerRef.current?.focus();
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [phasePopoverOpen, viewedPhaseId]);
 
   useEffect(() => {
     if (!chatScrollRequest || !scrollRef.current) return;
@@ -259,6 +464,8 @@ export function SessionTranscriptStage({
     if (!segment) return;
 
     skipAutoScrollRef.current = true;
+    setIsFollowingPlayback(true);
+    setViewedSegmentId(segment.id);
 
     const scrollToSegment = () => {
       const row = rowRefs.current[segment.id];
@@ -283,6 +490,8 @@ export function SessionTranscriptStage({
     if (!activeCommentId || !scrollRef.current) return;
     for (const [segmentId, segmentComments] of commentsBySegment.entries()) {
       if (!segmentComments.some((comment) => comment.id === activeCommentId)) continue;
+      setIsFollowingPlayback(true);
+      setViewedSegmentId(segmentId);
       const row = rowRefs.current[segmentId];
       if (!row) return;
       const container = scrollRef.current;
@@ -328,87 +537,231 @@ export function SessionTranscriptStage({
   return (
     <div className={styles.stage}>
       <div className={styles.stageToolbar}>
-        <div className={styles.stageSearch}>
-          <Search size={15} />
-          <input
-            type="search"
-            placeholder="Search transcript..."
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label="Search transcript"
-          />
-        </div>
-        {activeSegment && !readOnly ? (
-          <div className={styles.transcriptToolbarActions}>
-            <button
-              type="button"
-              className={styles.transcriptToolbarAction}
-              onClick={() => openInlineCompose(activeSegment)}
-              title="Comment on the current line"
-              aria-label="Comment on the current line"
-            >
-              <MessageSquare size={15} />
-            </button>
-            <button
-              type="button"
-              className={styles.transcriptToolbarAction}
-              onClick={() => openKeyMomentCompose(activeSegment)}
-              title="Mark the current line as a key moment"
-              aria-label="Mark the current line as a key moment"
-            >
-              <Tag size={15} />
-            </button>
-          </div>
-        ) : null}
-      </div>
+        <div className={styles.transcriptToolbarRailWrap}>
+          <div className={styles.transcriptToolbarRail}>
+            <div className={styles.stageSearch}>
+              <Search size={15} aria-hidden="true" />
+              <input
+                type="search"
+                placeholder="Search transcript..."
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setIsFollowingPlayback(false);
+                }}
+                aria-label="Search transcript"
+              />
+            </div>
 
-      <div className={styles.stageBody}>
-        <div className={styles.transcriptScroll} ref={scrollRef} onScroll={handleScroll}>
-          {activePhase ? (
-            <div className={styles.transcriptSegmentDock}>
+            <span className={styles.transcriptToolbarDivider} aria-hidden="true" />
+            {viewedPhase ? (
               <button
+                ref={phaseTriggerRef}
                 type="button"
-                className={styles.transcriptSegmentDockMain}
-                onClick={() => seekTo(activePhase.startTime)}
-                aria-label={`Go to segment ${activePhaseIndex + 1}: ${activePhase.title}`}
+                className={styles.transcriptToolbarPhase}
+                onClick={() => setPhasePopoverOpen((open) => !open)}
+                aria-label={`Open transcript segments. ${phaseEyebrow} at ${formatTime(viewedPositionTime)} within ${formatSegmentTimeRange(viewedPhase.startTime, viewedPhase.endTime)}. Segment ${viewedPhasePosition.index + 1} of ${phaseCount}: ${viewedPhase.title}`}
+                aria-haspopup="dialog"
+                aria-expanded={phasePopoverOpen}
+                aria-controls={phasePopoverOpen ? phasePopoverId : undefined}
               >
-                <span className={styles.transcriptSegmentDockIndex}>{activePhaseIndex + 1}</span>
-                <span className={styles.transcriptSegmentDockCopy}>
-                  <span className={styles.transcriptSegmentDockEyebrow}>
-                    Segment {activePhaseIndex + 1} of {phaseCount}
+                <span className={styles.transcriptToolbarPhaseCopy}>
+                  <span className={styles.transcriptToolbarPhaseEyebrow}>
+                    <span>{phaseEyebrow}</span>
+                    <span className={styles.transcriptToolbarPhasePosition}>
+                      ({formatTime(viewedPositionTime)} / [{formatSegmentTimeRange(viewedPhase.startTime, viewedPhase.endTime)}])
+                    </span>
                   </span>
-                  <strong>{activePhase.title}</strong>
+                  <span className={styles.transcriptToolbarPhaseTitle}>
+                    <strong>Segment {viewedPhasePosition.index + 1} of {phaseCount}:</strong>{" "}
+                    <span className={styles.transcriptToolbarPhaseName}>{viewedPhase.title}</span>
+                  </span>
                 </span>
-                <span className={styles.transcriptSegmentDockTime}>
-                  {formatSegmentTimeRange(activePhase.startTime, activePhase.endTime)}
-                </span>
+                <ChevronDown
+                  size={14}
+                  className={phasePopoverOpen ? styles.transcriptToolbarPhaseChevronOpen : styles.transcriptToolbarPhaseChevron}
+                  aria-hidden="true"
+                />
               </button>
-              <div className={styles.transcriptSegmentDockNav} aria-label="Navigate transcript segments">
+            ) : (
+              <div className={`${styles.transcriptToolbarPhase} ${styles.transcriptToolbarPhaseStatic}`}>
+                <span className={styles.transcriptToolbarPhaseCopy}>
+                  <span className={styles.transcriptToolbarPhaseEyebrow}>
+                    <span>Currently viewing</span>
+                    <span className={styles.transcriptToolbarPhasePosition}>
+                      ({formatTime(viewedPositionTime)} / [00:00 - {formatTime(duration)}])
+                    </span>
+                  </span>
+                  <span className={styles.transcriptToolbarPhaseTitle}><strong>Full transcript</strong></span>
+                </span>
+              </div>
+            )}
+
+            {phaseCount > 0 ? (
+              <div
+                className={styles.transcriptToolbarPhaseNav}
+                role="group"
+                aria-label="Browse transcript segments"
+              >
                 <button
                   type="button"
                   onClick={() => navigatePhase(-1)}
-                  disabled={activePhaseIndex <= 0}
-                  aria-label="Previous segment"
-                  title="Previous segment"
+                  disabled={viewedPhasePosition.index <= 0}
+                  aria-label="Previous transcript segment"
+                  title="Previous transcript segment"
                 >
                   <ChevronLeft size={16} aria-hidden="true" />
                 </button>
                 <button
                   type="button"
                   onClick={() => navigatePhase(1)}
-                  disabled={activePhaseIndex >= phaseCount - 1}
-                  aria-label="Next segment"
-                  title="Next segment"
+                  disabled={viewedPhasePosition.index >= phaseCount - 1}
+                  aria-label="Next transcript segment"
+                  title="Next transcript segment"
                 >
                   <ChevronRight size={16} aria-hidden="true" />
                 </button>
               </div>
-              <span className={styles.transcriptSegmentDockProgress} aria-hidden="true">
-                <span style={{ width: `${activePhaseProgress}%` }} />
-              </span>
+            ) : null}
+
+            <span className={styles.transcriptToolbarPhaseProgress} aria-hidden="true">
+              <span
+                className={styles.transcriptToolbarPlaybackProgress}
+                style={{ width: `${playbackProgress}%` }}
+              />
+              <span
+                className={styles.transcriptToolbarViewedProgress}
+                style={{ width: `${viewedProgress}%` }}
+              />
+            </span>
+          </div>
+
+          {phasePopoverOpen && viewedPhase ? (
+            <div
+              ref={phasePopoverRef}
+              id={phasePopoverId}
+              className={styles.transcriptSegmentPopover}
+              role="dialog"
+              aria-label="Transcript segments"
+            >
+              <div className={styles.transcriptSegmentPopoverHead}>
+                <span>
+                  <strong>Transcript segments</strong>
+                  <small>Choose a section to play from there</small>
+                </span>
+                <span>{phaseCount} total</span>
+              </div>
+              <div className={styles.transcriptSegmentPopoverList}>
+                {phases?.spans.map((phase, index) => {
+                  const isViewedPhase = index === viewedPhasePosition.index;
+                  const isPlaybackPhase = index === playbackPhasePosition.index;
+                  return (
+                    <button
+                      key={phase.id}
+                      ref={(node) => { phaseOptionRefs.current[phase.id] = node; }}
+                      type="button"
+                      className={`${styles.transcriptSegmentPopoverOption} ${isViewedPhase ? styles.transcriptSegmentPopoverOptionActive : ""}`}
+                      onClick={() => playPhaseFromPopover(index)}
+                      aria-current={isViewedPhase ? "true" : undefined}
+                    >
+                      <span className={styles.transcriptSegmentPopoverIndex}>{index + 1}</span>
+                      <span className={styles.transcriptSegmentPopoverCopy}>
+                        <strong>{phase.title}</strong>
+                        <small>{formatSegmentTimeRange(phase.startTime, phase.endTime)}</small>
+                      </span>
+                      <span className={styles.transcriptSegmentPopoverMeta}>
+                        {isPlaybackPhase ? (
+                          <span className={styles.transcriptSegmentPopoverPlaying}>
+                            <Play size={10} fill="currentColor" aria-hidden="true" />
+                            Playhead
+                          </span>
+                        ) : null}
+                        {isViewedPhase ? <Check size={15} aria-label="Section in view" /> : null}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           ) : null}
+        </div>
+        {isAwayFromPlayback ? (
+          <button
+            type="button"
+            className={styles.transcriptToolbarReturnToPlayback}
+            onClick={goToPlayingMoment}
+            aria-label={`Go to ${playbackStateLabel.toLowerCase()} moment at ${formatTime(currentTime)}`}
+            title={`Go to ${playbackStateLabel.toLowerCase()} moment`}
+          >
+            <Play size={13} fill="currentColor" aria-hidden="true" />
+            <span className={styles.transcriptToolbarReturnToPlaybackLabel}>{playbackStateLabel}</span>
+            <span className={styles.transcriptToolbarReturnToPlaybackTime}>({formatTime(currentTime)})</span>
+          </button>
+        ) : null}
+        {activeSegment && !readOnly ? (
+          <div className={styles.transcriptToolbarActions}>
+            <span
+              className={styles.transcriptToolbarActionHint}
+              onMouseEnter={() => setToolbarHint("comment")}
+              onMouseLeave={() => setToolbarHint(null)}
+              onFocusCapture={() => setToolbarHint("comment")}
+              onBlurCapture={() => setToolbarHint(null)}
+            >
+              <button
+                type="button"
+                className={styles.transcriptToolbarAction}
+                onClick={() => openInlineCompose(activeSegment)}
+                aria-label="Comment on the current line"
+                aria-describedby={toolbarHint === "comment" ? commentTooltipId : undefined}
+                aria-keyshortcuts="Enter"
+              >
+                <MessageSquare size={15} aria-hidden="true" />
+              </button>
+              {toolbarHint === "comment" ? (
+                <span id={commentTooltipId} className={styles.transcriptToolbarActionTooltip} role="tooltip">
+                  <span><strong>Comment on this line</strong><small>Add a note at the current playhead.</small></span>
+                  <kbd>Enter</kbd>
+                </span>
+              ) : null}
+            </span>
+            <span
+              className={styles.transcriptToolbarActionHint}
+              onMouseEnter={() => setToolbarHint("moment")}
+              onMouseLeave={() => setToolbarHint(null)}
+              onFocusCapture={() => setToolbarHint("moment")}
+              onBlurCapture={() => setToolbarHint(null)}
+            >
+              <button
+                type="button"
+                className={styles.transcriptToolbarAction}
+                onClick={() => openKeyMomentCompose(activeSegment)}
+                aria-label="Mark the current line as a key moment"
+                aria-describedby={toolbarHint === "moment" ? keyMomentTooltipId : undefined}
+                aria-keyshortcuts="T"
+              >
+                <Tag size={15} aria-hidden="true" />
+              </button>
+              {toolbarHint === "moment" ? (
+                <span id={keyMomentTooltipId} className={styles.transcriptToolbarActionTooltip} role="tooltip">
+                  <span><strong>Mark a key moment</strong><small>Save this point for coaching.</small></span>
+                  <kbd>T</kbd>
+                </span>
+              ) : null}
+            </span>
+          </div>
+        ) : null}
+      </div>
 
+      <div className={styles.stageBody}>
+        <div
+          className={styles.transcriptScroll}
+          ref={scrollRef}
+          onScroll={handleScroll}
+          onWheel={beginBrowsingTranscript}
+          onTouchStart={beginBrowsingTranscript}
+          onPointerDown={beginBrowsingTranscript}
+          onKeyDownCapture={handleTranscriptBrowseKeyDown}
+        >
           {filteredTranscript.length === 0 ? (
             <div className={styles.transcriptEmpty}>No transcript available yet.</div>
           ) : (
@@ -433,7 +786,7 @@ export function SessionTranscriptStage({
                       <button
                         type="button"
                         className={styles.transcriptSegmentLandmarkButton}
-                        onClick={() => seekTo(phase.startTime)}
+                        onClick={() => seekFromTranscript(phaseSeekTime(phase))}
                       >
                         <span className={styles.transcriptSegmentLandmarkIndex}>{segmentNumber}</span>
                         <span className={styles.transcriptSegmentLandmarkCopy}>
@@ -473,7 +826,7 @@ export function SessionTranscriptStage({
                       <button
                         type="button"
                         className={styles.transcriptRow}
-                        onClick={() => seekTo(seg.startTime)}
+                        onClick={() => seekFromTranscript(seg.startTime)}
                         onDoubleClick={(event) => {
                           if (readOnly) return;
                           event.preventDefault();
@@ -499,7 +852,11 @@ export function SessionTranscriptStage({
                               key={moment.id}
                               type="button"
                               className={`${styles.transcriptMomentMarker} ${selectedMomentId === moment.id ? styles.transcriptMomentMarkerActive : ""}`}
-                              onClick={() => onMomentClick(moment)}
+                              onClick={() => {
+                                setIsFollowingPlayback(true);
+                                setViewedSegmentId(seg.id);
+                                onMomentClick(moment);
+                              }}
                               title={`Open key moment: ${moment.label}`}
                               aria-current={selectedMomentId === moment.id ? "true" : undefined}
                             >
@@ -561,13 +918,13 @@ export function SessionTranscriptStage({
                           tabIndex={0}
                           className={`${styles.floatingComment} ${activeCommentId === comment.id ? styles.floatingCommentActive : ""}`}
                           onClick={() => {
-                            if (comment.timestampSec != null) seekTo(comment.timestampSec);
+                            if (comment.timestampSec != null) seekFromTranscript(comment.timestampSec);
                             onCommentSelect(comment.id);
                           }}
                           onKeyDown={(event) => {
                             if (event.key !== "Enter" && event.key !== " ") return;
                             event.preventDefault();
-                            if (comment.timestampSec != null) seekTo(comment.timestampSec);
+                            if (comment.timestampSec != null) seekFromTranscript(comment.timestampSec);
                             onCommentSelect(comment.id);
                           }}
                           onDoubleClick={(event) => {

@@ -311,26 +311,6 @@ export function SessionDetailExperience({
     setComments(updated);
   }, []);
 
-  const handleScrollTimeChange = useCallback((seconds: number) => {
-    if (isPlaying) return;
-    const clamped = effectiveDuration > 0
-      ? Math.max(0, Math.min(effectiveDuration, seconds))
-      : Math.max(0, seconds);
-    setCurrentTime(clamped);
-
-    const idx = moments.findIndex((moment, index) => {
-      const next = moments[index + 1];
-      return clamped >= moment.timestamp && (!next || clamped < next.timestamp);
-    });
-    if (idx >= 0) setSelectedMomentIndex(idx);
-
-    const commentIdx = navigableComments.findIndex((comment) => {
-      if (comment.timestampSec == null) return false;
-      return Math.abs(comment.timestampSec - clamped) < 3;
-    });
-    if (commentIdx >= 0) setSelectedCommentIndex(commentIdx);
-  }, [effectiveDuration, isPlaying, moments, navigableComments]);
-
   useEffect(() => {
     if (mediaRef.current) mediaRef.current.playbackRate = playbackRate;
   }, [playbackRate, src]);
@@ -397,7 +377,6 @@ export function SessionDetailExperience({
           activeCommentId={activeCommentId}
           selectedMomentId={moments[selectedMomentIndex]?.id ?? null}
           seekTo={(seconds) => seekTo(seconds, { play: true })}
-          onScrollTimeChange={handleScrollTimeChange}
           onCommentsUpdated={refreshComments}
           onInlineComposeOpen={() => setShowComments(true)}
           onCommentSelect={handleCommentSelect}

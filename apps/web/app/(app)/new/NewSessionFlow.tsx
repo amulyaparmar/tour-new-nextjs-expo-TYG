@@ -80,6 +80,7 @@ export function NewSessionFlow({ propertyLocation, profileName }: { propertyLoca
     else params.set("tab", tab);
     // Switching tabs exits any deep view / phase carried in the URL.
     params.delete("attempt");
+    params.delete("edit");
     params.delete("mode");
     const query = params.toString();
     router.push(query ? `/new?${query}` : "/new", { scroll: false });

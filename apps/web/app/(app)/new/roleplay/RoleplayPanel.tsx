@@ -24,15 +24,21 @@ export function RoleplayPanel({ profileName }) {
   const [view, setView] = useState("home"); // home | edit | run | scorecard
   const [scenarios, setScenarios] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeScenario, setActiveScenario] = useState(null); // for edit/run
+  const [activeScenario, setActiveScenario] = useState(null); // for run/scorecard
   const [lastCallId, setLastCallId] = useState(null); // for scorecard
   const [lastTranscript, setLastTranscript] = useState([]); // live turns for scorecard
-  // The opened history attempt lives in the URL (?attempt=<id>) so browser
-  // back/forward steps between the detail view and the panel home. Run and
-  // scorecard stay local state on purpose — a restored URL cannot resurrect
-  // an in-flight call. The attempt param takes precedence over local view.
+  // Deep views live in the URL so browser back/forward steps between them and
+  // the panel home: ?attempt=<id> opens a history detail, ?edit=<scenarioId>
+  // (or ?edit=new) opens the scenario editor. Run and scorecard stay local
+  // state on purpose — a restored URL cannot resurrect an in-flight call.
+  // Precedence: attempt > edit > local view; openers clear each other.
   const historyAttemptId = searchParams.get("attempt");
-  const effectiveView = historyAttemptId ? "history-detail" : view;
+  const editParam = searchParams.get("edit");
+  const effectiveView = historyAttemptId ? "history-detail" : editParam ? "edit" : view;
+  const editingScenario =
+    editParam && editParam !== "new"
+      ? scenarios.find((scenario) => scenario.id === editParam) ?? null
+      : null;
 
   const withParams = (mutate) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -45,12 +51,27 @@ export function RoleplayPanel({ profileName }) {
       withParams((params) => {
         params.set("tab", "roleplay");
         params.set("attempt", attemptId);
+        params.delete("edit");
       }),
       { scroll: false }
     );
   const closeAttempt = () =>
     router.push(
       withParams((params) => params.delete("attempt")),
+      { scroll: false }
+    );
+  const openEditor = (scenarioId) =>
+    router.push(
+      withParams((params) => {
+        params.set("tab", "roleplay");
+        params.set("edit", scenarioId || "new");
+        params.delete("attempt");
+      }),
+      { scroll: false }
+    );
+  const closeEditor = () =>
+    router.push(
+      withParams((params) => params.delete("edit")),
       { scroll: false }
     );
 
@@ -79,7 +100,7 @@ export function RoleplayPanel({ profileName }) {
       if (idx >= 0) return prev.map((s) => (s.id === scenario.id ? scenario : s));
       return [scenario, ...prev];
     });
-    setView("home");
+    closeEditor();
   };
 
   const handleDelete = async (scenario) => {
@@ -113,10 +134,7 @@ export function RoleplayPanel({ profileName }) {
               </p>
             </div>
             <button
-              onClick={() => {
-                setActiveScenario(null);
-                setView("edit");
-              }}
+              onClick={() => openEditor("new")}
               className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors shrink-0"
             >
               <Plus size={17} /> New scenario
@@ -130,10 +148,7 @@ export function RoleplayPanel({ profileName }) {
               setActiveScenario(s);
               setView("run");
             }}
-            onEdit={(s) => {
-              setActiveScenario(s);
-              setView("edit");
-            }}
+            onEdit={(s) => openEditor(s.id)}
             onDelete={handleDelete}
           />
 
@@ -159,15 +174,30 @@ export function RoleplayPanel({ profileName }) {
             />
           )}
 
-          {view === "edit" && (
-            <ScenarioEditor
-              scenario={activeScenario}
-              onSaved={handleSaved}
-              onCancel={() => setView("home")}
-            />
-          )}
+          {effectiveView === "edit" &&
+            (editParam === "new" || editingScenario ? (
+              <ScenarioEditor
+                key={editParam}
+                scenario={editParam === "new" ? null : editingScenario}
+                onSaved={handleSaved}
+                onCancel={closeEditor}
+              />
+            ) : loading ? (
+              <div className="py-20 text-center text-gray-400">Loading scenario…</div>
+            ) : (
+              <div className="w-full rounded-xl border border-dashed border-gray-300 px-4 py-16 text-center text-gray-500">
+                Scenario not found.
+                <button
+                  type="button"
+                  onClick={closeEditor}
+                  className="mx-auto mt-3 block text-sm text-blue-600 hover:text-blue-800"
+                >
+                  Back to scenarios
+                </button>
+              </div>
+            ))}
 
-          {view === "run" && activeScenario && (
+          {effectiveView === "run" && activeScenario && (
             <RoleplaySession
               scenario={activeScenario}
               traineeName={profileName}
@@ -180,7 +210,7 @@ export function RoleplayPanel({ profileName }) {
             />
           )}
 
-          {view === "scorecard" && activeScenario && lastCallId && (
+          {effectiveView === "scorecard" && activeScenario && lastCallId && (
             <Scorecard
               callId={lastCallId}
               scenario={activeScenario}

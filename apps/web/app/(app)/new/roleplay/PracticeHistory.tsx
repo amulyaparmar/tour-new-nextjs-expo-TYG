@@ -65,7 +65,7 @@ export const PracticeHistory = ({ onOpen }) => {
         <div className="flex items-center gap-3">
           <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5">
             {[
-              ["mine", "Mine"],
+              ["mine", "You"],
               ["team", "Team"],
             ].map(([id, label]) => (
               <button

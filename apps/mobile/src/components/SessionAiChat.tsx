@@ -1,5 +1,5 @@
 import { appendDictationText, type AnalysisResult } from "@tour/shared";
-import { ArrowUp, Sparkles } from "lucide-react-native";
+import { ArrowUp } from "lucide-react-native";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,6 +27,7 @@ import {
 import { AiChatText } from "./AiChatText";
 import { ElevenLabsDictationButton } from "./ElevenLabsDictationButton";
 import { Icon } from "@/components/ui/icon";
+import { MrTourStateImage } from "@/components/MrTourStateImage";
 
 const C = {
   brand: "#006CE5",
@@ -167,7 +168,7 @@ export function SessionAiChat({ sessionId, analysis, onSeek, showHeader = true, 
       >
         {messages.length === 0 ? (
           <View style={styles.starter}>
-            <Icon as={Sparkles} size={26} color={C.brand} />
+            <MrTourStateImage state="assistant" size={112} />
             <Text style={styles.emptyTitle}>Ask Tour AI about this tour</Text>
             <Text style={styles.emptyBody}>
               It uses the session, scorecard, transcript, coaching moments, and community context.

@@ -1,4 +1,3 @@
-import { Sparkles } from "lucide-react-native";
 import React, { useMemo } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -10,13 +9,11 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Icon } from "@/components/ui/icon";
-import { Text } from "@/components/ui/text";
 import { selectionHaptic } from "@/lib/haptics";
-import { tourColors } from "@/theme/tour-brand";
+import { MrTourStateImage } from "@/components/MrTourStateImage";
 
-const FAB_WIDTH = 78;
-const FAB_HEIGHT = 46;
+const FAB_WIDTH = 64;
+const FAB_HEIGHT = 64;
 const EDGE_PAD = 18;
 
 function clamp(value: number, min: number, max: number) {
@@ -98,11 +95,10 @@ export function SessionAiFab({
       <GestureDetector gesture={gesture}>
         <Animated.View
           accessibilityRole="button"
-          accessibilityLabel="Open AI chat"
+          accessibilityLabel="Open Tour AI chat"
           style={[styles.button, animatedStyle]}
         >
-          <Icon as={Sparkles} size={17} color="#fff" />
-          <Text style={styles.text}>AI</Text>
+          <MrTourStateImage state="assistant" size={58} />
         </Animated.View>
       </GestureDetector>
     </View>
@@ -117,23 +113,17 @@ const styles = StyleSheet.create({
   },
   button: {
     width: FAB_WIDTH,
-    minHeight: FAB_HEIGHT,
-    flexDirection: "row",
+    height: FAB_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
     borderRadius: 999,
-    paddingHorizontal: 16,
-    backgroundColor: tourColors.brand,
+    borderWidth: 2,
+    borderColor: "#b2ddff",
+    backgroundColor: "#fff",
     shadowColor: "#101828",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
     elevation: 8,
-  },
-  text: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "900",
   },
 });

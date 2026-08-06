@@ -172,6 +172,7 @@ import { BottomSheetModal } from "@/components/bottom-sheet-modal";
 import { CheckInSheet } from "./src/components/check-in/check-in-sheet";
 import { ProfileEditorScreen, resolveCardAccent } from "./src/components/profile/profile-editor-screen";
 import { VideoAssetRecorder, type RecordedVideoAsset } from "./src/assets/VideoAssetRecorder";
+import { MrTourStateImage } from "./src/components/MrTourStateImage";
 import {
   queryKeys,
   useCalendarEventsQuery,
@@ -2065,7 +2066,7 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     if (samplesAvailable && !search && statusFilter === "all") {
       return (
         <Reanimated.View entering={FadeInDown.duration(280).springify()} style={slst.sampleEmptyCard}>
-          <View style={slst.sampleEmptyIcon}><Ionicons name="sparkles" size={25} color={C.purple} /></View>
+          <MrTourStateImage state="empty" size={140} />
           <Text style={slst.sampleEmptyTitle}>No sessions yet</Text>
           <Text style={slst.sampleEmptySub}>
             Explore real, fully analyzed tours from 40Fifty Lofts while your team records its first session.
@@ -2087,8 +2088,13 @@ function SessionsListScreen({ onBack, onCommunityPress, onSession, onSampleSessi
     return (
       <EmptyState
         icon={search || statusFilter !== "all" ? "search-outline" : "albums-outline"}
+        mascot={search || statusFilter !== "all" ? "search" : "empty"}
         title={search || statusFilter !== "all" ? "No matching sessions" : "No sessions yet"}
-        subtitle="Recent tours will appear here"
+        subtitle={
+          search || statusFilter !== "all"
+            ? "Try another search or clear your filters."
+            : "Record or upload a tour to get started."
+        }
       />
     );
   }, [loading, sampleSessionsQuery, samplesAvailable, search, sessions.length, showSamples, statusFilter]);
@@ -2557,7 +2563,7 @@ function MaterialsScreen({ materials, tourLibrary, loading, onReload, onBack, on
         </Pressable>
       </View>
 
-      {loading ? <LoadingBox /> : materials.length === 0 ? <EmptyState icon="folder-open-outline" title="No materials" subtitle="Tour videos and community resources will appear here" /> : (
+      {loading ? <LoadingBox /> : materials.length === 0 ? <EmptyState icon="folder-open-outline" mascot="empty" title="No materials" subtitle="Tour videos and community resources will appear here" /> : (
         <View style={assetSt.grid}>
           {materials.map((material) => {
             const previewUrl = materialPreviewUrl(material);
@@ -4184,7 +4190,7 @@ function SessionReviewExperience({
               {!searchQuery.trim() ? (
                 <Text style={reviewSt.searchHint}>Search names, phrases, questions, or moments from this session.</Text>
               ) : searchResults.length === 0 ? (
-                <EmptyState icon="search-outline" title="No matches" subtitle="Try another word or phrase." />
+                <EmptyState icon="search-outline" mascot="search" title="No matches" subtitle="Try another word or phrase." />
               ) : (
                 <View style={reviewSt.searchResults}>
                   <Text style={reviewSt.searchCount}>{searchResults.length} result{searchResults.length === 1 ? "" : "s"}</Text>
@@ -5752,7 +5758,7 @@ function CommentsTab({
 
       {/* Comments list */}
       {topLevel.length === 0 ? (
-        <EmptyState icon="chatbubbles-outline" title="No comments yet" subtitle="Be the first to add feedback on this session" />
+        <EmptyState icon="chatbubbles-outline" mascot="empty" title="No comments yet" subtitle="Be the first to add feedback on this session" />
       ) : (
         topLevel.map((c) => (
           <View key={c.id} style={st.card}>
@@ -5900,7 +5906,7 @@ function RubricsScreen({
               <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
             </MotionPressable>
           {loading ? <LoadingBox /> : rubrics.length === 0 ? (
-            <EmptyState icon="clipboard-outline" title="No rubrics" subtitle="Evaluation templates will appear here" />
+            <EmptyState icon="clipboard-outline" mascot="empty" title="No rubrics" subtitle="Evaluation templates will appear here" />
           ) : (
             <>
               {defaultRubric && (

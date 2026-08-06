@@ -13,6 +13,10 @@ import { Text } from "@/components/ui/text";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { UIColors } from "@/lib/ui-colors";
 import { selectionHaptic } from "@/lib/haptics";
+import {
+  MrTourStateImage,
+  type MrTourState,
+} from "@/components/MrTourStateImage";
 
 const st = StyleSheet.create({
   backBtn: { alignSelf: "flex-start", borderRadius: 999, paddingHorizontal: 12 },
@@ -198,10 +202,12 @@ export function TourSegPicker({
 
 export function TourEmptyState({
   icon,
+  mascot,
   title,
   subtitle,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
+  mascot?: Extract<MrTourState, "empty" | "search">;
   title: string;
   subtitle?: string;
 }) {
@@ -209,7 +215,11 @@ export function TourEmptyState({
     <Reanimated.View entering={FadeInDown.duration(260).springify()}>
       <Card style={st.emptyCard}>
         <CardContent style={st.emptyContent}>
-          <Ionicons name={icon} size={36} color="#94a3b8" />
+          {mascot ? (
+            <MrTourStateImage state={mascot} size={140} />
+          ) : (
+            <Ionicons name={icon} size={36} color="#94a3b8" />
+          )}
           <Text style={st.emptyTitle}>{title}</Text>
           {subtitle ? <Text style={st.emptySub}>{subtitle}</Text> : null}
         </CardContent>

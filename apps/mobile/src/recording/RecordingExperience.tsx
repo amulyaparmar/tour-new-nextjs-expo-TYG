@@ -52,6 +52,7 @@ import { supportsBackgroundRecording } from "../runtime";
 import { formatElapsed } from "./formatElapsed";
 import { useRecording, WAVEFORM_BAR_COUNT } from "./RecordingProvider";
 import { ElevenLabsDictationButton } from "../components/ElevenLabsDictationButton";
+import { MrTourStateImage } from "../components/MrTourStateImage";
 
 const C = {
   bg: "#F7F8FB",
@@ -1263,7 +1264,7 @@ export function RecordingExperience({
               >
                 {chatMessages.length === 0 ? (
                   <View style={s.emptyChat}>
-                    <Ionicons name="sparkles-outline" size={26} color={C.brand} />
+                    <MrTourStateImage state="assistant" size={108} />
                     <Text style={s.emptyChatTitle}>Ask Tour AI during the tour</Text>
                     <Text style={s.emptyChatBody}>
                       It uses the session, community, notes, selected assets, and live transcript context.

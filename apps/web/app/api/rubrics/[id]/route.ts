@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { isTranscribeProviderId } from "@tour/shared";
+import {
+  isAnalysisModelId,
+  isGeminiAudioModelId,
+  isTranscribeProviderId,
+  normalizeAudioAnalysisModes,
+} from "@tour/shared";
 
 import {
   AdminAuthError,
@@ -48,8 +53,11 @@ export async function PATCH(request: Request, context: Context) {
       sourceUrl?: string | null;
       isDefault?: boolean;
       analysisModel?: string;
+      nameExtractionModel?: string;
       transcribeProvider?: unknown;
       audioUnderstandingEnabled?: boolean;
+      audioAnalysisModes?: unknown;
+      audioAnalysisModel?: string;
       sessionType?: string;
       segmentationPrompt?: string | null;
       analysisPrompt?: string | null;
@@ -70,6 +78,22 @@ export async function PATCH(request: Request, context: Context) {
     ) {
       return NextResponse.json({ error: "Invalid transcription provider." }, { status: 400 });
     }
+    if (body.analysisModel !== undefined && !isAnalysisModelId(body.analysisModel)) {
+      return NextResponse.json({ error: "Invalid analysis model." }, { status: 400 });
+    }
+    if (body.nameExtractionModel !== undefined && !isAnalysisModelId(body.nameExtractionModel)) {
+      return NextResponse.json({ error: "Invalid name extraction model." }, { status: 400 });
+    }
+    if (body.audioAnalysisModel !== undefined && !isGeminiAudioModelId(body.audioAnalysisModel)) {
+      return NextResponse.json({ error: "Invalid audio analysis model." }, { status: 400 });
+    }
+    if (
+      body.audioAnalysisModes !== undefined
+      && (!Array.isArray(body.audioAnalysisModes)
+        || normalizeAudioAnalysisModes(body.audioAnalysisModes).length !== body.audioAnalysisModes.length)
+    ) {
+      return NextResponse.json({ error: "Invalid audio analysis modes." }, { status: 400 });
+    }
 
     const rubric = await updateRubric(id, {
       name: body.name,
@@ -77,8 +101,11 @@ export async function PATCH(request: Request, context: Context) {
       sourceUrl: body.sourceUrl,
       isDefault: body.isDefault,
       analysisModel: body.analysisModel as never,
+      nameExtractionModel: body.nameExtractionModel as never,
       transcribeProvider: body.transcribeProvider,
       audioUnderstandingEnabled: body.audioUnderstandingEnabled,
+      audioAnalysisModes: body.audioAnalysisModes as never,
+      audioAnalysisModel: body.audioAnalysisModel as never,
       sessionType: body.sessionType,
       segmentationPrompt: body.segmentationPrompt,
       analysisPrompt: body.analysisPrompt,

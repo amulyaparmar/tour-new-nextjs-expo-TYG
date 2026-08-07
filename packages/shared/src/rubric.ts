@@ -1,5 +1,34 @@
 import type { AnalysisModelId } from "./ai-models";
+import type { GeminiAudioModelId } from "./gemini-models";
 import type { TranscribeProviderId } from "./transcribe-providers";
+
+export const AUDIO_ANALYSIS_MODES = [
+  "emotion",
+  "conversation_dynamics",
+  "ambience",
+  "participant_identity",
+] as const;
+
+export type AudioAnalysisMode = (typeof AUDIO_ANALYSIS_MODES)[number];
+
+export const AUDIO_ANALYSIS_MODE_LABELS: Record<AudioAnalysisMode, string> = {
+  emotion: "Emotion and sentiment",
+  conversation_dynamics: "Conversation dynamics",
+  ambience: "Environment and ambience",
+  participant_identity: "Participant identity",
+};
+
+export const DEFAULT_AUDIO_ANALYSIS_MODES: readonly AudioAnalysisMode[] = [
+  "emotion",
+  "conversation_dynamics",
+  "ambience",
+  "participant_identity",
+];
+
+export function normalizeAudioAnalysisModes(value: unknown): AudioAnalysisMode[] {
+  if (!Array.isArray(value)) return [];
+  return AUDIO_ANALYSIS_MODES.filter((mode) => value.includes(mode));
+}
 
 export type RubricItem = {
   id: string;
@@ -26,10 +55,16 @@ export type Rubric = {
   definition: RubricDefinition;
   /** Standardized model id for AI rubric analysis (mapped to provider at runtime). */
   analysisModel: AnalysisModelId;
+  /** Text model used for the focused participant-name extraction pass. */
+  nameExtractionModel: AnalysisModelId;
   /** Transcription provider for sessions using this rubric. Defaults to ElevenLabs Scribe. */
   transcribeProvider: TranscribeProviderId;
   /** Optional post-transcription Gemini audio insights (sentiment, emotion, ambience). */
   audioUnderstandingEnabled: boolean;
+  /** Selected audio-native signals to extract. Empty means audio analysis is off. */
+  audioAnalysisModes: AudioAnalysisMode[];
+  /** Multimodal model for selected audio-native signals. */
+  audioAnalysisModel: GeminiAudioModelId;
   /** Preset id or custom label describing the session format this rubric targets. */
   sessionType: string;
   /** Optional override for the segmentation system prompt. */
@@ -48,8 +83,11 @@ export type CreateRubricInput = {
   name: string;
   definition: RubricDefinition;
   analysisModel?: AnalysisModelId;
+  nameExtractionModel?: AnalysisModelId;
   transcribeProvider?: TranscribeProviderId;
   audioUnderstandingEnabled?: boolean;
+  audioAnalysisModes?: AudioAnalysisMode[];
+  audioAnalysisModel?: GeminiAudioModelId;
   sessionType?: string;
   segmentationPrompt?: string | null;
   analysisPrompt?: string | null;

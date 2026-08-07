@@ -65,6 +65,21 @@ export function getApiBaseUrl(): string {
 /** Public site URL for follow-up links (defaults to API host in dev). */
 export function getSiteBaseUrl(): string {
   const site = process.env.EXPO_PUBLIC_SITE_URL?.trim();
-  if (site) return site.replace(/\/+$/, "");
+  if (site) {
+    const configuredUrl = site.replace(/\/+$/, "");
+    const metroHost = metroLanHostname();
+    try {
+      const url = new URL(configuredUrl);
+      // The practice experience is opened in the device browser. Keep a local
+      // site URL reachable when Metro is serving the app over LAN.
+      if (__DEV__ && metroHost && isMutableLanHost(url.hostname)) {
+        url.hostname = metroHost;
+        return url.toString().replace(/\/+$/, "");
+      }
+      return configuredUrl;
+    } catch {
+      return configuredUrl;
+    }
+  }
   return getApiBaseUrl();
 }

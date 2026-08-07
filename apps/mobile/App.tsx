@@ -56,6 +56,7 @@ import {
   type FollowUpAction,
   type Rubric,
   type SessionAttachment,
+  type SessionCustomerInterest,
   type SessionLead,
   type SessionSummary,
   type AudioInsights,
@@ -69,6 +70,7 @@ import {
   formatRecordingUploadTitle,
   rubricItemCount,
   rubricTotalPoints,
+  type ProspectInterestCategory,
 } from "@tour/shared";
 import {
   findPhaseForTimestamp,
@@ -149,6 +151,7 @@ import {
   SessionAiChatScreen,
   SessionAiFab,
   SessionAudioInsightsScreen,
+  ProspectInsightsCard,
   SessionModeTabs,
   SessionPlayer,
   SessionReviewSkeleton,
@@ -201,6 +204,7 @@ import { Text as UiText } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { BulkUploadDock, BulkUploadFlow } from "./src/bulk-upload/BulkUploadFlow";
 import { SessionReportScreen } from "./src/reports/SessionReportScreen";
+import { PracticeSessionsScreen } from "./src/practice/PracticeSessionsScreen";
 
 const loginBackground = require("./assets/videos/login-bg.mp4");
 
@@ -217,6 +221,7 @@ type Screen =
   | { type: "create-session" }
   | { type: "audio-test" }
   | { type: "rubrics" }
+  | { type: "practice" }
   | { type: "tour" };
 
 type TourStep = "contact" | "preferences" | "ready";
@@ -603,6 +608,7 @@ function screenRank(screen: Screen) {
   if (screen.type === "tour") return 11;
   if (screen.type === "create-session") return 12;
   if (screen.type === "rubrics") return 12;
+  if (screen.type === "practice") return 12;
   if (screen.type === "session-detail") return 13;
   if (screen.type === "session-comments") return 14;
   if (screen.type === "session-ai-chat") return 14;
@@ -872,6 +878,7 @@ export default function App() {
                   }}
                   onProfile={() => nav({ type: "main", tab: "card" })}
                   onRubrics={() => nav({ type: "rubrics" })}
+                  onPractice={() => nav({ type: "practice" })}
                   onSignOut={() => {
                     void clearSession().then(() => {
                       appQueryClient.clear();
@@ -961,6 +968,7 @@ export default function App() {
               )}
               {screen.type === "audio-test" && <AudioTestScreen onBack={() => nav({ type: "main", tab: "home" })} />}
               {screen.type === "rubrics" && <RubricsScreen session={authSession} onBack={() => nav({ type: "main", tab: "settings" })} onSession={(id) => nav({ type: "session-detail", sessionId: id })} />}
+              {screen.type === "practice" && <PracticeSessionsScreen onBack={() => nav({ type: "main", tab: "home" })} />}
               {screen.type === "tour" && (
                 <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
                   <TourStepper session={authSession} idx={tourIdx} prospect={prospect} step={tourStep} onBack={() => nav({ type: "main", tab: "card" })} onChange={(k, v) => setProspect((c) => ({ ...c, [k]: v }))} onStep={setTourStep} />
@@ -1023,7 +1031,7 @@ const TAB_ITEMS: Array<{ id: MainTab; label: string; icon: keyof typeof Ionicons
   { id: "settings", label: "Settings", icon: "settings-outline", iconActive: "settings" },
 ];
 
-function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTest, onGuestRegistration, onProfile, onRubrics, onSignOut, authSession, onAuthSession, agentName, property }: {
+function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTest, onGuestRegistration, onProfile, onRubrics, onPractice, onSignOut, authSession, onAuthSession, agentName, property }: {
   tab: MainTab;
   onTab: (t: MainTab) => void;
   onSession: (id: string, opts?: { autoStartRecording?: boolean }) => void;
@@ -1033,6 +1041,7 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
   onGuestRegistration: () => void;
   onProfile: () => void;
   onRubrics: () => void;
+  onPractice: () => void;
   onSignOut: () => void;
   authSession: MobileAuthSession;
   onAuthSession: (session: MobileAuthSession) => void;
@@ -1205,6 +1214,7 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
                 onCreate={onCreate}
                 onAudioTest={onAudioTest}
                 onAssets={openMaterials}
+                onPractice={onPractice}
                 onCommunityPress={() => setCommunityPickerOpen(true)}
                 agentName={agentName}
                 userTitle={profile?.title ?? authSession.workspace.user.title ?? "Leasing Consultant"}
@@ -1350,7 +1360,7 @@ const errorBannerSt = StyleSheet.create({
 // Dashboard
 // ═══════════════════════════════════════
 
-function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrary, loading, onSession, onProfile, onCheckIn, onCreate, onAudioTest, onAssets, onCommunityPress, agentName, userTitle, userPhone, userEmail, cardAccent, property }: {
+function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrary, loading, onSession, onProfile, onCheckIn, onCreate, onAudioTest, onAssets, onPractice, onCommunityPress, agentName, userTitle, userPhone, userEmail, cardAccent, property }: {
   sessions: SessionSummary[];
   upcomingSessions: SessionSummary[];
   materialCount: number;
@@ -1362,6 +1372,7 @@ function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrar
   onCreate: () => void;
   onAudioTest: () => void;
   onAssets: () => void;
+  onPractice: () => void;
   onCommunityPress: () => void;
   agentName: string;
   userTitle: string;
@@ -1430,6 +1441,24 @@ function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrar
           <Text style={homeSt.checkInPillText}>New Session</Text>
         </MotionPressable>
       </View>
+
+      <HomeSection title="Practice">
+        <MotionPressable
+          accessibilityLabel="Open AI practice sessions"
+          onPress={onPractice}
+          haptic="selection"
+          style={homeSt.practiceCard}
+        >
+          <View style={homeSt.practiceIcon}>
+            <Ionicons name="sparkles" size={21} color="#fff" />
+          </View>
+          <View style={st.flex1}>
+            <Text style={homeSt.practiceTitle}>Practice with an AI prospect</Text>
+            <Text style={homeSt.practiceMeta}>Choose a scenario, rehearse live, and review graded attempts.</Text>
+          </View>
+          <Ionicons name="arrow-forward" size={18} color={C.brand} />
+        </MotionPressable>
+      </HomeSection>
 
       {todayTours.length > 0 && (
         <HomeSection title="Needs your attention">
@@ -2954,6 +2983,7 @@ function CreateSessionScreen({
 
   const [title, setTitle] = useState("");
   const [prospect, setProspect] = useState(pendingUpload?.draft.prospect ?? "");
+  const [customerInterests, setCustomerInterests] = useState<SessionCustomerInterest[]>([]);
   const [location, setLocation] = useState(pendingUpload?.draft.location ?? "");
   const [notes, setNotes] = useState(pendingUpload?.draft.notes ?? "");
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
@@ -3235,12 +3265,13 @@ function CreateSessionScreen({
     if (!sessionId) return;
     setSubmitting(true);
 
-    const patchBody: Record<string, string> = {};
+    const patchBody: Record<string, unknown> = {};
     if (title.trim()) patchBody.title = title.trim();
     if (prospect.trim()) patchBody.prospectName = prospect.trim();
     if (location.trim()) patchBody.location = location.trim();
     if (notes.trim()) patchBody.notes = notes.trim();
     if (rubricId) patchBody.rubricId = rubricId;
+    if (customerInterests.length > 0) patchBody.customerInterests = customerInterests;
 
     if (Object.keys(patchBody).length > 0) {
       try {
@@ -3339,6 +3370,7 @@ function CreateSessionScreen({
             />
             <Input placeholder="Session title" value={title} onChangeText={setTitle} icon="text-outline" />
             <Input placeholder="Prospect name" value={prospect} onChangeText={setProspect} icon="person-outline" />
+            <ProspectInterestPicker interests={customerInterests} onChange={setCustomerInterests} />
             <Input placeholder="Location / unit" value={location} onChangeText={setLocation} icon="location-outline" />
             {rubrics.length > 0 && (
               <View>
@@ -3413,6 +3445,120 @@ function AgentIdentityToggle({
     </Pressable>
   );
 }
+
+const MOBILE_INTEREST_CHOICES: Array<{ category: ProspectInterestCategory; detail: string }> = [
+  { category: "floor_plan", detail: "1 bedroom" },
+  { category: "floor_plan", detail: "2 bedroom" },
+  { category: "budget_specials", detail: "Budget" },
+  { category: "move_in_timing", detail: "Move-in timing" },
+  { category: "amenities", detail: "Amenities" },
+  { category: "pets", detail: "Pet friendly" },
+  { category: "parking_transportation", detail: "Parking" },
+  { category: "lease_terms", detail: "Lease terms" },
+];
+
+function ProspectInterestPicker({
+  interests,
+  onChange,
+}: {
+  interests: SessionCustomerInterest[];
+  onChange: (next: SessionCustomerInterest[]) => void;
+}) {
+  const [customInterest, setCustomInterest] = useState("");
+  const selected = new Set(interests.map((interest) => interest.detail.toLowerCase()));
+
+  function addInterest(category: ProspectInterestCategory, detail: string) {
+    const clean = detail.trim().slice(0, 120);
+    if (!clean || selected.has(clean.toLowerCase()) || interests.length >= 8) return;
+    onChange([...interests, { id: `mobile-${Date.now()}-${interests.length}`, category, detail: clean }]);
+    setCustomInterest("");
+  }
+
+  return (
+    <View style={prospectFormSt.wrap}>
+      <View style={prospectFormSt.heading}>
+        <View style={prospectFormSt.icon}><Ionicons name="heart-outline" size={16} color={C.brand} /></View>
+        <View style={st.flex1}>
+          <Text style={prospectFormSt.title}>Prospect interests</Text>
+          <Text style={prospectFormSt.subtitle}>Optional context for a more tailored analysis</Text>
+        </View>
+      </View>
+
+      {interests.length > 0 ? (
+        <View style={prospectFormSt.selectedList}>
+          {interests.map((interest) => (
+            <Pressable
+              key={interest.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${interest.detail}`}
+              onPress={() => onChange(interests.filter((item) => item.id !== interest.id))}
+              style={prospectFormSt.selectedChip}
+            >
+              <Text style={prospectFormSt.selectedChipText}>{interest.detail}</Text>
+              <Ionicons name="close" size={14} color={C.brand} />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      <View style={prospectFormSt.optionList}>
+        {MOBILE_INTEREST_CHOICES.filter((choice) => !selected.has(choice.detail.toLowerCase())).map((choice) => (
+          <Pressable
+            key={choice.detail}
+            accessibilityRole="button"
+            accessibilityLabel={`Add ${choice.detail}`}
+            onPress={() => addInterest(choice.category, choice.detail)}
+            style={({ pressed }) => [prospectFormSt.option, pressed && st.pressed]}
+          >
+            <Text style={prospectFormSt.optionText}>{choice.detail}</Text>
+            <Ionicons name="add" size={14} color={C.textMuted} />
+          </Pressable>
+        ))}
+      </View>
+
+      {interests.length < 8 ? (
+        <View style={prospectFormSt.customRow}>
+          <TextInput
+            value={customInterest}
+            onChangeText={setCustomInterest}
+            onSubmitEditing={() => addInterest("other", customInterest)}
+            placeholder="Add a specific interest"
+            placeholderTextColor={C.textMuted}
+            returnKeyType="done"
+            style={prospectFormSt.customInput}
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add custom prospect interest"
+            disabled={!customInterest.trim()}
+            onPress={() => addInterest("other", customInterest)}
+            style={({ pressed }) => [prospectFormSt.addButton, !customInterest.trim() && prospectFormSt.addButtonDisabled, pressed && st.pressed]}
+          >
+            <Ionicons name="add" size={18} color="#fff" />
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const prospectFormSt = StyleSheet.create({
+  wrap: { gap: 10, padding: 13, borderWidth: 1, borderColor: "#dbeafe", borderRadius: 14, backgroundColor: "#f8fbff" },
+  heading: { flexDirection: "row", alignItems: "center", gap: 9 },
+  icon: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: "#eaf2ff" },
+  title: { color: C.text, fontSize: 13, fontWeight: "900" },
+  subtitle: { marginTop: 1, color: C.textSec, fontSize: 11, lineHeight: 15, fontWeight: "600" },
+  selectedList: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  selectedChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 999, backgroundColor: "#eaf2ff" },
+  selectedChipText: { color: C.brand, fontSize: 12, fontWeight: "800" },
+  optionList: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  option: { flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: "#d7dee8", borderRadius: 999, backgroundColor: "#fff" },
+  optionText: { color: C.textSec, fontSize: 11, fontWeight: "700" },
+  customRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40, paddingLeft: 10, borderWidth: 1, borderColor: "#d7dee8", borderRadius: 11, backgroundColor: "#fff" },
+  customInput: { flex: 1, minWidth: 0, color: C.text, fontSize: 13, fontWeight: "700", paddingVertical: 9 },
+  addButton: { width: 36, alignSelf: "stretch", alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: C.brand },
+  addButtonDisabled: { opacity: 0.4 },
+});
 
 // ═══════════════════════════════════════
 // Session Detail
@@ -4102,7 +4248,7 @@ function SessionReviewExperience({
         <View style={reviewSt.tabSticky}>
           <SessionModeTabs
             value={reviewMode}
-            modes={readOnly ? ["rubric", "transcript", "search", "coaching"] : undefined}
+            modes={readOnly ? ["rubric", "prospect", "transcript", "search", "coaching"] : undefined}
             commentCount={comments.filter((comment) => !comment.parentId).length}
             onChange={(mode) => {
               if (mode === "ai") {
@@ -4159,6 +4305,14 @@ function SessionReviewExperience({
                 </CollapsibleSection>
               ) : null}
             </View>
+          </AnimatedTabContent>
+        )}
+        {reviewMode === "prospect" && (
+          <AnimatedTabContent tabKey="prospect">
+            <ProspectInsightsCard
+              analysis={analysis}
+              providedInterests={session.customerInterests ?? []}
+            />
           </AnimatedTabContent>
         )}
         {reviewMode === "search" && (
@@ -6402,6 +6556,10 @@ const homeSt = StyleSheet.create({
   checkInPill: { flex: 1, minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, paddingHorizontal: 14, borderRadius: 29, backgroundColor: "#2f343c", shadowColor: "#111827", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.16, shadowRadius: 18, elevation: 5 },
   newSessionPill: { backgroundColor: C.brand },
   checkInPillText: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  practiceCard: { minHeight: 78, flexDirection: "row", alignItems: "center", gap: 13, padding: 14, borderWidth: 1, borderColor: "#c7d7fe", borderRadius: 18, backgroundColor: "#f8fbff" },
+  practiceIcon: { width: 45, height: 45, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: C.brand },
+  practiceTitle: { color: C.text, fontSize: 14, fontWeight: "900" },
+  practiceMeta: { marginTop: 3, color: C.textSec, fontSize: 11, lineHeight: 16, fontWeight: "700" },
   audioTestCard: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 12, padding: 13, borderWidth: 1, borderColor: "#dbeafe", borderRadius: 18, backgroundColor: "#f5f9ff" },
   audioTestIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#eaf2ff" },
   audioTestTitle: { color: C.text, fontSize: 14, fontWeight: "900" },

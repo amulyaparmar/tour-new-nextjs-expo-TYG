@@ -6,9 +6,13 @@ import { randomUUID } from "node:crypto";
 
 import type { CreateRubricInput, Rubric, RubricDefinition } from "@tour/shared";
 import {
+  DEFAULT_AUDIO_ANALYSIS_MODES,
+  DEFAULT_GEMINI_AUDIO_MODEL,
   DEFAULT_TRANSCRIBE_PROVIDER,
   DEFAULT_RUBRIC_SESSION_TYPE,
   normalizeAnalysisModelId,
+  normalizeAudioAnalysisModes,
+  normalizeGeminiAudioModelId,
   normalizeRubricDefinition,
   normalizeTranscribeProviderId,
 } from "@tour/shared";
@@ -24,8 +28,11 @@ type RubricRow = {
   name: string;
   definition: RubricDefinition;
   analysis_model?: string | null;
+  name_extraction_model?: string | null;
   transcribe_provider?: string | null;
   audio_understanding_enabled?: boolean | null;
+  audio_analysis_modes?: unknown;
+  audio_analysis_model?: string | null;
   session_type?: string | null;
   segmentation_prompt?: string | null;
   analysis_prompt?: string | null;
@@ -48,13 +55,25 @@ function normalizeSessionType(value: string | null | undefined): string {
 
 function mapRow(row: RubricRow): Rubric {
   const rawDefinition = row.definition ?? row.definition_json;
+  const audioAnalysisModes = normalizeAudioAnalysisModes(row.audio_analysis_modes);
+  const audioUnderstandingEnabled = Boolean(row.audio_understanding_enabled);
   return {
     id: row.id,
     name: row.name,
     definition: normalizeRubricDefinition(rawDefinition),
     analysisModel: normalizeAnalysisModelId(row.analysis_model, defaultAnalysisModelId()),
+    nameExtractionModel: normalizeAnalysisModelId(
+      row.name_extraction_model,
+      normalizeAnalysisModelId(row.analysis_model, defaultAnalysisModelId()),
+    ),
     transcribeProvider: normalizeTranscribeProviderId(row.transcribe_provider),
-    audioUnderstandingEnabled: Boolean(row.audio_understanding_enabled),
+    audioUnderstandingEnabled,
+    audioAnalysisModes: audioAnalysisModes.length > 0
+      ? audioAnalysisModes
+      : audioUnderstandingEnabled
+        ? [...DEFAULT_AUDIO_ANALYSIS_MODES]
+        : [],
+    audioAnalysisModel: normalizeGeminiAudioModelId(row.audio_analysis_model, DEFAULT_GEMINI_AUDIO_MODEL),
     sessionType: normalizeSessionType(row.session_type),
     segmentationPrompt: row.segmentation_prompt?.trim() || null,
     analysisPrompt: row.analysis_prompt?.trim() || null,
@@ -117,8 +136,11 @@ export async function listRubrics(): Promise<Rubric[]> {
         name: DEFAULT_RBG_RUBRIC_NAME,
         definition: DEFAULT_RBG_RUBRIC_DEFINITION,
         analysis_model: defaultAnalysisModelId(),
+        name_extraction_model: defaultAnalysisModelId(),
         transcribe_provider: DEFAULT_TRANSCRIBE_PROVIDER,
         audio_understanding_enabled: false,
+        audio_analysis_modes: [],
+        audio_analysis_model: DEFAULT_GEMINI_AUDIO_MODEL,
         source_url: null,
         is_default: true,
         property_id: null,
@@ -198,8 +220,14 @@ export async function ensurePropertyRubric(
     name: "Tour",
     definition: normalizeRubricDefinition(template.definition ?? template.definition_json),
     analysis_model: normalizeAnalysisModelId(template.analysis_model, defaultAnalysisModelId()),
+    name_extraction_model: normalizeAnalysisModelId(
+      template.name_extraction_model,
+      normalizeAnalysisModelId(template.analysis_model, defaultAnalysisModelId()),
+    ),
     transcribe_provider: DEFAULT_TRANSCRIBE_PROVIDER,
     audio_understanding_enabled: Boolean(template.audio_understanding_enabled),
+    audio_analysis_modes: normalizeAudioAnalysisModes(template.audio_analysis_modes),
+    audio_analysis_model: normalizeGeminiAudioModelId(template.audio_analysis_model),
     session_type: normalizeSessionType(template.session_type),
     segmentation_prompt: template.segmentation_prompt ?? null,
     analysis_prompt: template.analysis_prompt ?? null,
@@ -279,15 +307,23 @@ export async function createRubric(
 ): Promise<Rubric> {
   const definition = normalizeRubricDefinition(input.definition);
   const analysisModel = normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId());
+  const nameExtractionModel = normalizeAnalysisModelId(input.nameExtractionModel, analysisModel);
   const transcribeProvider = normalizeTranscribeProviderId(input.transcribeProvider);
-  const audioUnderstandingEnabled = Boolean(input.audioUnderstandingEnabled);
+  const audioAnalysisModes = input.audioAnalysisModes === undefined && input.audioUnderstandingEnabled
+    ? [...DEFAULT_AUDIO_ANALYSIS_MODES]
+    : normalizeAudioAnalysisModes(input.audioAnalysisModes);
+  const audioUnderstandingEnabled = Boolean(input.audioUnderstandingEnabled) && audioAnalysisModes.length > 0;
+  const audioAnalysisModel = normalizeGeminiAudioModelId(input.audioAnalysisModel);
   const now = new Date().toISOString();
   const payload = {
     name: input.name.trim(),
     definition,
     analysis_model: analysisModel,
+    name_extraction_model: nameExtractionModel,
     transcribe_provider: transcribeProvider,
     audio_understanding_enabled: audioUnderstandingEnabled,
+    audio_analysis_modes: audioAnalysisModes,
+    audio_analysis_model: audioAnalysisModel,
     session_type: normalizeSessionType(input.sessionType),
     segmentation_prompt: input.segmentationPrompt ?? null,
     analysis_prompt: input.analysisPrompt ?? null,
@@ -355,16 +391,26 @@ export async function updateRubric(
   const nextAudioUnderstanding = input.audioUnderstandingEnabled === undefined
     ? existing.audioUnderstandingEnabled
     : Boolean(input.audioUnderstandingEnabled);
+  const nextAudioAnalysisModes = input.audioAnalysisModes === undefined
+    ? existing.audioAnalysisModes
+    : normalizeAudioAnalysisModes(input.audioAnalysisModes);
   const payload = {
     name: input.name?.trim() || existing.name,
     definition: nextDefinition,
     analysis_model: input.analysisModel === undefined
       ? existing.analysisModel
       : normalizeAnalysisModelId(input.analysisModel, defaultAnalysisModelId()),
+    name_extraction_model: input.nameExtractionModel === undefined
+      ? existing.nameExtractionModel
+      : normalizeAnalysisModelId(input.nameExtractionModel, existing.analysisModel),
     ...(shouldChangeTranscribeProvider
       ? { transcribe_provider: normalizeTranscribeProviderId(input.transcribeProvider) }
       : {}),
-    audio_understanding_enabled: nextAudioUnderstanding,
+    audio_understanding_enabled: nextAudioUnderstanding && nextAudioAnalysisModes.length > 0,
+    audio_analysis_modes: nextAudioAnalysisModes,
+    audio_analysis_model: input.audioAnalysisModel === undefined
+      ? existing.audioAnalysisModel
+      : normalizeGeminiAudioModelId(input.audioAnalysisModel, existing.audioAnalysisModel),
     session_type: input.sessionType === undefined
       ? existing.sessionType
       : normalizeSessionType(input.sessionType),
@@ -450,7 +496,10 @@ export async function cloneRubricTemplate(
     name: name?.trim() || template.name,
     definition: template.definition,
     analysisModel: template.analysisModel,
+    nameExtractionModel: template.nameExtractionModel,
     audioUnderstandingEnabled: template.audioUnderstandingEnabled,
+    audioAnalysisModes: template.audioAnalysisModes,
+    audioAnalysisModel: template.audioAnalysisModel,
     sessionType: template.sessionType,
     segmentationPrompt: template.segmentationPrompt,
     analysisPrompt: template.analysisPrompt,

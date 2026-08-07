@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { isLeaseMagnetsEmail, propertySessionKeys } from "@/lib/admin-auth";
+import { propertySessionKeys } from "@/lib/admin-auth";
 import { listRubricTemplates, listRubricsForCommunity } from "@/lib/rubrics";
 import { listSessions } from "@/lib/sessions";
 import { requireTourWorkspace } from "@/lib/tour-auth";
@@ -25,7 +25,8 @@ export async function loadRubricsPageData() {
     rubrics,
     templates,
     sessionCounts,
-    canChangeTranscribeProvider: isLeaseMagnetsEmail(workspace.user.email),
+    // Processing is a rubric decision for every manager, not an internal-only setting.
+    canChangeTranscribeProvider: true,
   };
 }
 

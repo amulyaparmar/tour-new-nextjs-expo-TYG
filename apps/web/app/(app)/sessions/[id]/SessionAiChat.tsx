@@ -1,12 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AnalysisModelId, AnalysisResult } from "@tour/shared";
+import type {
+  AnalysisModelId,
+  AnalysisResult,
+  GeminiAudioModelId,
+} from "@tour/shared";
 import {
   AI_PROVIDER_LABELS,
   ANALYSIS_MODELS,
   appendDictationText,
   DEFAULT_ANALYSIS_MODEL,
+  GEMINI_AUDIO_MODELS,
+  isGeminiAudioModelId,
   type AiProvider,
 } from "@tour/shared";
 import { useChat } from "@ai-sdk/react";
@@ -15,6 +21,7 @@ import { ArrowUp, Loader2 } from "lucide-react";
 
 import { AiChatModelSelect } from "./AiChatModelSelect";
 import { AiChatMarkdown } from "./AiChatMarkdown";
+import { SessionAudioFileChat } from "./SessionAudioFileChat";
 import { ElevenLabsDictationButton } from "@/components/ElevenLabsDictationButton";
 import styles from "./session-detail.module.css";
 import {
@@ -24,6 +31,7 @@ import {
 } from "./session-ai-prompts";
 
 type SessionAiMessages = ReturnType<typeof useChat>["messages"];
+export type SessionChatModelId = AnalysisModelId | GeminiAudioModelId;
 
 function messageText(parts: { type: string; text?: string }[]) {
   return parts
@@ -32,60 +40,86 @@ function messageText(parts: { type: string; text?: string }[]) {
     .join("");
 }
 
-const TOUR_AI_MODEL_OPTIONS = (Object.keys(AI_PROVIDER_LABELS) as AiProvider[]).flatMap((provider) =>
-  ANALYSIS_MODELS.filter((model) => model.provider === provider).map((model) => ({
-    id: model.id,
-    label: model.label,
-    group: AI_PROVIDER_LABELS[provider],
-  }))
+const TOUR_AI_MODEL_OPTIONS = (
+  Object.keys(AI_PROVIDER_LABELS) as AiProvider[]
+).flatMap((provider) =>
+  ANALYSIS_MODELS.filter((model) => model.provider === provider).map(
+    (model) => ({
+      id: model.id,
+      label: model.label,
+      group: AI_PROVIDER_LABELS[provider],
+    }),
+  ),
 );
+
+const SESSION_AI_MODEL_OPTIONS = [
+  ...TOUR_AI_MODEL_OPTIONS,
+  ...GEMINI_AUDIO_MODELS.map((model) => ({
+    id: model.id,
+    label: `${model.label} · recording`,
+    group: "Gemini · Audio chat",
+  })),
+];
 
 export function SessionAiChat({
   sessionId,
   analysis,
   defaultModel = DEFAULT_ANALYSIS_MODEL,
+  requestedModel,
   onSeek,
 }: {
   sessionId: string;
   analysis: AnalysisResult;
   defaultModel?: AnalysisModelId;
+  requestedModel?: SessionChatModelId | null;
   onSeek?: (seconds: number) => void;
 }) {
   const [input, setInput] = useState("");
-  const [model, setModel] = useState<AnalysisModelId>(defaultModel);
+  const [model, setModel] = useState<SessionChatModelId>(defaultModel);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [savedMessages, setSavedMessages] = useState<SessionAiMessages | null>(null);
+  const [savedMessages, setSavedMessages] = useState<SessionAiMessages | null>(
+    null,
+  );
   const [dictationError, setDictationError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const transport = useMemo(
     () => new DefaultChatTransport({ api: `/api/sessions/${sessionId}/chat` }),
-    [sessionId]
+    [sessionId],
   );
 
-  const { messages, setMessages, sendMessage, status, error } = useChat({ transport });
+  const { messages, setMessages, sendMessage, status, error } = useChat({
+    transport,
+  });
 
   useEffect(() => {
     setModel(defaultModel);
   }, [defaultModel]);
 
+  useEffect(() => {
+    if (requestedModel) setModel(requestedModel);
+  }, [requestedModel]);
+
   const isBusy = status === "submitted" || status === "streaming";
-  const mentionOptions = mentionQuery != null ? filterMentionPrompts(mentionQuery) : [];
+  const isGeminiAudioChat = isGeminiAudioModelId(model);
+  const mentionOptions =
+    mentionQuery != null ? filterMentionPrompts(mentionQuery) : [];
 
   const coachingPoints = useMemo(
-    () => [
-      ...analysis.opportunities.slice(0, 2).map((item, index) => ({
-        title: `Opportunity ${index + 1}`,
-        body: item,
-      })),
-      ...analysis.strengths.slice(0, 2).map((item, index) => ({
-        title: `Strength ${index + 1}`,
-        body: item,
-      })),
-    ].slice(0, 4),
-    [analysis]
+    () =>
+      [
+        ...analysis.opportunities.slice(0, 2).map((item, index) => ({
+          title: `Opportunity ${index + 1}`,
+          body: item,
+        })),
+        ...analysis.strengths.slice(0, 2).map((item, index) => ({
+          title: `Strength ${index + 1}`,
+          body: item,
+        })),
+      ].slice(0, 4),
+    [analysis],
   );
 
   const scrollToBottom = useCallback(() => {
@@ -123,7 +157,7 @@ export function SessionAiChat({
       setMentionQuery(null);
       resetInputHeight();
     },
-    [isBusy, model, resetInputHeight, sendMessage]
+    [isBusy, model, resetInputHeight, sendMessage],
   );
 
   const clearConversation = useCallback(() => {
@@ -145,17 +179,20 @@ export function SessionAiChat({
     inputRef.current?.focus();
   }, [savedMessages, setMessages]);
 
-  const insertPrompt = useCallback((prompt: SessionAiPrompt) => {
-    if (mentionQuery != null) {
-      const atIndex = input.lastIndexOf("@");
-      const prefix = atIndex >= 0 ? input.slice(0, atIndex) : "";
-      setInput(`${prefix}${prompt.text}`.trimStart());
-      setMentionQuery(null);
-    } else {
-      setInput(prompt.text);
-    }
-    inputRef.current?.focus();
-  }, [input, mentionQuery]);
+  const insertPrompt = useCallback(
+    (prompt: SessionAiPrompt) => {
+      if (mentionQuery != null) {
+        const atIndex = input.lastIndexOf("@");
+        const prefix = atIndex >= 0 ? input.slice(0, atIndex) : "";
+        setInput(`${prefix}${prompt.text}`.trimStart());
+        setMentionQuery(null);
+      } else {
+        setInput(prompt.text);
+      }
+      inputRef.current?.focus();
+    },
+    [input, mentionQuery],
+  );
 
   const handleInputChange = (value: string) => {
     setInput(value);
@@ -182,7 +219,9 @@ export function SessionAiChat({
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setMentionIndex((i) => (i - 1 + mentionOptions.length) % mentionOptions.length);
+        setMentionIndex(
+          (i) => (i - 1 + mentionOptions.length) % mentionOptions.length,
+        );
         return;
       }
       if (event.key === "Enter" && !event.shiftKey) {
@@ -223,140 +262,175 @@ export function SessionAiChat({
       <AiChatModelSelect
         id={`tour-ai-model-${sessionId}`}
         value={model}
-        onChange={(value) => setModel(value as AnalysisModelId)}
-        options={TOUR_AI_MODEL_OPTIONS}
+        onChange={(value) => setModel(value as SessionChatModelId)}
+        options={SESSION_AI_MODEL_OPTIONS}
         disabled={isBusy}
       />
 
-      <div className={styles.aiChatList} ref={listRef}>
-        {messages.length === 0 ? (
-          <div className={styles.aiStarter}>
-            {coachingPoints.map((point) => (
-              <div key={point.title} className={styles.aiCard}>
-                <strong>{point.title}</strong>
-                <p>{point.body}</p>
-              </div>
-            ))}
-            <p className={styles.aiChatHint}>
-              Ask anything about this tour, or type <kbd>@</kbd> to insert a preset prompt.
-            </p>
-          </div>
-        ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`${styles.aiChatMessage} ${
-                message.role === "user" ? styles.aiChatMessageUser : styles.aiChatMessageAssistant
-              }`}
-            >
-              <span className={styles.aiChatRole}>
-                {message.role === "user" ? "You" : "Tour AI"}
-              </span>
-              <div className={styles.aiChatBubble}>
-                {message.role === "assistant" ? (
-                  <>
-                    <AiChatMarkdown content={messageText(message.parts)} onSeek={onSeek} />
-                    {isBusy &&
-                      message.id === messages[messages.length - 1]?.id &&
-                      !messageText(message.parts) && (
-                        <span className={styles.aiChatTyping}>Thinking...</span>
-                      )}
-                  </>
-                ) : (
-                  messageText(message.parts)
-                )}
-              </div>
-            </div>
-          ))
-        )}
-
-        {(error || dictationError) && (
-          <div className={styles.aiChatError}>
-            {dictationError || error?.message || "Something went wrong. Try again."}
-          </div>
-        )}
-      </div>
-
-      <div className={styles.aiChatComposer}>
-        {messages.length === 0 && savedMessages && (
-          <button
-            type="button"
-            className={styles.aiResumeInline}
-            onClick={resumeSavedConversation}
-          >
-            <span>Continue last chat</span>
-            <strong>{savedMessages.length} messages</strong>
-          </button>
-        )}
-
-        <div className={styles.aiPrompts}>
-          {SESSION_AI_DEFAULT_PROMPTS.map((prompt) => (
-            <button
-              key={prompt.id}
-              type="button"
-              className={styles.aiPrompt}
-              disabled={isBusy}
-              onClick={() => submitText(prompt.text)}
-            >
-              {prompt.label}
-            </button>
-          ))}
-        </div>
-
-        <form className={styles.aiChatForm} onSubmit={handleSubmit}>
-          <div className={styles.aiChatInputWrap}>
-            {mentionQuery != null && mentionOptions.length > 0 && (
-              <div className={styles.aiMentionMenu} role="listbox">
-                {mentionOptions.map((prompt, index) => (
-                  <button
-                    key={prompt.id}
-                    type="button"
-                    role="option"
-                    aria-selected={index === mentionIndex}
-                    className={`${styles.aiMentionItem} ${index === mentionIndex ? styles.aiMentionItemActive : ""}`}
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      insertPrompt(prompt);
-                    }}
-                  >
-                    <span className={styles.aiMentionLabel}>@{prompt.label}</span>
-                    <span className={styles.aiMentionDesc}>{prompt.description}</span>
-                  </button>
+      {isGeminiAudioChat ? (
+        <SessionAudioFileChat
+          sessionId={sessionId}
+          model={model}
+          onModelChange={setModel}
+          showModelSelect={false}
+          coachingPoints={coachingPoints}
+          starterPrompts={SESSION_AI_DEFAULT_PROMPTS}
+          assistantLabel="Tour AI"
+          onSeek={onSeek}
+        />
+      ) : (
+        <>
+          <div className={styles.aiChatList} ref={listRef}>
+            {messages.length === 0 ? (
+              <div className={styles.aiStarter}>
+                {coachingPoints.map((point) => (
+                  <div key={point.title} className={styles.aiCard}>
+                    <strong>{point.title}</strong>
+                    <p>{point.body}</p>
+                  </div>
                 ))}
+                <p className={styles.aiChatHint}>
+                  Ask anything about this tour, or type <kbd>@</kbd> to insert a
+                  preset prompt.
+                </p>
               </div>
+            ) : (
+              messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`${styles.aiChatMessage} ${
+                    message.role === "user"
+                      ? styles.aiChatMessageUser
+                      : styles.aiChatMessageAssistant
+                  }`}
+                >
+                  <span className={styles.aiChatRole}>
+                    {message.role === "user" ? "You" : "Tour AI"}
+                  </span>
+                  <div className={styles.aiChatBubble}>
+                    {message.role === "assistant" ? (
+                      <>
+                        <AiChatMarkdown
+                          content={messageText(message.parts)}
+                          onSeek={onSeek}
+                        />
+                        {isBusy &&
+                          message.id === messages[messages.length - 1]?.id &&
+                          !messageText(message.parts) && (
+                            <span className={styles.aiChatTyping}>
+                              Thinking...
+                            </span>
+                          )}
+                      </>
+                    ) : (
+                      messageText(message.parts)
+                    )}
+                  </div>
+                </div>
+              ))
             )}
 
-            <textarea
-              ref={inputRef}
-              className={styles.aiChatInput}
-              value={input}
-              rows={1}
-              placeholder="Ask about this tour… type @ for prompts"
-              disabled={isBusy}
-              onChange={(event) => handleInputChange(event.target.value)}
-              onKeyDown={handleKeyDown}
-            />
-
-            <ElevenLabsDictationButton
-              disabled={isBusy}
-              onError={setDictationError}
-              onTranscript={(text) => {
-                setInput((current) => appendDictationText(current, text));
-                window.requestAnimationFrame(() => inputRef.current?.focus());
-              }}
-            />
-
-            <button
-              type="submit"
-              className={styles.aiChatSend}
-              disabled={!input.trim() || isBusy}
-              aria-label="Send message"
-            >
-              {isBusy ? <Loader2 size={16} className={styles.aiChatSpinner} /> : <ArrowUp size={16} />}
-            </button>
+            {(error || dictationError) && (
+              <div className={styles.aiChatError}>
+                {dictationError ||
+                  error?.message ||
+                  "Something went wrong. Try again."}
+              </div>
+            )}
           </div>
-        </form>
-      </div>
+
+          <div className={styles.aiChatComposer}>
+            {messages.length === 0 && savedMessages && (
+              <button
+                type="button"
+                className={styles.aiResumeInline}
+                onClick={resumeSavedConversation}
+              >
+                <span>Continue last chat</span>
+                <strong>{savedMessages.length} messages</strong>
+              </button>
+            )}
+
+            <div className={styles.aiPrompts}>
+              {SESSION_AI_DEFAULT_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt.id}
+                  type="button"
+                  className={styles.aiPrompt}
+                  disabled={isBusy}
+                  onClick={() => submitText(prompt.text)}
+                >
+                  {prompt.label}
+                </button>
+              ))}
+            </div>
+
+            <form className={styles.aiChatForm} onSubmit={handleSubmit}>
+              <div className={styles.aiChatInputWrap}>
+                {mentionQuery != null && mentionOptions.length > 0 && (
+                  <div className={styles.aiMentionMenu} role="listbox">
+                    {mentionOptions.map((prompt, index) => (
+                      <button
+                        key={prompt.id}
+                        type="button"
+                        role="option"
+                        aria-selected={index === mentionIndex}
+                        className={`${styles.aiMentionItem} ${index === mentionIndex ? styles.aiMentionItemActive : ""}`}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          insertPrompt(prompt);
+                        }}
+                      >
+                        <span className={styles.aiMentionLabel}>
+                          @{prompt.label}
+                        </span>
+                        <span className={styles.aiMentionDesc}>
+                          {prompt.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <textarea
+                  ref={inputRef}
+                  className={styles.aiChatInput}
+                  value={input}
+                  rows={1}
+                  placeholder="Ask about this tour… type @ for prompts"
+                  disabled={isBusy}
+                  onChange={(event) => handleInputChange(event.target.value)}
+                  onKeyDown={handleKeyDown}
+                />
+
+                <ElevenLabsDictationButton
+                  disabled={isBusy}
+                  onError={setDictationError}
+                  onTranscript={(text) => {
+                    setInput((current) => appendDictationText(current, text));
+                    window.requestAnimationFrame(() =>
+                      inputRef.current?.focus(),
+                    );
+                  }}
+                />
+
+                <button
+                  type="submit"
+                  className={styles.aiChatSend}
+                  disabled={!input.trim() || isBusy}
+                  aria-label="Send message"
+                >
+                  {isBusy ? (
+                    <Loader2 size={16} className={styles.aiChatSpinner} />
+                  ) : (
+                    <ArrowUp size={16} />
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </>
+      )}
     </div>
   );
 }

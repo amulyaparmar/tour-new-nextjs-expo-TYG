@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ChevronUp,
   FileText,
+  Info,
   ListChecks,
   Plus,
   Sparkles,
@@ -22,18 +23,25 @@ import {
 import {
   ANALYSIS_MODELS,
   AI_PROVIDER_LABELS,
+  AUDIO_ANALYSIS_MODE_LABELS,
+  AUDIO_ANALYSIS_MODES,
   DEFAULT_ANALYSIS_MODEL,
+  DEFAULT_AUDIO_ANALYSIS_MODES,
+  DEFAULT_GEMINI_AUDIO_MODEL,
   DEFAULT_RUBRIC_SESSION_TYPE,
   DEFAULT_SEGMENTATION_PROMPT,
   DEFAULT_TRANSCRIBE_PROVIDER,
+  GEMINI_AUDIO_MODELS,
   RUBRIC_SESSION_TYPE_PRESETS,
   TRANSCRIBE_PROVIDERS,
   buildRubricAnalysisPrompt,
-  getTranscribeProvider,
+  estimateRubricCostPerAudioMinute,
   isRubricSessionTypePreset,
   normalizeRubricPromptOverride,
   type AiProvider,
   type AnalysisModelId,
+  type AudioAnalysisMode,
+  type GeminiAudioModelId,
   type RubricDefinition,
   type RubricSessionTypePresetId,
   type TranscribeProviderId,
@@ -78,6 +86,13 @@ const EDITOR_TABS: {
     label: "Advanced",
   },
 ];
+
+const AUDIO_ANALYSIS_MODE_DESCRIPTIONS: Record<AudioAnalysisMode, string> = {
+  emotion: "Detects vocal sentiment, energy, hesitation, and emotional shifts that are audible in the recording.",
+  conversation_dynamics: "Measures pacing, interruptions, silence, talk balance, and how the conversation flows between participants.",
+  ambience: "Flags meaningful background sound, recording quality, and environmental context that may affect the call or tour.",
+  participant_identity: "Uses the recording alongside the transcript to assess participant roles and spoken name evidence. It does not replace confirmed names.",
+};
 
 function buildDefinitionPayload(
   categories: RubricCategory[],
@@ -146,11 +161,20 @@ export function RubricCreationFlow({
   const [analysisModel, setAnalysisModel] = useState<AnalysisModelId>(
     initialRubric?.analysisModel ?? DEFAULT_ANALYSIS_MODEL
   );
+  const [nameExtractionModel, setNameExtractionModel] = useState<AnalysisModelId>(
+    initialRubric?.nameExtractionModel ?? initialRubric?.analysisModel ?? DEFAULT_ANALYSIS_MODEL
+  );
   const [transcribeProvider, setTranscribeProvider] = useState<TranscribeProviderId>(
     initialRubric?.transcribeProvider ?? DEFAULT_TRANSCRIBE_PROVIDER
   );
   const [audioUnderstandingEnabled, setAudioUnderstandingEnabled] = useState(
     initialRubric?.audioUnderstandingEnabled ?? false
+  );
+  const [audioAnalysisModes, setAudioAnalysisModes] = useState<AudioAnalysisMode[]>(
+    initialRubric?.audioAnalysisModes ?? []
+  );
+  const [audioAnalysisModel, setAudioAnalysisModel] = useState<GeminiAudioModelId>(
+    initialRubric?.audioAnalysisModel ?? DEFAULT_GEMINI_AUDIO_MODEL
   );
   const initialSessionType = initialRubric?.sessionType ?? DEFAULT_RUBRIC_SESSION_TYPE;
   const [sessionTypeMode, setSessionTypeMode] = useState<SessionTypeMode>(
@@ -181,6 +205,20 @@ export function RubricCreationFlow({
     () => currentProperty ? [currentProperty.id] : initialRubric?.propertyIds ?? [],
     [currentProperty, initialRubric?.propertyIds]
   );
+  const estimatedCost = useMemo(() => estimateRubricCostPerAudioMinute({
+    transcribeProvider,
+    analysisModel,
+    nameExtractionModel,
+    audioAnalysisModel,
+    audioAnalysisModes: audioUnderstandingEnabled ? audioAnalysisModes : [],
+  }), [analysisModel, audioAnalysisModel, audioAnalysisModes, audioUnderstandingEnabled, nameExtractionModel, transcribeProvider]);
+
+  const toggleAudioMode = (mode: AudioAnalysisMode) => {
+    setAudioAnalysisModes((current) => current.includes(mode)
+      ? current.filter((item) => item !== mode)
+      : [...current, mode]
+    );
+  };
 
   useEffect(() => {
     if (analysisPromptTouched) return;
@@ -485,8 +523,11 @@ export function RubricCreationFlow({
             name: rubricName.trim(),
             definition,
             analysisModel,
+            nameExtractionModel,
             ...(canChangeTranscribeProvider ? { transcribeProvider } : {}),
             audioUnderstandingEnabled,
+            audioAnalysisModes,
+            audioAnalysisModel,
             sessionType: resolvedSessionType,
             segmentationPrompt: normalizeRubricPromptOverride(
               segmentationPrompt,
@@ -1151,7 +1192,7 @@ export function RubricCreationFlow({
                 </span>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                Review or customize processing settings. You can leave everything unchanged and create the rubric with the defaults.
+                Review or customize processing settings. Every selected provider and model is included in the estimated processing cost below.
               </p>
             </div>
 
@@ -1181,7 +1222,35 @@ export function RubricCreationFlow({
                     ))}
                   </select>
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    {ANALYSIS_MODELS.find((model) => model.id === analysisModel)?.description}
+                    Scores each session against this rubric.
+                  </p>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="rubric-name-extraction-model"
+                    className="block text-sm font-semibold text-foreground"
+                  >
+                    Name extraction model
+                  </label>
+                  <select
+                    id="rubric-name-extraction-model"
+                    value={nameExtractionModel}
+                    onChange={(event) => setNameExtractionModel(event.target.value as AnalysisModelId)}
+                    className="mt-2 w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-ring"
+                  >
+                    {(Object.keys(AI_PROVIDER_LABELS) as AiProvider[]).map((provider) => (
+                      <optgroup key={provider} label={AI_PROVIDER_LABELS[provider]}>
+                        {ANALYSIS_MODELS
+                          .filter((model) => model.provider === provider)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>{model.label}</option>
+                          ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    Identifies the people in the conversation.
                   </p>
                 </div>
 
@@ -1206,7 +1275,7 @@ export function RubricCreationFlow({
                       ))}
                     </select>
                     <p className="mt-1.5 text-xs text-muted-foreground">
-                      {getTranscribeProvider(transcribeProvider).description}
+                      Turns the recording into a transcript.
                     </p>
                   </div>
                 )}
@@ -1215,19 +1284,105 @@ export function RubricCreationFlow({
                   <input
                     type="checkbox"
                     checked={audioUnderstandingEnabled}
-                    onChange={(event) => setAudioUnderstandingEnabled(event.target.checked)}
+                    onChange={(event) => {
+                      const enabled = event.target.checked;
+                      setAudioUnderstandingEnabled(enabled);
+                      if (enabled && audioAnalysisModes.length === 0) {
+                        setAudioAnalysisModes([...DEFAULT_AUDIO_ANALYSIS_MODES]);
+                      }
+                    }}
                     className="mt-0.5 h-4 w-4 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
                   <span>
                     <strong className="block text-sm text-foreground">
-                      Gemini audio enrichment
+                      Audio insights
                     </strong>
                     <small className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-                      Listen to the original recording for sentiment, ambience, participant names,
-                      and conversational signals after rubric scoring.
+                      Opt in to listening to the original recording for the audio-native signals you select below.
                     </small>
                   </span>
                 </label>
+                {audioUnderstandingEnabled && (
+                  <div className="space-y-3 rounded-xl border border-primary/20 bg-primary/[0.03] p-3">
+                    <div>
+                      <label htmlFor="rubric-audio-model" className="block text-sm font-semibold text-foreground">
+                        Audio analysis model
+                      </label>
+                      <select
+                        id="rubric-audio-model"
+                        value={audioAnalysisModel}
+                        onChange={(event) => setAudioAnalysisModel(event.target.value as GeminiAudioModelId)}
+                        className="mt-2 w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-ring"
+                      >
+                        {GEMINI_AUDIO_MODELS.map((model) => (
+                          <option key={model.id} value={model.id}>{model.label}</option>
+                        ))}
+                      </select>
+                      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                        Reviews the recording for the signals you select.
+                      </p>
+                    </div>
+                    <fieldset>
+                      <legend className="text-sm font-semibold text-foreground">Include in audio analysis</legend>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {AUDIO_ANALYSIS_MODES.map((mode) => (
+                          <label key={mode} className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-2 text-xs font-medium text-foreground">
+                            <input
+                              type="checkbox"
+                              checked={audioAnalysisModes.includes(mode)}
+                              onChange={() => toggleAudioMode(mode)}
+                              className="h-3.5 w-3.5 accent-primary"
+                            />
+                            <span className="relative min-w-0 flex-1 pr-5">
+                              <span>{AUDIO_ANALYSIS_MODE_LABELS[mode]}</span>
+                              <span className="group absolute right-0 top-1/2 inline-flex -translate-y-1/2">
+                                <button
+                                  type="button"
+                                  aria-label={`About ${AUDIO_ANALYSIS_MODE_LABELS[mode]}`}
+                                  aria-describedby={`audio-analysis-mode-${mode}-description`}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                  }}
+                                  className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                                </button>
+                                <span
+                                  id={`audio-analysis-mode-${mode}-description`}
+                                  role="tooltip"
+                                  className="pointer-events-none invisible absolute bottom-[calc(100%+0.5rem)] right-0 z-50 w-60 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-left text-xs font-normal leading-relaxed text-white opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+                                >
+                                  {AUDIO_ANALYSIS_MODE_DESCRIPTIONS[mode]}
+                                </span>
+                              </span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      {audioAnalysisModes.length === 0 && (
+                        <p className="mt-2 text-xs text-amber-700">Select at least one signal, or turn audio insights off.</p>
+                      )}
+                    </fieldset>
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-border bg-secondary/30 p-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-sm font-semibold text-foreground">Estimated processing cost</span>
+                    <strong className="text-base tabular-nums text-foreground">
+                      ${estimatedCost.totalUsdPerMinute.toFixed(3)}/min
+                    </strong>
+                  </div>
+                  <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-4">
+                    <div><dt>Transcription</dt><dd className="font-medium text-foreground">${estimatedCost.transcriptionUsdPerMinute.toFixed(3)}/min</dd></div>
+                    <div><dt>Text analysis</dt><dd className="font-medium text-foreground">${estimatedCost.textAnalysisUsdPerMinute.toFixed(3)}/min</dd></div>
+                    <div><dt>Name extraction</dt><dd className="font-medium text-foreground">${estimatedCost.nameExtractionUsdPerMinute.toFixed(3)}/min</dd></div>
+                    {estimatedCost.audioUnderstandingUsdPerMinute > 0 && (
+                      <div><dt>Audio insights</dt><dd className="font-medium text-foreground">${estimatedCost.audioUnderstandingUsdPerMinute.toFixed(3)}/min</dd></div>
+                    )}
+                  </dl>
+                </div>
               </div>
 
               <div className="space-y-5 rounded-2xl border border-border bg-white p-5 shadow-sm">

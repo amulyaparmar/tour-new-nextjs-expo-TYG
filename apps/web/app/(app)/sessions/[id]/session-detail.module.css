@@ -156,7 +156,7 @@
 
 .exportChevron,
 .exportChevronOpen {
-  transition: transform .18s ease;
+  transition: transform 0.18s ease;
 }
 
 .exportChevronOpen {
@@ -173,14 +173,20 @@
   border: 1px solid var(--slate-200);
   border-radius: 14px;
   background: #fff;
-  box-shadow: 0 20px 48px rgba(15, 23, 42, .16);
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.16);
   transform-origin: top right;
-  animation: export-popover-in .16s cubic-bezier(.2,.8,.2,1) both;
+  animation: export-popover-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 @keyframes export-popover-in {
-  from { opacity: 0; transform: translateY(-4px) scale(.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .exportPopoverHeading {
@@ -188,7 +194,7 @@
   color: var(--slate-400);
   font-size: 10px;
   font-weight: 800;
-  letter-spacing: .06em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -206,7 +212,9 @@
   text-align: left;
   text-decoration: none;
   cursor: pointer;
-  transition: background-color .15s ease, color .15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .exportOption:hover {
@@ -216,7 +224,7 @@
 
 .exportOption:disabled {
   cursor: wait;
-  opacity: .66;
+  opacity: 0.66;
 }
 
 .exportOptionIcon {
@@ -260,7 +268,9 @@
 }
 
 @keyframes export-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .participantEditorRoot {
@@ -441,7 +451,10 @@
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
   opacity: 0;
   transform: translate(-50%, -50%) scaleY(0.72);
-  transition: opacity 0.15s, transform 0.15s, background 0.15s;
+  transition:
+    opacity 0.15s,
+    transform 0.15s,
+    background 0.15s;
 }
 
 .sidebarResizeHandle:hover::before,
@@ -534,7 +547,10 @@
   color: var(--slate-500);
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .transcriptToolbarAction:hover,
@@ -568,7 +584,10 @@
   opacity: 0;
   pointer-events: none;
   transform: translateY(-4px);
-  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s;
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease,
+    visibility 0.14s;
   visibility: hidden;
 }
 
@@ -645,7 +664,9 @@
   border-radius: 10px;
   background: white;
   color: var(--slate-500);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .transcriptToolbarRail:hover,
@@ -781,7 +802,9 @@
 .transcriptToolbarPhaseChevronOpen {
   flex-shrink: 0;
   color: var(--slate-400);
-  transition: transform 0.16s ease, color 0.16s ease;
+  transition:
+    transform 0.16s ease,
+    color 0.16s ease;
 }
 
 .transcriptToolbarPhaseChevronOpen {
@@ -842,7 +865,10 @@
   background: white;
   color: var(--slate-600);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .transcriptToolbarPhaseNav button:hover:not(:disabled),
@@ -909,12 +935,19 @@
   background: rgba(255, 255, 255, 0.99);
   box-shadow: 0 22px 54px rgba(15, 23, 42, 0.2);
   transform-origin: top right;
-  animation: transcript-segment-popover-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: transcript-segment-popover-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1)
+    both;
 }
 
 @keyframes transcript-segment-popover-in {
-  from { opacity: 0; transform: translateY(-5px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .transcriptSegmentPopoverHead {
@@ -1164,7 +1197,11 @@
   font: inherit;
   text-align: left;
   box-shadow: 0 1px 2px rgba(124, 45, 18, 0.04);
-  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
 }
 
 .transcriptMomentMarker:hover,
@@ -1308,9 +1345,44 @@
   font-size: 12px;
 }
 
-.transcriptMeta span:last-child {
+.transcriptTimestamp {
   color: var(--slate-400);
   font-weight: 600;
+}
+
+.transcriptEmotionSignal {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  color: #71717a;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  text-transform: capitalize;
+}
+
+.transcriptEmotionSignal svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.transcriptEmotionSignal[data-emotion="happy"] {
+  color: #16a34a;
+}
+.transcriptEmotionSignal[data-emotion="excited"] {
+  color: #2563eb;
+}
+.transcriptEmotionSignal[data-emotion="concerned"] {
+  color: #b45309;
+}
+.transcriptEmotionSignal[data-emotion="sad"] {
+  color: #7c3aed;
+}
+.transcriptEmotionSignal[data-emotion="angry"] {
+  color: #dc2626;
 }
 
 .transcriptText {
@@ -1333,7 +1405,9 @@
   text-align: left;
   cursor: pointer;
   font-family: inherit;
-  transition: box-shadow 0.15s, border-color 0.15s;
+  transition:
+    box-shadow 0.15s,
+    border-color 0.15s;
 }
 
 .floatingComment:focus-visible {
@@ -1403,7 +1477,10 @@
   padding: 0;
   opacity: 0;
   cursor: pointer;
-  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
 }
 
 .floatingComment:hover .floatingCommentMore,
@@ -1646,7 +1723,9 @@
   border-radius: 18px;
   border: 1px solid var(--slate-200);
   background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.08);
+  box-shadow:
+    0 20px 50px rgba(15, 23, 42, 0.18),
+    0 4px 12px rgba(15, 23, 42, 0.08);
   backdrop-filter: blur(12px);
   pointer-events: auto;
   --player-timeline-blue: #1674ff;
@@ -1881,7 +1960,9 @@
   border-radius: 3px;
   background: var(--player-timeline-blue, #1674ff);
   pointer-events: none;
-  transition: filter 0.12s ease, transform 0.12s ease;
+  transition:
+    filter 0.12s ease,
+    transform 0.12s ease;
 }
 
 .playerPhaseSliceActive {
@@ -2071,7 +2152,9 @@
 
 .playerMarkerActive {
   transform: translate(-50%, -50%) scale(1.35);
-  box-shadow: 0 0 0 2px white, 0 0 0 4px #14b8a6;
+  box-shadow:
+    0 0 0 2px white,
+    0 0 0 4px #14b8a6;
 }
 
 .playerSpeakers {
@@ -2154,26 +2237,64 @@
   opacity: 0.92;
 }
 
-.playerPhaseGreeting { background: #4d8ae5; }
-.playerPhaseDiscovery { background: #0ea5e9; }
-.playerPhaseTour { background: #10b981; }
-.playerPhaseObjections { background: #f59e0b; }
-.playerPhaseClosing { background: #ef4444; }
-.playerPhaseFollowUp { background: #8b5cf6; }
-.playerPhaseSegmentDefault { background: #94a3b8; }
+.playerPhaseGreeting {
+  background: #4d8ae5;
+}
+.playerPhaseDiscovery {
+  background: #0ea5e9;
+}
+.playerPhaseTour {
+  background: #10b981;
+}
+.playerPhaseObjections {
+  background: #f59e0b;
+}
+.playerPhaseClosing {
+  background: #ef4444;
+}
+.playerPhaseFollowUp {
+  background: #8b5cf6;
+}
+.playerPhaseSegmentDefault {
+  background: #94a3b8;
+}
 
-.playerSegment0 { background: #4d8ae5; }
-.playerSegment1 { background: #0ea5e9; }
-.playerSegment2 { background: #10b981; }
-.playerSegment3 { background: #f59e0b; }
-.playerSegment4 { background: #ef4444; }
-.playerSegment5 { background: #8b5cf6; }
-.playerSegment6 { background: #ec4899; }
-.playerSegment7 { background: #14b8a6; }
-.playerSegment8 { background: #f97316; }
-.playerSegment9 { background: #64748b; }
-.playerSegment10 { background: #84cc16; }
-.playerSegment11 { background: #06b6d4; }
+.playerSegment0 {
+  background: #4d8ae5;
+}
+.playerSegment1 {
+  background: #0ea5e9;
+}
+.playerSegment2 {
+  background: #10b981;
+}
+.playerSegment3 {
+  background: #f59e0b;
+}
+.playerSegment4 {
+  background: #ef4444;
+}
+.playerSegment5 {
+  background: #8b5cf6;
+}
+.playerSegment6 {
+  background: #ec4899;
+}
+.playerSegment7 {
+  background: #14b8a6;
+}
+.playerSegment8 {
+  background: #f97316;
+}
+.playerSegment9 {
+  background: #64748b;
+}
+.playerSegment10 {
+  background: #84cc16;
+}
+.playerSegment11 {
+  background: #06b6d4;
+}
 
 .playerActivePhase {
   display: inline-block;
@@ -2195,7 +2316,9 @@
   border-radius: 999px;
   cursor: pointer;
   opacity: 0.92;
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .playerSegmentBlock:hover {
@@ -2248,7 +2371,9 @@
   color: var(--indigo-700);
   font-size: 11px;
   font-weight: 850;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .transcriptSegmentLandmarkCopy {
@@ -2572,7 +2697,9 @@
   background: var(--slate-50);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .sidebarCommentCard:hover {
@@ -2677,7 +2804,10 @@
   padding: 0;
   opacity: 0;
   cursor: pointer;
-  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
 }
 
 .sidebarCommentCard:hover .sidebarCommentMore,
@@ -3002,7 +3132,10 @@
   font-family: inherit;
   line-height: 1;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    color 0.15s;
 }
 
 .rubricSourceTrigger:hover,
@@ -3040,23 +3173,35 @@
   top: calc(100% + 8px);
   right: 0;
   z-index: 90;
-  width: min(320px, calc(var(--sd-sidebar-width, 360px) - 32px), calc(100vw - 32px));
+  width: min(
+    320px,
+    calc(var(--sd-sidebar-width, 360px) - 32px),
+    calc(100vw - 32px)
+  );
   max-height: min(420px, calc(100dvh - var(--topbar-h, 52px) - 92px));
   overflow-y: auto;
   padding: 7px;
   border: 1px solid var(--slate-200);
   border-radius: 14px;
   background: white;
-  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.17), 0 4px 12px rgba(15, 23, 42, 0.06);
+  box-shadow:
+    0 20px 48px rgba(15, 23, 42, 0.17),
+    0 4px 12px rgba(15, 23, 42, 0.06);
   color: var(--slate-700);
   text-align: left;
   transform-origin: top right;
-  animation: rubric-actions-popover-in 0.16s cubic-bezier(.2, .8, .2, 1) both;
+  animation: rubric-actions-popover-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 @keyframes rubric-actions-popover-in {
-  from { opacity: 0; transform: translateY(-4px) scale(.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .rubricActionsPopoverHead {
@@ -3099,7 +3244,9 @@
   text-align: left;
   text-decoration: none;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
 }
 
 .rubricPopoverOption:hover,
@@ -3217,7 +3364,10 @@
   font-weight: 800;
   cursor: pointer;
   font-family: inherit;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    color 0.15s,
+    background 0.15s;
 }
 
 .aiChatClear:hover:not(:disabled) {
@@ -3261,7 +3411,10 @@
   cursor: pointer;
   font-family: inherit;
   text-align: left;
-  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    transform 0.15s;
 }
 
 .aiResumeInline:hover {
@@ -3543,7 +3696,9 @@
   border: 1px solid var(--slate-200);
   border-radius: 14px;
   background: var(--slate-50);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .aiChatInputWrap:focus-within {
@@ -3586,7 +3741,9 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  transition:
+    background 0.15s,
+    opacity 0.15s;
 }
 
 .aiChatSend:hover:not(:disabled) {
@@ -3603,7 +3760,9 @@
 }
 
 @keyframes aiChatSpin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .aiMentionMenu {
@@ -3663,7 +3822,9 @@
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
   cursor: pointer;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .rubricInsightCard:hover,
@@ -3745,7 +3906,9 @@
   fill: #64748b;
   font-size: 10px;
   font-weight: 800;
-  transition: fill 0.15s, font-size 0.15s;
+  transition:
+    fill 0.15s,
+    font-size 0.15s;
 }
 
 .rubricInsightRadarTick:hover text,
@@ -3779,7 +3942,11 @@
   box-shadow: 0 6px 18px rgba(79, 70, 229, 0.06);
   cursor: pointer;
   font-family: inherit;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    box-shadow 0.15s,
+    transform 0.15s;
 }
 
 .rubricInsightStrengthScore:hover,
@@ -3909,7 +4076,10 @@
   padding: 0;
   cursor: pointer;
   opacity: 0.88;
-  transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
+  transition:
+    opacity 0.15s,
+    transform 0.15s,
+    box-shadow 0.15s;
 }
 
 .tourSegmentBlock:hover,
@@ -3917,7 +4087,9 @@
 .tourSegmentBlockActive {
   opacity: 1;
   transform: scaleY(1.06);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.95), 0 4px 10px rgba(15, 23, 42, 0.14);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.95),
+    0 4px 10px rgba(15, 23, 42, 0.14);
   z-index: 2;
 }
 
@@ -4037,7 +4209,9 @@
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .tourSegmentRow:hover,
@@ -4247,7 +4421,9 @@
   border: 1px solid var(--slate-200);
   border-radius: 12px;
   overflow: hidden;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .rubricSectionActive {
@@ -4444,7 +4620,6 @@
   .floatingCommentNav {
     right: 8px;
   }
-
 }
 
 @media (max-width: 640px) {
@@ -4582,12 +4757,39 @@
 
 .audioPanelHeader {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   border-bottom: 1px solid var(--slate-100);
   background: #fff;
 }
 
 .audioPanelHeader .sidebarSectionHead {
   padding-bottom: 12px;
+}
+
+.audioAskAiButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin: 0 16px 12px 0;
+  padding: 7px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #f8fbff;
+  color: #2563eb;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.audioAskAiButton:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
 }
 
 .audioPanelScroll {
@@ -4864,7 +5066,9 @@
   background: #fff;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
   font-family: inherit;
 }
 
@@ -4994,6 +5198,32 @@
   gap: 0.75rem;
 }
 
+.aiPanel > .audioFileChat {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  gap: 0;
+}
+
+.aiPanel > .audioFileChat .audioFileChatHead {
+  flex-shrink: 0;
+  padding: 0 16px 10px;
+}
+
+.aiPanel > .audioFileChat .audioFileChatList {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.aiPanel > .audioFileChat .audioFileChatForm {
+  flex-shrink: 0;
+  margin-top: 0;
+  padding: 10px 16px 16px;
+  border-top: 1px solid var(--slate-200);
+  background: #fff;
+}
+
 .audioFileChatHead {
   display: flex;
   align-items: flex-start;
@@ -5021,6 +5251,10 @@
 
 .audioFileChatForm {
   margin-top: 0.25rem;
+}
+
+.audioFileChatForm .aiPrompts {
+  margin-bottom: 8px;
 }
 
 .audioStatsSection {
@@ -5082,8 +5316,13 @@
   line-height: 1.45;
 }
 
-.readOnlySessionBanner svg { flex: 0 0 auto; color: #326fc9; }
-.readOnlySessionBanner span { flex: 1; }
+.readOnlySessionBanner svg {
+  flex: 0 0 auto;
+  color: #326fc9;
+}
+.readOnlySessionBanner span {
+  flex: 1;
+}
 .readOnlySessionBanner button {
   border: 0;
   background: transparent;
@@ -5100,14 +5339,18 @@
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(9, 18, 33, .28);
-  backdrop-filter: blur(10px) saturate(.82);
-  animation: property-access-in .22s ease both;
+  background: rgba(9, 18, 33, 0.28);
+  backdrop-filter: blur(10px) saturate(0.82);
+  animation: property-access-in 0.22s ease both;
 }
 
 @keyframes property-access-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .propertyMismatchCard {
@@ -5119,15 +5362,26 @@
   padding: clamp(22px, 4vw, 34px);
   border: 1px solid #cfe0f7;
   border-radius: 22px;
-  background: linear-gradient(145deg, rgba(250,253,255,.97) 0%, rgba(234,244,255,.97) 58%, rgba(220,236,255,.97) 100%);
-  box-shadow: 0 30px 80px rgba(33, 73, 133, .24);
+  background: linear-gradient(
+    145deg,
+    rgba(250, 253, 255, 0.97) 0%,
+    rgba(234, 244, 255, 0.97) 58%,
+    rgba(220, 236, 255, 0.97) 100%
+  );
+  box-shadow: 0 30px 80px rgba(33, 73, 133, 0.24);
   backdrop-filter: blur(18px);
-  animation: property-access-card-in .28s cubic-bezier(.2,.8,.2,1) both;
+  animation: property-access-card-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 @keyframes property-access-card-in {
-  from { opacity: 0; transform: translateY(10px) scale(.975); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .propertyMismatchClose {
@@ -5138,9 +5392,9 @@
   height: 34px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(77,138,229,.18);
+  border: 1px solid rgba(77, 138, 229, 0.18);
   border-radius: 999px;
-  background: rgba(255,255,255,.7);
+  background: rgba(255, 255, 255, 0.7);
   color: #52637a;
   cursor: pointer;
 }
@@ -5153,7 +5407,7 @@
   border-radius: 15px;
   background: #fff;
   color: #326fc9;
-  box-shadow: 0 10px 24px rgba(77, 138, 229, .17);
+  box-shadow: 0 10px 24px rgba(77, 138, 229, 0.17);
 }
 
 .propertyMismatchEyebrow {
@@ -5161,7 +5415,7 @@
   color: #326fc9;
   font-size: 11px;
   font-weight: 800;
-  letter-spacing: .08em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -5170,7 +5424,7 @@
   color: #0f172a;
   font-size: clamp(24px, 4vw, 34px);
   line-height: 1.08;
-  letter-spacing: -.035em;
+  letter-spacing: -0.035em;
 }
 
 .propertyMismatchCard div > p:last-child {
@@ -5188,7 +5442,12 @@
   line-height: 1.5;
 }
 
-.propertyMismatchActions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.propertyMismatchActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
 
 .propertyMismatchSuccess {
   margin: 0;
@@ -5220,7 +5479,14 @@
 }
 
 @media (max-width: 640px) {
-  .propertyAccessOverlay { padding: 12px; }
-  .propertyMismatchCard { padding: 22px 18px; }
-  .readOnlySessionBanner { align-items: flex-start; flex-wrap: wrap; }
+  .propertyAccessOverlay {
+    padding: 12px;
+  }
+  .propertyMismatchCard {
+    padding: 22px 18px;
+  }
+  .readOnlySessionBanner {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
 }

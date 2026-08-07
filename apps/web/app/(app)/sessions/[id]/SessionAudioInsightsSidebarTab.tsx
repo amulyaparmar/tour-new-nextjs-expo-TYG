@@ -28,7 +28,10 @@ type StartAudioInsightsResponse = {
   error?: string | null;
 };
 
-const POLLING_STATUSES = new Set<AudioInsightsStatus>(["pending", "processing"]);
+const POLLING_STATUSES = new Set<AudioInsightsStatus>([
+  "pending",
+  "processing",
+]);
 
 export function SessionAudioInsightsSidebarTab({
   sessionId,
@@ -39,6 +42,7 @@ export function SessionAudioInsightsSidebarTab({
   duration,
   currentTime,
   onSeek,
+  onAskRecording,
 }: {
   sessionId: string;
   initialStatus: AudioInsightsStatus;
@@ -48,6 +52,7 @@ export function SessionAudioInsightsSidebarTab({
   duration: number;
   currentTime: number;
   onSeek: (seconds: number) => void;
+  onAskRecording?: (model?: string) => void;
 }) {
   const [status, setStatus] = useState(initialStatus);
   const [insights, setInsights] = useState(initialInsights);
@@ -92,6 +97,7 @@ export function SessionAudioInsightsSidebarTab({
         duration={duration}
         currentTime={currentTime}
         onSeek={onSeek}
+        onAskRecording={onAskRecording}
       />
     );
   }
@@ -110,7 +116,9 @@ export function SessionAudioInsightsSidebarTab({
       setInsights(null);
       setStatus(body.status ?? "processing");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start audio insights.");
+      setError(
+        err instanceof Error ? err.message : "Failed to start audio insights.",
+      );
       setStatus("failed");
     } finally {
       setIsStarting(false);
@@ -152,9 +160,11 @@ export function SessionAudioInsightsSidebarTab({
               title="Conversation stats"
               icon={<BarChart3 size={14} aria-hidden />}
               defaultOpen
-              preview={transcriptConversationStats.talkRatioPercent == null
-                ? "Transcript estimate"
-                : `${Math.round(transcriptConversationStats.talkRatioPercent)}% talk ratio`}
+              preview={
+                transcriptConversationStats.talkRatioPercent == null
+                  ? "Transcript estimate"
+                  : `${Math.round(transcriptConversationStats.talkRatioPercent)}% talk ratio`
+              }
             >
               <AudioStatsGrid
                 stats={transcriptConversationStats}
@@ -168,7 +178,9 @@ export function SessionAudioInsightsSidebarTab({
                 <Loader2 size={28} className="animate-spin" aria-hidden />
                 <p>{AUDIO_INSIGHTS_STATUS_LABELS[status]}</p>
                 <p className={styles.audioPanelEmptyHint}>
-                  Gemini is analyzing sentiment, speaker dynamics, ambience, and semantic interactivity. The transcript measurements above are available independently.
+                  Gemini is analyzing sentiment, speaker dynamics, ambience, and
+                  semantic interactivity. The transcript measurements above are
+                  available independently.
                 </p>
                 {rerunButton}
               </>
@@ -177,7 +189,8 @@ export function SessionAudioInsightsSidebarTab({
                 <Activity size={28} aria-hidden />
                 <p>Gemini enrichment is not configured.</p>
                 <p className={styles.audioPanelEmptyHint}>
-                  Transcript measurements remain available. Set GEMINI_API_KEY on the server to add sentiment and ambience analysis.
+                  Transcript measurements remain available. Set GEMINI_API_KEY
+                  on the server to add sentiment and ambience analysis.
                 </p>
                 {rerunButton}
               </>
@@ -185,15 +198,21 @@ export function SessionAudioInsightsSidebarTab({
               <>
                 <p>Gemini enrichment could not be generated.</p>
                 <p className={styles.audioPanelEmptyHint}>
-                  {error ?? "The transcript measurements remain available. Re-run audio insights to try Gemini again."}
+                  {error ??
+                    "The transcript measurements remain available. Re-run audio insights to try Gemini again."}
                 </p>
                 {rerunButton}
               </>
             ) : (
               <>
-                <p>{transcriptConversationStats ? "Gemini enrichment has not run yet." : "No audio insights yet."}</p>
+                <p>
+                  {transcriptConversationStats
+                    ? "Gemini enrichment has not run yet."
+                    : "No audio insights yet."}
+                </p>
                 <p className={styles.audioPanelEmptyHint}>
-                  Run audio insights to add sentiment, speaker dynamics, ambience, and semantic interactivity.
+                  Run audio insights to add sentiment, speaker dynamics,
+                  ambience, and semantic interactivity.
                 </p>
                 {rerunButton}
               </>

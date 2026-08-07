@@ -28,6 +28,8 @@ import { transcribeAudio } from "@/lib/transcribe";
 import { fetchRecordingFile } from "@/lib/storage";
 import { startAudioInsightsWorkflow } from "@/lib/start-audio-insights-workflow";
 import { deriveSessionTitleFromParticipants } from "@/lib/session-naming";
+import { corroborateParticipantNamesWithPropertyTeam } from "@/lib/participant-name-confidence";
+import { extractParticipantNames } from "@/lib/participant-name-extraction";
 
 export async function transcribeSessionStep(sessionId: string) {
   "use step";
@@ -99,7 +101,7 @@ export async function analyzeSessionStep(
 
   const transcript = await getTranscript(sessionId);
   const rubric = await getRubricForSession(session.rubricId, session.propertyId);
-  const analysis = await generateAnalysis({
+  const generatedAnalysis = await generateAnalysis({
     location: session.location,
     notes: session.notes,
     providedCustomerInterests: session.customerInterests ?? [],
@@ -119,6 +121,44 @@ export async function analyzeSessionStep(
     analysisPrompt: rubric.analysisPrompt,
     sessionType: rubric.sessionType,
   });
+  let focusedParticipantNames = null;
+  try {
+    focusedParticipantNames = await extractParticipantNames({
+      transcript,
+      model: rubric.nameExtractionModel,
+    });
+  } catch (error) {
+    // Scoring remains useful when the dedicated, non-scoring identity pass is unavailable.
+    console.warn("Participant name extraction did not complete", error);
+  }
+  const mergedParticipantNames = focusedParticipantNames
+    ? {
+        agentName: focusedParticipantNames.agentName ?? generatedAnalysis.participantNames?.agentName ?? null,
+        prospectName: focusedParticipantNames.prospectName ?? generatedAnalysis.participantNames?.prospectName ?? null,
+        agentNameConfidence: focusedParticipantNames.agentName
+          ? focusedParticipantNames.agentNameConfidence
+          : generatedAnalysis.participantNames?.agentNameConfidence ?? null,
+        prospectNameConfidence: focusedParticipantNames.prospectName
+          ? focusedParticipantNames.prospectNameConfidence
+          : generatedAnalysis.participantNames?.prospectNameConfidence ?? null,
+        agentNameFirstMentionSeconds: focusedParticipantNames.agentName
+          ? focusedParticipantNames.agentNameFirstMentionSeconds
+          : generatedAnalysis.participantNames?.agentNameFirstMentionSeconds ?? null,
+        prospectNameFirstMentionSeconds: focusedParticipantNames.prospectName
+          ? focusedParticipantNames.prospectNameFirstMentionSeconds
+          : generatedAnalysis.participantNames?.prospectNameFirstMentionSeconds ?? null,
+      }
+    : generatedAnalysis.participantNames;
+  const analysisWithFocusedNames = mergedParticipantNames
+    ? { ...generatedAnalysis, participantNames: mergedParticipantNames }
+    : generatedAnalysis;
+  const corroboratedParticipantNames = await corroborateParticipantNamesWithPropertyTeam(
+    session.propertyId,
+    analysisWithFocusedNames.participantNames,
+  );
+  const analysis = corroboratedParticipantNames === analysisWithFocusedNames.participantNames
+    ? analysisWithFocusedNames
+    : { ...analysisWithFocusedNames, participantNames: corroboratedParticipantNames };
 
   await upsertAnalysis(sessionId, analysis, {
     rubricId: rubric.id,

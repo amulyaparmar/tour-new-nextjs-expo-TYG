@@ -17,6 +17,7 @@ import {
   updateSession,
 } from "@/lib/sessions";
 import { deriveSessionTitleFromParticipants } from "@/lib/session-naming";
+import { corroborateParticipantNamesWithPropertyTeam } from "@/lib/participant-name-confidence";
 import { fetchRecordingFile } from "@/lib/storage";
 
 export async function prepareAudioInsightsAfterAnalysisStep(sessionId: string) {
@@ -66,7 +67,7 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
     throw new FatalError("No recording found in storage for audio insights.");
   }
 
-  const insights = await generateAudioInsights({
+  const generatedInsights = await generateAudioInsights({
     audioBuffer: file.buffer,
     mimeType: file.mimeType,
     fileName: file.fileName,
@@ -77,8 +78,17 @@ export async function analyzeAudioInsightsStep(sessionId: string) {
         section.items.map((item) => `${section.name}: ${item.text}`)
       ),
       analysisInstructions: rubric.analysisPrompt,
+      audioAnalysisModes: rubric.audioAnalysisModes,
     },
+    model: rubric.audioAnalysisModel,
   });
+  const participants = await corroborateParticipantNamesWithPropertyTeam(
+    session.propertyId,
+    generatedInsights.participants,
+  );
+  const insights = participants === generatedInsights.participants
+    ? generatedInsights
+    : { ...generatedInsights, participants };
   await saveAudioInsights(sessionId, insights);
   const nameUpdates: { title?: string; agentName?: string; prospectName?: string } = {};
   const extractedAgentName = decorateParticipantNameByConfidence(

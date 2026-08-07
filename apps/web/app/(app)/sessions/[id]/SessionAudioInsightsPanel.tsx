@@ -8,9 +8,16 @@ import type {
   TranscriptConversationStats,
 } from "@tour/shared";
 import { formatSpeakerAnnotation } from "@tour/shared";
-import { Activity, BarChart3, ChevronDown, MessageCircle, Mic2, Sparkles, Volume2 } from "lucide-react";
+import {
+  Activity,
+  BarChart3,
+  ChevronDown,
+  MessageCircle,
+  Mic2,
+  Sparkles,
+  Volume2,
+} from "lucide-react";
 
-import { SessionAudioFileChat } from "./SessionAudioFileChat";
 import styles from "./session-detail.module.css";
 
 const SENTIMENT_LABELS: Record<AudioInsights["overallSentiment"], string> = {
@@ -37,6 +44,7 @@ export function SessionAudioInsightsPanel({
   duration,
   currentTime,
   onSeek,
+  onAskRecording,
 }: {
   sessionId: string;
   insights: AudioInsights;
@@ -45,6 +53,7 @@ export function SessionAudioInsightsPanel({
   duration: number;
   currentTime: number;
   onSeek: (seconds: number) => void;
+  onAskRecording?: (model?: string) => void;
 }) {
   const conversationStats =
     insights.conversationStats ?? fallbackConversationStats;
@@ -53,13 +62,15 @@ export function SessionAudioInsightsPanel({
     : conversationStats
       ? "transcript"
       : null;
-  const labelFor = (speaker: string) => formatSpeakerAnnotation(speaker, participants);
+  const labelFor = (speaker: string) =>
+    formatSpeakerAnnotation(speaker, participants);
   const activeSegmentIndex = insights.segments.findIndex(
-    (segment) => currentTime >= segment.startTime && currentTime <= segment.endTime
+    (segment) =>
+      currentTime >= segment.startTime && currentTime <= segment.endTime,
   );
   const totalTalkTime = insights.speakerDynamics.reduce(
     (sum, speaker) => sum + speaker.talkTimeSeconds,
-    0
+    0,
   );
 
   return (
@@ -67,10 +78,21 @@ export function SessionAudioInsightsPanel({
       <header className={styles.audioPanelHeader}>
         <div className={styles.sidebarSectionHead}>
           <h2>Audio insights</h2>
-          <span className={styles.audioSentimentBadge} data-sentiment={insights.overallSentiment}>
+          <span
+            className={styles.audioSentimentBadge}
+            data-sentiment={insights.overallSentiment}
+          >
             {SENTIMENT_LABELS[insights.overallSentiment]}
           </span>
         </div>
+        <button
+          type="button"
+          className={styles.audioAskAiButton}
+          onClick={() => onAskRecording?.(insights.model)}
+        >
+          <MessageCircle size={15} aria-hidden />
+          Ask AI
+        </button>
       </header>
 
       <div className={styles.audioPanelScroll}>
@@ -80,9 +102,11 @@ export function SessionAudioInsightsPanel({
               title="Stats"
               icon={<BarChart3 size={14} aria-hidden />}
               defaultOpen
-              preview={conversationStats.talkRatioPercent == null
-                ? "Conversation measurements"
-                : `${Math.round(conversationStats.talkRatioPercent)}% talk ratio`}
+              preview={
+                conversationStats.talkRatioPercent == null
+                  ? "Conversation measurements"
+                  : `${Math.round(conversationStats.talkRatioPercent)}% talk ratio`
+              }
             >
               <AudioStatsGrid
                 stats={conversationStats}
@@ -118,18 +142,28 @@ export function SessionAudioInsightsPanel({
             >
               <div className={styles.audioSpeakerGrid}>
                 {insights.speakerDynamics.map((speaker) => {
-                  const talkShare = totalTalkTime > 0
-                    ? Math.round((speaker.talkTimeSeconds / totalTalkTime) * 100)
-                    : 0;
+                  const talkShare =
+                    totalTalkTime > 0
+                      ? Math.round(
+                          (speaker.talkTimeSeconds / totalTalkTime) * 100,
+                        )
+                      : 0;
 
                   return (
-                    <article key={speaker.speaker} className={styles.audioSpeakerCard}>
+                    <article
+                      key={speaker.speaker}
+                      className={styles.audioSpeakerCard}
+                    >
                       <div className={styles.audioSpeakerHead}>
                         <div className={styles.audioSpeakerIdentity}>
                           <strong>{labelFor(speaker.speaker)}</strong>
                           <span
                             className={styles.audioEmotionPill}
-                            style={{ color: EMOTION_COLORS[speaker.dominantEmotion] ?? "#71717a" }}
+                            style={{
+                              color:
+                                EMOTION_COLORS[speaker.dominantEmotion] ??
+                                "#71717a",
+                            }}
                           >
                             {capitalize(speaker.dominantEmotion)}
                           </span>
@@ -144,7 +178,9 @@ export function SessionAudioInsightsPanel({
                           style={{ width: `${talkShare}%` }}
                         />
                       </div>
-                      <p className={styles.audioSpeakerNotes}>{speaker.notes}</p>
+                      <p className={styles.audioSpeakerNotes}>
+                        {speaker.notes}
+                      </p>
                     </article>
                   );
                 })}
@@ -156,14 +192,21 @@ export function SessionAudioInsightsPanel({
             title="Sentiment timeline"
             icon={<Activity size={14} aria-hidden />}
             defaultOpen
-            preview={duration > 0 ? `${formatMmSs(currentTime)} / ${formatMmSs(duration)}` : "Timeline"}
+            preview={
+              duration > 0
+                ? `${formatMmSs(currentTime)} / ${formatMmSs(duration)}`
+                : "Timeline"
+            }
           >
             {duration > 0 ? (
               <div className={styles.audioTimelineWrap}>
                 <div className={styles.audioTimeline} aria-hidden>
                   {insights.segments.map((segment, index) => {
                     const left = (segment.startTime / duration) * 100;
-                    const width = Math.max(((segment.endTime - segment.startTime) / duration) * 100, 0.8);
+                    const width = Math.max(
+                      ((segment.endTime - segment.startTime) / duration) * 100,
+                      0.8,
+                    );
                     return (
                       <button
                         key={`${segment.startTime}-${index}`}
@@ -172,7 +215,8 @@ export function SessionAudioInsightsPanel({
                         style={{
                           left: `${left}%`,
                           width: `${width}%`,
-                          backgroundColor: EMOTION_COLORS[segment.emotion] ?? "#a1a1aa",
+                          backgroundColor:
+                            EMOTION_COLORS[segment.emotion] ?? "#a1a1aa",
                           opacity: activeSegmentIndex === index ? 1 : 0.75,
                         }}
                         title={`${labelFor(segment.speaker)}: ${segment.emotion}`}
@@ -182,7 +226,9 @@ export function SessionAudioInsightsPanel({
                   })}
                   <span
                     className={styles.audioTimelinePlayhead}
-                    style={{ left: `${Math.min((currentTime / duration) * 100, 100)}%` }}
+                    style={{
+                      left: `${Math.min((currentTime / duration) * 100, 100)}%`,
+                    }}
                   />
                 </div>
                 <div className={styles.audioTimelineLabels}>
@@ -191,16 +237,20 @@ export function SessionAudioInsightsPanel({
                 </div>
               </div>
             ) : (
-              <p className={styles.audioPanelEmptyHint}>Timeline unavailable — recording duration is unknown.</p>
+              <p className={styles.audioPanelEmptyHint}>
+                Timeline unavailable — recording duration is unknown.
+              </p>
             )}
           </AudioAccordion>
 
           <AudioAccordion
             title="Segments"
             count={insights.segments.length}
-            preview={activeSegmentIndex >= 0
-              ? `${formatMmSs(insights.segments[activeSegmentIndex]!.startTime)} · ${labelFor(insights.segments[activeSegmentIndex]!.speaker)}`
-              : `${insights.segments.length} moments`}
+            preview={
+              activeSegmentIndex >= 0
+                ? `${formatMmSs(insights.segments[activeSegmentIndex]!.startTime)} · ${labelFor(insights.segments[activeSegmentIndex]!.speaker)}`
+                : `${insights.segments.length} moments`
+            }
           >
             <div className={styles.audioSegmentList}>
               {insights.segments.map((segment, index) => (
@@ -214,10 +264,14 @@ export function SessionAudioInsightsPanel({
                     <span className={styles.audioSegmentTime}>
                       {formatMmSs(segment.startTime)}
                     </span>
-                      <span className={styles.audioSegmentSpeaker}>{labelFor(segment.speaker)}</span>
+                    <span className={styles.audioSegmentSpeaker}>
+                      {labelFor(segment.speaker)}
+                    </span>
                     <span
                       className={styles.audioEmotionPill}
-                      style={{ color: EMOTION_COLORS[segment.emotion] ?? "#71717a" }}
+                      style={{
+                        color: EMOTION_COLORS[segment.emotion] ?? "#71717a",
+                      }}
                     >
                       {capitalize(segment.emotion)}
                     </span>
@@ -242,7 +296,9 @@ export function SessionAudioInsightsPanel({
                     className={styles.audioHighlightCard}
                     onClick={() => onSeek(highlight.timestamp)}
                   >
-                    <span className={styles.audioHighlightTime}>{formatMmSs(highlight.timestamp)}</span>
+                    <span className={styles.audioHighlightTime}>
+                      {formatMmSs(highlight.timestamp)}
+                    </span>
                     <div className={styles.audioCardBody}>
                       <strong>{highlight.label}</strong>
                       <p>{highlight.explanation}</p>
@@ -268,7 +324,9 @@ export function SessionAudioInsightsPanel({
                     className={styles.audioAmbienceCard}
                     onClick={() => onSeek(cue.startTime)}
                   >
-                    <span className={styles.audioHighlightTime}>{formatMmSs(cue.startTime)}</span>
+                    <span className={styles.audioHighlightTime}>
+                      {formatMmSs(cue.startTime)}
+                    </span>
                     <div className={styles.audioCardBody}>
                       <strong>{cue.label}</strong>
                       <p>{cue.description}</p>
@@ -276,21 +334,6 @@ export function SessionAudioInsightsPanel({
                   </button>
                 ))}
               </div>
-            </AudioAccordion>
-          )}
-
-          {insights.audioFile && (
-            <AudioAccordion
-              title="Ask the recording"
-              icon={<MessageCircle size={14} aria-hidden />}
-              preview="Chat with Gemini about this audio"
-            >
-              <SessionAudioFileChat
-                sessionId={sessionId}
-                defaultModel={insights.model}
-                initialAudioFileExpiresAt={insights.audioFile.expiresAt}
-                onSeek={onSeek}
-              />
             </AudioAccordion>
           )}
         </div>
@@ -312,30 +355,34 @@ export function AudioStatsGrid({
   const items = [
     {
       label: "Talk ratio",
-      value: stats.talkRatioPercent == null
-        ? null
-        : `${Math.round(stats.talkRatioPercent)}%`,
+      value:
+        stats.talkRatioPercent == null
+          ? null
+          : `${Math.round(stats.talkRatioPercent)}%`,
       hint: "Rep share of total talk time",
     },
     {
       label: "Longest prospect talk",
-      value: stats.longestProspectTalkSeconds == null
-        ? null
-        : formatStatDuration(stats.longestProspectTalkSeconds),
+      value:
+        stats.longestProspectTalkSeconds == null
+          ? null
+          : formatStatDuration(stats.longestProspectTalkSeconds),
       hint: "Longest uninterrupted prospect monologue",
     },
     {
       label: "Longest talk",
-      value: stats.longestTalkSeconds == null
-        ? null
-        : formatStatDuration(stats.longestTalkSeconds),
+      value:
+        stats.longestTalkSeconds == null
+          ? null
+          : formatStatDuration(stats.longestTalkSeconds),
       hint: "Longest uninterrupted monologue",
     },
     {
       label: "Rep talk time",
-      value: stats.repTalkTimeSeconds == null
-        ? null
-        : formatStatDuration(stats.repTalkTimeSeconds),
+      value:
+        stats.repTalkTimeSeconds == null
+          ? null
+          : formatStatDuration(stats.repTalkTimeSeconds),
       hint: "Total rep speaking time",
     },
     {
@@ -345,27 +392,34 @@ export function AudioStatsGrid({
     },
     {
       label: "Patience",
-      value: stats.patienceSeconds == null
-        ? null
-        : formatPatience(stats.patienceSeconds),
+      value:
+        stats.patienceSeconds == null
+          ? null
+          : formatPatience(stats.patienceSeconds),
       hint: "Avg pause after prospect before rep responds",
     },
     {
       label: "Talk speed",
-      value: stats.talkSpeedWordsPerMinute == null
-        ? null
-        : `${Math.round(stats.talkSpeedWordsPerMinute)} wpm`,
+      value:
+        stats.talkSpeedWordsPerMinute == null
+          ? null
+          : `${Math.round(stats.talkSpeedWordsPerMinute)} wpm`,
       hint: "Rep words per minute",
     },
-  ].filter((item): item is { label: string; value: string; hint: string } =>
-    item.value !== null
+  ].filter(
+    (item): item is { label: string; value: string; hint: string } =>
+      item.value !== null,
   );
 
   return (
     <div className={styles.audioStatsSection}>
       <div className={styles.audioStatsGrid}>
         {items.map((item) => (
-          <article key={item.label} className={styles.audioStatCard} title={item.hint}>
+          <article
+            key={item.label}
+            className={styles.audioStatCard}
+            title={item.hint}
+          >
             <span className={styles.audioStatLabel}>{item.label}</span>
             <strong className={styles.audioStatValue}>{item.value}</strong>
           </article>
@@ -390,7 +444,12 @@ function isGeminiConversationStats(
 
 function formatInteractivityScore(stats: AudioConversationStats): number {
   if (stats.interactivityTotal > 5) {
-    return Math.round(Math.max(0, Math.min(5, (stats.interactivityScore / stats.interactivityTotal) * 5)));
+    return Math.round(
+      Math.max(
+        0,
+        Math.min(5, (stats.interactivityScore / stats.interactivityTotal) * 5),
+      ),
+    );
   }
   return Math.round(Math.max(0, Math.min(5, stats.interactivityScore)));
 }
@@ -402,7 +461,9 @@ function formatStatDuration(seconds: number): string {
   if (mins >= 60) {
     const hours = Math.floor(mins / 60);
     const remMins = mins % 60;
-    return secs > 0 ? `${hours}h ${remMins}m ${secs}s` : `${hours}h ${remMins}m`;
+    return secs > 0
+      ? `${hours}h ${remMins}m ${secs}s`
+      : `${hours}h ${remMins}m`;
   }
   return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
 }
@@ -439,13 +500,19 @@ export function AudioAccordion({
         <span className={styles.audioAccordionTitle}>
           {icon}
           {title}
-          {count != null && <span className={styles.audioSectionCount}>{count}</span>}
+          {count != null && (
+            <span className={styles.audioSectionCount}>{count}</span>
+          )}
         </span>
         <span className={styles.audioAccordionMeta}>
           {!open && preview ? (
             <span className={styles.audioAccordionPreview}>{preview}</span>
           ) : null}
-          <ChevronDown size={14} className={styles.audioAccordionChevron} aria-hidden />
+          <ChevronDown
+            size={14}
+            className={styles.audioAccordionChevron}
+            aria-hidden
+          />
         </span>
       </summary>
       <div className={styles.audioAccordionBody}>{children}</div>

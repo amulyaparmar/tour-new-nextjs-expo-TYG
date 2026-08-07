@@ -1,13 +1,35 @@
 "use client";
 
-import type { AnalysisModelId, AnalysisResult, AudioInsights, AudioInsightsStatus, ConversationPhaseSegmentation, SessionCustomerInterest, SessionLead, SessionParticipants, TranscriptConversationStats } from "@tour/shared";
-import { Activity, CheckCircle2, MessageSquare, UserRoundSearch } from "lucide-react";
+import { DEFAULT_GEMINI_AUDIO_MODEL, isGeminiAudioModelId } from "@tour/shared";
+import type {
+  AnalysisModelId,
+  AnalysisResult,
+  AudioInsights,
+  AudioInsightsStatus,
+  ConversationPhaseSegmentation,
+  SessionCustomerInterest,
+  SessionLead,
+  SessionParticipants,
+  TranscriptConversationStats,
+} from "@tour/shared";
+import {
+  Activity,
+  CheckCircle2,
+  MessageSquare,
+  UserRoundSearch,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
+import {
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+} from "recharts";
 
 import { SidebarCommentsPanel } from "./SidebarCommentsPanel";
 import { SessionAudioInsightsSidebarTab } from "./SessionAudioInsightsSidebarTab";
-import { SessionAiChat } from "./SessionAiChat";
+import { SessionAiChat, type SessionChatModelId } from "./SessionAiChat";
 import { SessionProspectPanel } from "./SessionProspectPanel";
 import { TourSegmentSummary } from "./TourSegmentSummary";
 import { ClickableTimestampText } from "./ClickableTimestampText";
@@ -15,7 +37,11 @@ import { ReanalyzeWithRubric } from "./ReanalyzeWithRubric";
 import { ReprocessButton } from "./ReprocessButton";
 import { rubricPctByColor } from "./session-detail-class-maps";
 import styles from "./session-detail.module.css";
-import { isDiscussionComment, scoreColor, type SessionComment } from "./session-detail-utils";
+import {
+  isDiscussionComment,
+  scoreColor,
+  type SessionComment,
+} from "./session-detail-utils";
 
 export type SidebarTab = "rubric" | "prospect" | "comments" | "audio" | "ai";
 
@@ -70,11 +96,26 @@ export function SessionDetailSidebar({
   onCommentSelect: (commentId: string) => void;
   readOnly?: boolean;
 }) {
-  const commentCount = comments.filter((c) => !c.parentId && isDiscussionComment(c)).length;
+  const commentCount = comments.filter(
+    (c) => !c.parentId && isDiscussionComment(c),
+  ).length;
+  const [requestedAiModel, setRequestedAiModel] =
+    useState<SessionChatModelId | null>(null);
+
+  const openRecordingChat = (model?: string) => {
+    setRequestedAiModel(
+      model && isGeminiAudioModelId(model) ? model : DEFAULT_GEMINI_AUDIO_MODEL,
+    );
+    onTabChange("ai");
+  };
 
   return (
     <aside className={styles.sidebar}>
-      <div className={styles.sidebarTabs} role="tablist" aria-label="Session tools">
+      <div
+        className={styles.sidebarTabs}
+        role="tablist"
+        aria-label="Session tools"
+      >
         <button
           type="button"
           role="tab"
@@ -105,7 +146,9 @@ export function SessionDetailSidebar({
           title="Comments"
         >
           <MessageSquare size={18} />
-          {commentCount > 0 && <span className={styles.sidebarTabBadge}>{commentCount}</span>}
+          {commentCount > 0 && (
+            <span className={styles.sidebarTabBadge}>{commentCount}</span>
+          )}
         </button>
         <button
           type="button"
@@ -164,7 +207,9 @@ export function SessionDetailSidebar({
           <div className={styles.commentsPanel}>
             <div className={styles.sidebarSectionHead}>
               <h2>Comments</h2>
-              {commentCount > 0 && <span className={styles.sidebarScore}>{commentCount}</span>}
+              {commentCount > 0 && (
+                <span className={styles.sidebarScore}>{commentCount}</span>
+              )}
             </div>
             <SidebarCommentsPanel
               sessionId={sessionId}
@@ -190,6 +235,7 @@ export function SessionDetailSidebar({
             duration={duration}
             currentTime={currentTime}
             onSeek={onSeek}
+            onAskRecording={openRecordingChat}
           />
         </div>
         <div
@@ -200,6 +246,7 @@ export function SessionDetailSidebar({
             sessionId={sessionId}
             analysis={analysis}
             defaultModel={rubric?.analysisModel}
+            requestedModel={requestedAiModel}
             onSeek={onAiSeek}
           />
         </div>
@@ -231,20 +278,34 @@ function SessionRubricPanel({
   readOnly?: boolean;
 }) {
   const [summaryExpanded, setSummaryExpanded] = useState(false);
-  const [openRubricSection, setOpenRubricSection] = useState<string | null>(null);
+  const [openRubricSection, setOpenRubricSection] = useState<string | null>(
+    null,
+  );
   const sectionRefs = useRef<Record<string, HTMLDetailsElement | null>>({});
-  const anyQuestions = analysis.sectionScores.some((section) => section.questions?.length);
-  const sortedSections = [...analysis.sectionScores].sort((a, b) => a.score - b.score);
+  const anyQuestions = analysis.sectionScores.some(
+    (section) => section.questions?.length,
+  );
+  const sortedSections = [...analysis.sectionScores].sort(
+    (a, b) => a.score - b.score,
+  );
   const focusSection = sortedSections[0] ?? analysis.sectionScores[0];
-  const strongestSection = sortedSections[sortedSections.length - 1] ?? focusSection;
+  const strongestSection =
+    sortedSections[sortedSections.length - 1] ?? focusSection;
   const totalPts =
     analysis.totalPointsEarned ??
-    Math.round((analysis.overallScore / 100) * (analysis.totalPointsPossible ?? 200));
+    Math.round(
+      (analysis.overallScore / 100) * (analysis.totalPointsPossible ?? 200),
+    );
   const totalMax = analysis.totalPointsPossible ?? 200;
   const selectRubricSection = (sectionName: string) => {
-    setOpenRubricSection((current) => current === sectionName ? null : sectionName);
+    setOpenRubricSection((current) =>
+      current === sectionName ? null : sectionName,
+    );
     window.requestAnimationFrame(() => {
-      sectionRefs.current[sectionName]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      sectionRefs.current[sectionName]?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
     });
   };
 
@@ -335,12 +396,16 @@ function SessionRubricPanel({
       {analysis.sectionScores.map((section) => {
         const color = scoreColor(section.score);
         const questions = section.questions ?? [];
-        const passCount = questions.filter((question) => question.passed).length;
+        const passCount = questions.filter(
+          (question) => question.passed,
+        ).length;
 
         return (
           <details
             key={section.section}
-            ref={(node) => { sectionRefs.current[section.section] = node; }}
+            ref={(node) => {
+              sectionRefs.current[section.section] = node;
+            }}
             className={`${styles.rubricSection} ${openRubricSection === section.section ? styles.rubricSectionActive : ""}`}
             open={openRubricSection === section.section}
           >
@@ -351,8 +416,12 @@ function SessionRubricPanel({
               }}
             >
               <span>{section.section}</span>
-              <span className={`${styles.rubricPct} ${rubricPctByColor[color]}`}>
-                {questions.length ? `${passCount}/${questions.length}` : `${section.score}%`}
+              <span
+                className={`${styles.rubricPct} ${rubricPctByColor[color]}`}
+              >
+                {questions.length
+                  ? `${passCount}/${questions.length}`
+                  : `${section.score}%`}
               </span>
             </summary>
             {questions.length > 0 ? (
@@ -362,7 +431,9 @@ function SessionRubricPanel({
                     key={question.id}
                     className={`${styles.rubricQ} ${question.passed ? styles.rubricQPass : styles.rubricQFail}`}
                   >
-                    <span className={styles.rubricQMark}>{question.passed ? "✓" : "✗"}</span>
+                    <span className={styles.rubricQMark}>
+                      {question.passed ? "✓" : "✗"}
+                    </span>
                     <div>
                       <p className={styles.rubricQText}>{question.question}</p>
                       {question.evidence && (
@@ -373,12 +444,16 @@ function SessionRubricPanel({
                         />
                       )}
                     </div>
-                    <span className={styles.rubricQPts}>{question.earnedPoints}/{question.maxPoints}</span>
+                    <span className={styles.rubricQPts}>
+                      {question.earnedPoints}/{question.maxPoints}
+                    </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className={styles.rubricEmpty}>Section scored {section.score}%.</p>
+              <p className={styles.rubricEmpty}>
+                Section scored {section.score}%.
+              </p>
             )}
           </details>
         );
@@ -399,10 +474,10 @@ function RubricStrengthRadar({
   const [shouldAnimate, setShouldAnimate] = useState(true);
   const radarData = sections.length
     ? sections.map((section) => ({
-      axis: shortAxisLabel(section.section),
-      score: Math.max(0, Math.min(100, section.score)),
-      section: section.section,
-    }))
+        axis: shortAxisLabel(section.section),
+        score: Math.max(0, Math.min(100, section.score)),
+        section: section.section,
+      }))
     : [{ axis: "Score", score: 0, section: "Score" }];
 
   useEffect(() => {
@@ -417,7 +492,10 @@ function RubricStrengthRadar({
       aria-label="Rubric strength radar"
     >
       <ResponsiveContainer width="100%" height="100%">
-        <RadarChart data={radarData} margin={{ top: 18, right: 28, bottom: 18, left: 28 }}>
+        <RadarChart
+          data={radarData}
+          margin={{ top: 18, right: 28, bottom: 18, left: 28 }}
+        >
           <PolarGrid stroke="#e4e4e7" />
           <PolarAngleAxis
             dataKey="axis"
@@ -465,7 +543,9 @@ function RubricRadarTick({
   onSectionSelect: (sectionName: string) => void;
 }) {
   const label = String(payload?.value ?? "");
-  const section = sections.find((item) => shortAxisLabel(item.section) === label);
+  const section = sections.find(
+    (item) => shortAxisLabel(item.section) === label,
+  );
   if (!section) return null;
   const isActive = activeSection === section.section;
 
@@ -494,10 +574,14 @@ function RubricRadarTick({
 }
 
 function shortAxisLabel(label: string) {
-  const clean = label.replace(/\s*&\s*/g, " ").replace(/\s+/g, " ").trim();
+  const clean = label
+    .replace(/\s*&\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   const normalized = clean.toLowerCase();
   if (normalized.includes("greeting")) return "Greeting";
-  if (normalized.includes("property") || normalized.includes("tour")) return "Property";
+  if (normalized.includes("property") || normalized.includes("tour"))
+    return "Property";
   if (normalized.includes("closing")) return "Closing";
   if (normalized.includes("follow")) return "Follow up";
   const words = clean.split(" ");
@@ -505,6 +589,6 @@ function shortAxisLabel(label: string) {
   return words
     .filter((word) => !["the", "and", "of"].includes(word.toLowerCase()))
     .slice(0, 2)
-    .map((word) => word.length > 8 ? word.slice(0, 8) : word)
+    .map((word) => (word.length > 8 ? word.slice(0, 8) : word))
     .join(" ");
 }

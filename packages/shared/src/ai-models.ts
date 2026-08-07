@@ -5,6 +5,9 @@ export type AnalysisModelId =
   | "claude-sonnet-5"
   | "claude-sonnet-4.5"
   | "claude-haiku-4.5"
+  | "gpt-5.6-sol"
+  | "gpt-5.6-terra"
+  | "gpt-5.6-luna"
   | "gpt-5.5"
   | "gpt-5.4";
 
@@ -19,6 +22,9 @@ export type AnalysisModel = {
   provider: AiProvider;
   /** Provider-specific model identifier (e.g. Bedrock inference profile or model ARN). */
   providerModelId: string;
+  /** Public on-demand list pricing used only for rubric planning estimates. */
+  inputUsdPerMillionTokens: number;
+  outputUsdPerMillionTokens: number;
   description?: string;
 };
 
@@ -28,6 +34,8 @@ export const ANALYSIS_MODELS: readonly AnalysisModel[] = [
     label: "Claude Sonnet 5",
     provider: "bedrock",
     providerModelId: "us.anthropic.claude-sonnet-5",
+    inputUsdPerMillionTokens: 2,
+    outputUsdPerMillionTokens: 10,
     description: "Best balance of quality and speed for rubric scoring."
   },
   {
@@ -35,6 +43,8 @@ export const ANALYSIS_MODELS: readonly AnalysisModel[] = [
     label: "Claude Sonnet 4.5",
     provider: "bedrock",
     providerModelId: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    inputUsdPerMillionTokens: 3,
+    outputUsdPerMillionTokens: 15,
     description: "Previous-generation Sonnet — reliable structured output."
   },
   {
@@ -42,13 +52,44 @@ export const ANALYSIS_MODELS: readonly AnalysisModel[] = [
     label: "Claude Haiku 4.5",
     provider: "bedrock",
     providerModelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    inputUsdPerMillionTokens: 1,
+    outputUsdPerMillionTokens: 5,
     description: "Faster and lower cost; suitable for simpler rubrics."
+  },
+  {
+    id: "gpt-5.6-sol",
+    label: "GPT-5.6 Sol",
+    provider: "bedrock-openai",
+    providerModelId: "openai.gpt-5.6-sol",
+    inputUsdPerMillionTokens: 5.5,
+    outputUsdPerMillionTokens: 33,
+    description: "Frontier reasoning for the most demanding rubric analyses."
+  },
+  {
+    id: "gpt-5.6-terra",
+    label: "GPT-5.6 Terra",
+    provider: "bedrock-openai",
+    providerModelId: "openai.gpt-5.6-terra",
+    inputUsdPerMillionTokens: 2.2,
+    outputUsdPerMillionTokens: 13.2,
+    description: "Balanced quality, speed, and cost for production analysis."
+  },
+  {
+    id: "gpt-5.6-luna",
+    label: "GPT-5.6 Luna",
+    provider: "bedrock-openai",
+    providerModelId: "openai.gpt-5.6-luna",
+    inputUsdPerMillionTokens: 0.22,
+    outputUsdPerMillionTokens: 1.32,
+    description: "Fast, cost-efficient option for high-volume analysis."
   },
   {
     id: "gpt-5.5",
     label: "GPT-5.5",
     provider: "bedrock-openai",
     providerModelId: "openai.gpt-5.5",
+    inputUsdPerMillionTokens: 5.5,
+    outputUsdPerMillionTokens: 33,
     description: "Latest OpenAI model on Bedrock — strong reasoning for complex rubrics."
   },
   {
@@ -56,6 +97,8 @@ export const ANALYSIS_MODELS: readonly AnalysisModel[] = [
     label: "GPT-5.4",
     provider: "bedrock-openai",
     providerModelId: "openai.gpt-5.4",
+    inputUsdPerMillionTokens: 2.75,
+    outputUsdPerMillionTokens: 16.5,
     description: "Reliable OpenAI model on Bedrock with structured output support."
   }
 ] as const;

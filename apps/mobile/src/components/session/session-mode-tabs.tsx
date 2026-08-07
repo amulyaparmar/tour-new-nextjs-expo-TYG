@@ -1,4 +1,4 @@
-import { ClipboardList, GraduationCap, MessageCircle, MessageSquare, Search, Sparkles } from "lucide-react-native";
+import { ClipboardList, GraduationCap, HeartHandshake, MessageCircle, MessageSquare, Search, Sparkles } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import React from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
@@ -9,7 +9,7 @@ import { selectionHaptic } from "@/lib/haptics";
 
 import { SESSION_PAGE_PADDING } from "./session-layout";
 
-export type SessionReviewMode = "rubric" | "transcript" | "search" | "coaching" | "comments" | "ai";
+export type SessionReviewMode = "rubric" | "prospect" | "transcript" | "search" | "coaching" | "comments" | "ai";
 
 const MODES: Array<{
   id: SessionReviewMode;
@@ -17,6 +17,7 @@ const MODES: Array<{
   icon: LucideIcon;
 }> = [
   { id: "rubric", label: "Rubric", icon: ClipboardList },
+  { id: "prospect", label: "Prospect", icon: HeartHandshake },
   { id: "transcript", label: "Transcript", icon: MessageSquare },
   { id: "search", label: "Search", icon: Search },
   { id: "coaching", label: "Coaching", icon: GraduationCap },

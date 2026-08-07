@@ -11,6 +11,7 @@ export { SessionAiChatScreen } from "./session-ai-chat-screen";
 export { SessionAiFab } from "./session-ai-fab";
 export { SessionAudioInsightsScreen } from "./session-audio-insights-screen";
 export { SessionAudioInsightsPanel } from "./session-audio-insights-panel";
+export { ProspectInsightsCard } from "./prospect-insights-card";
 export { TourScreenHeader } from "./tour-screen-header";
 export { CollapsibleSection } from "./collapsible-section";
 export { SESSION_PAGE_PADDING } from "./session-layout";

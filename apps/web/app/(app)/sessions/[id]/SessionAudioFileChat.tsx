@@ -6,6 +6,7 @@ import {
   DEFAULT_GEMINI_AUDIO_MODEL,
   GEMINI_AUDIO_MODELS,
   normalizeGeminiAudioModelId,
+  type GeminiAudioFileRef,
   type GeminiAudioModelId,
 } from "@tour/shared";
 import { ArrowUp, Loader2 } from "lucide-react";
@@ -19,6 +20,16 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+};
+
+export type AudioChatPrompt = {
+  label: string;
+  text: string;
+};
+
+type CoachingPoint = {
+  title: string;
+  body: string;
 };
 
 const STARTER_PROMPTS = [
@@ -39,36 +50,41 @@ const STARTER_PROMPTS = [
 export function SessionAudioFileChat({
   sessionId,
   defaultModel = DEFAULT_GEMINI_AUDIO_MODEL,
-  initialAudioFileExpiresAt,
+  model: controlledModel,
+  onModelChange,
+  showModelSelect = true,
+  coachingPoints = [],
+  starterPrompts = STARTER_PROMPTS,
+  assistantLabel = "Tour AI",
   onSeek,
 }: {
   sessionId: string;
   defaultModel?: string;
-  initialAudioFileExpiresAt?: string;
+  model?: GeminiAudioModelId;
+  onModelChange?: (model: GeminiAudioModelId) => void;
+  showModelSelect?: boolean;
+  coachingPoints?: CoachingPoint[];
+  starterPrompts?: readonly AudioChatPrompt[];
+  assistantLabel?: string;
   onSeek?: (seconds: number) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [model, setModel] = useState<GeminiAudioModelId>(
-    normalizeGeminiAudioModelId(defaultModel)
-  );
+  const [uncontrolledModel, setUncontrolledModel] =
+    useState<GeminiAudioModelId>(normalizeGeminiAudioModelId(defaultModel));
+  const model = controlledModel ?? uncontrolledModel;
   const [input, setInput] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("Analyzing audio...");
-  const [audioFileExpiresAt, setAudioFileExpiresAt] = useState<string | undefined>(
-    initialAudioFileExpiresAt
-  );
+  const [audioFile, setAudioFile] = useState<GeminiAudioFileRef | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [dictationError, setDictationError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    setModel(normalizeGeminiAudioModelId(defaultModel));
-  }, [defaultModel]);
-
-  useEffect(() => {
-    setAudioFileExpiresAt(initialAudioFileExpiresAt);
-  }, [initialAudioFileExpiresAt]);
+    if (!controlledModel)
+      setUncontrolledModel(normalizeGeminiAudioModelId(defaultModel));
+  }, [controlledModel, defaultModel]);
 
   const scrollToBottom = useCallback(() => {
     const el = listRef.current;
@@ -91,25 +107,33 @@ export function SessionAudioFileChat({
     async (nextMessages: ChatMessage[]) => {
       setIsBusy(true);
       setError(null);
-      setBusyLabel(isAudioFileExpired(audioFileExpiresAt)
-        ? "Re-indexing audio. This can take a moment..."
-        : "Analyzing audio...");
+      setBusyLabel(
+        audioFile && isAudioFileExpired(audioFile.expiresAt)
+          ? "Refreshing audio. This can take a moment..."
+          : "Analyzing audio...",
+      );
 
       try {
-        const response = await fetch(`/api/sessions/${sessionId}/audio-insights/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model,
-            messages: nextMessages.map(({ role, content }) => ({ role, content })),
-          }),
-        });
+        const response = await fetch(
+          `/api/sessions/${sessionId}/audio-insights/chat`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model,
+              messages: nextMessages.map(({ role, content }) => ({
+                role,
+                content,
+              })),
+              audioFile,
+            }),
+          },
+        );
 
         const body = (await response.json()) as {
           reply?: string;
           error?: string;
-          audioFileExpiresAt?: string | null;
-          audioFileRefreshed?: boolean;
+          audioFile?: GeminiAudioFileRef;
         };
         if (!response.ok) {
           throw new Error(body.error ?? "Failed to get a response.");
@@ -117,9 +141,7 @@ export function SessionAudioFileChat({
         if (!body.reply?.trim()) {
           throw new Error("Gemini returned an empty response.");
         }
-        if (body.audioFileExpiresAt) {
-          setAudioFileExpiresAt(body.audioFileExpiresAt);
-        }
+        if (body.audioFile) setAudioFile(body.audioFile);
 
         setMessages([
           ...nextMessages,
@@ -137,7 +159,7 @@ export function SessionAudioFileChat({
         inputRef.current?.focus();
       }
     },
-    [audioFileExpiresAt, model, sessionId]
+    [audioFile, model, sessionId],
   );
 
   const submitText = useCallback(
@@ -156,7 +178,7 @@ export function SessionAudioFileChat({
       setInput("");
       void sendMessages(nextMessages);
     },
-    [isBusy, messages, sendMessages]
+    [isBusy, messages, sendMessages],
   );
 
   const handleSubmit = (event?: React.FormEvent) => {
@@ -181,7 +203,8 @@ export function SessionAudioFileChat({
     <div className={styles.audioFileChat}>
       <div className={styles.audioFileChatHead}>
         <p className={styles.audioFileChatHint}>
-          Ask Gemini about tone, pacing, and moments in the recording. Answers are grounded in the uploaded audio file.
+          Ask Gemini about tone, pacing, and moments in the recording. Answers
+          are grounded in the uploaded audio file.
         </p>
         {messages.length > 0 && (
           <button
@@ -195,42 +218,52 @@ export function SessionAudioFileChat({
         )}
       </div>
 
-      <AiChatModelSelect
-        id={`audio-chat-model-${sessionId}`}
-        value={model}
-        onChange={(value) => setModel(normalizeGeminiAudioModelId(value))}
-        options={GEMINI_AUDIO_MODELS.map((option) => ({
-          id: option.id,
-          label: option.label,
-        }))}
-        disabled={isBusy}
-      />
+      {showModelSelect && (
+        <AiChatModelSelect
+          id={`audio-chat-model-${sessionId}`}
+          value={model}
+          onChange={(value) => {
+            const nextModel = normalizeGeminiAudioModelId(value);
+            if (controlledModel) onModelChange?.(nextModel);
+            else setUncontrolledModel(nextModel);
+          }}
+          options={GEMINI_AUDIO_MODELS.map((option) => ({
+            id: option.id,
+            label: option.label,
+          }))}
+          disabled={isBusy}
+        />
+      )}
 
-      <div className={`${styles.aiChatList} ${styles.audioFileChatList}`} ref={listRef}>
+      <div
+        className={`${styles.aiChatList} ${styles.audioFileChatList}`}
+        ref={listRef}
+      >
         {messages.length === 0 ? (
-          <div className={styles.audioFileChatStarters}>
-            {STARTER_PROMPTS.map((prompt) => (
-              <button
-                key={prompt.label}
-                type="button"
-                className={styles.aiPrompt}
-                disabled={isBusy}
-                onClick={() => submitText(prompt.text)}
-              >
-                {prompt.label}
-              </button>
+          <div className={styles.aiStarter}>
+            {coachingPoints.map((point) => (
+              <div key={point.title} className={styles.aiCard}>
+                <strong>{point.title}</strong>
+                <p>{point.body}</p>
+              </div>
             ))}
+            <p className={styles.aiChatHint}>
+              Ask anything about this tour. Gemini can also use the recording
+              for tone, pacing, and moments.
+            </p>
           </div>
         ) : (
           messages.map((message) => (
             <div
               key={message.id}
               className={`${styles.aiChatMessage} ${
-                message.role === "user" ? styles.aiChatMessageUser : styles.aiChatMessageAssistant
+                message.role === "user"
+                  ? styles.aiChatMessageUser
+                  : styles.aiChatMessageAssistant
               }`}
             >
               <span className={styles.aiChatRole}>
-                {message.role === "user" ? "You" : "Recording"}
+                {message.role === "user" ? "You" : assistantLabel}
               </span>
               <div className={styles.aiChatBubble}>
                 {message.role === "assistant" ? (
@@ -251,11 +284,17 @@ export function SessionAudioFileChat({
         )}
 
         {isBusy && messages.at(-1)?.role === "user" && (
-          <div className={`${styles.aiChatMessage} ${styles.aiChatMessageAssistant}`}>
-            <span className={styles.aiChatRole}>Recording</span>
+          <div
+            className={`${styles.aiChatMessage} ${styles.aiChatMessageAssistant}`}
+          >
+            <span className={styles.aiChatRole}>{assistantLabel}</span>
             <div className={styles.aiChatBubble}>
               <span className={styles.aiChatTyping}>
-                <Loader2 size={14} className={styles.aiChatSpinner} aria-hidden />
+                <Loader2
+                  size={14}
+                  className={styles.aiChatSpinner}
+                  aria-hidden
+                />
                 {busyLabel}
               </span>
             </div>
@@ -268,6 +307,19 @@ export function SessionAudioFileChat({
       </div>
 
       <form className={styles.audioFileChatForm} onSubmit={handleSubmit}>
+        <div className={styles.aiPrompts}>
+          {starterPrompts.map((prompt) => (
+            <button
+              key={prompt.label}
+              type="button"
+              className={styles.aiPrompt}
+              disabled={isBusy}
+              onClick={() => submitText(prompt.text)}
+            >
+              {prompt.label}
+            </button>
+          ))}
+        </div>
         <div className={styles.aiChatInputWrap}>
           <textarea
             ref={inputRef}
@@ -293,7 +345,11 @@ export function SessionAudioFileChat({
             disabled={!input.trim() || isBusy}
             aria-label="Send message"
           >
-            {isBusy ? <Loader2 size={16} className={styles.aiChatSpinner} /> : <ArrowUp size={16} />}
+            {isBusy ? (
+              <Loader2 size={16} className={styles.aiChatSpinner} />
+            ) : (
+              <ArrowUp size={16} />
+            )}
           </button>
         </div>
       </form>

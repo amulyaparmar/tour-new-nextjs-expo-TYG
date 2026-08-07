@@ -3,6 +3,7 @@ export * from "./gemini-models";
 export * from "./transcribe-providers";
 export * from "./shop-rubrics";
 export * from "./rubric";
+export * from "./rubric-cost";
 export * from "./rubric-prompts";
 export * from "./tour";
 export * from "./session";

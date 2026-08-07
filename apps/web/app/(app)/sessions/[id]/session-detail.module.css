@@ -4760,13 +4760,26 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+  padding: 14px 16px 12px;
   border-bottom: 1px solid var(--slate-100);
   background: #fff;
 }
 
-.audioPanelHeader .sidebarSectionHead {
-  padding-bottom: 12px;
+.audioPanelTitleRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.audioPanelTitleRow h2 {
+  margin: 0;
+  white-space: nowrap;
+  color: var(--slate-900);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .audioAskAiButton {
@@ -4775,21 +4788,35 @@
   justify-content: center;
   gap: 6px;
   flex: 0 0 auto;
-  margin: 0 16px 12px 0;
-  padding: 7px 10px;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  background: #f8fbff;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid #bfd7fb;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff 0%, #f5f9ff 100%);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
   color: #2563eb;
   font: inherit;
-  font-size: 12px;
-  font-weight: 750;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
   cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
 }
 
 .audioAskAiButton:hover {
   border-color: #93c5fd;
   background: #eff6ff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.13);
+  transform: translateY(-1px);
+}
+
+.audioAskAiButton:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.22);
+  outline-offset: 2px;
 }
 
 .audioPanelScroll {

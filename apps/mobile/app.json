@@ -8,6 +8,7 @@
     "icon": "./assets/images/tour-logo.png",
     "scheme": "tournewtouryoutyg",
     "userInterfaceStyle": "light",
+    "newArchEnabled": true,
     "experiments": {
       "reactCompiler": true
     },
@@ -31,7 +32,8 @@
         "NSPhotoLibraryAddUsageDescription": "Allow Tour to save tour media and shared assets to your photo library when you request it.",
         "NSSpeechRecognitionUsageDescription": "Allow Tour to transcribe leasing conversations live for in-tour coaching.",
         "UIBackgroundModes": [
-          "audio"
+          "audio",
+          "voip"
         ]
       }
     },
@@ -72,6 +74,19 @@
         }
       ],
       "expo-video",
+      "@config-plugins/react-native-webrtc",
+      "@daily-co/config-plugin-rn-daily-js",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 24
+          },
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
+        }
+      ],
       [
         "expo-media-library",
         {

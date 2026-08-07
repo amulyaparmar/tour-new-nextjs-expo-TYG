@@ -103,9 +103,7 @@
 }
 
 .intentNote {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px;
+  display: block;
   margin-top: 12px;
   padding-top: 11px;
   border-top: 1px solid #edf0f3;
@@ -115,8 +113,17 @@
 }
 
 .intentNote strong {
+  display: block;
   color: #39465a;
+  font-size: 9px;
   font-weight: 750;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.intentNote span {
+  display: block;
+  margin-top: 4px;
 }
 
 .contactRow {

@@ -221,7 +221,6 @@ type Screen =
   | { type: "create-session" }
   | { type: "audio-test" }
   | { type: "rubrics" }
-  | { type: "practice" }
   | { type: "tour" };
 
 type TourStep = "contact" | "preferences" | "ready";
@@ -608,7 +607,6 @@ function screenRank(screen: Screen) {
   if (screen.type === "tour") return 11;
   if (screen.type === "create-session") return 12;
   if (screen.type === "rubrics") return 12;
-  if (screen.type === "practice") return 12;
   if (screen.type === "session-detail") return 13;
   if (screen.type === "session-comments") return 14;
   if (screen.type === "session-ai-chat") return 14;
@@ -878,7 +876,6 @@ export default function App() {
                   }}
                   onProfile={() => nav({ type: "main", tab: "card" })}
                   onRubrics={() => nav({ type: "rubrics" })}
-                  onPractice={() => nav({ type: "practice" })}
                   onSignOut={() => {
                     void clearSession().then(() => {
                       appQueryClient.clear();
@@ -968,7 +965,6 @@ export default function App() {
               )}
               {screen.type === "audio-test" && <AudioTestScreen onBack={() => nav({ type: "main", tab: "home" })} />}
               {screen.type === "rubrics" && <RubricsScreen session={authSession} onBack={() => nav({ type: "main", tab: "settings" })} onSession={(id) => nav({ type: "session-detail", sessionId: id })} />}
-              {screen.type === "practice" && <PracticeSessionsScreen onBack={() => nav({ type: "main", tab: "home" })} />}
               {screen.type === "tour" && (
                 <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
                   <TourStepper session={authSession} idx={tourIdx} prospect={prospect} step={tourStep} onBack={() => nav({ type: "main", tab: "card" })} onChange={(k, v) => setProspect((c) => ({ ...c, [k]: v }))} onStep={setTourStep} />
@@ -1031,7 +1027,7 @@ const TAB_ITEMS: Array<{ id: MainTab; label: string; icon: keyof typeof Ionicons
   { id: "settings", label: "Settings", icon: "settings-outline", iconActive: "settings" },
 ];
 
-function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTest, onGuestRegistration, onProfile, onRubrics, onPractice, onSignOut, authSession, onAuthSession, agentName, property }: {
+function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTest, onGuestRegistration, onProfile, onRubrics, onSignOut, authSession, onAuthSession, agentName, property }: {
   tab: MainTab;
   onTab: (t: MainTab) => void;
   onSession: (id: string, opts?: { autoStartRecording?: boolean }) => void;
@@ -1041,7 +1037,6 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
   onGuestRegistration: () => void;
   onProfile: () => void;
   onRubrics: () => void;
-  onPractice: () => void;
   onSignOut: () => void;
   authSession: MobileAuthSession;
   onAuthSession: (session: MobileAuthSession) => void;
@@ -1214,7 +1209,6 @@ function MainTabs({ tab, onTab, onSession, onSampleSession, onCreate, onAudioTes
                 onCreate={onCreate}
                 onAudioTest={onAudioTest}
                 onAssets={openMaterials}
-                onPractice={onPractice}
                 onCommunityPress={() => setCommunityPickerOpen(true)}
                 agentName={agentName}
                 userTitle={profile?.title ?? authSession.workspace.user.title ?? "Leasing Consultant"}
@@ -1360,7 +1354,7 @@ const errorBannerSt = StyleSheet.create({
 // Dashboard
 // ═══════════════════════════════════════
 
-function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrary, loading, onSession, onProfile, onCheckIn, onCreate, onAudioTest, onAssets, onPractice, onCommunityPress, agentName, userTitle, userPhone, userEmail, cardAccent, property }: {
+function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrary, loading, onSession, onProfile, onCheckIn, onCreate, onAudioTest, onAssets, onCommunityPress, agentName, userTitle, userPhone, userEmail, cardAccent, property }: {
   sessions: SessionSummary[];
   upcomingSessions: SessionSummary[];
   materialCount: number;
@@ -1372,7 +1366,6 @@ function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrar
   onCreate: () => void;
   onAudioTest: () => void;
   onAssets: () => void;
-  onPractice: () => void;
   onCommunityPress: () => void;
   agentName: string;
   userTitle: string;
@@ -1441,24 +1434,6 @@ function DashboardScreen({ sessions, upcomingSessions, materialCount, tourLibrar
           <Text style={homeSt.checkInPillText}>New Session</Text>
         </MotionPressable>
       </View>
-
-      <HomeSection title="Practice">
-        <MotionPressable
-          accessibilityLabel="Open AI practice sessions"
-          onPress={onPractice}
-          haptic="selection"
-          style={homeSt.practiceCard}
-        >
-          <View style={homeSt.practiceIcon}>
-            <Ionicons name="sparkles" size={21} color="#fff" />
-          </View>
-          <View style={st.flex1}>
-            <Text style={homeSt.practiceTitle}>Practice with an AI prospect</Text>
-            <Text style={homeSt.practiceMeta}>Choose a scenario, rehearse live, and review graded attempts.</Text>
-          </View>
-          <Ionicons name="arrow-forward" size={18} color={C.brand} />
-        </MotionPressable>
-      </HomeSection>
 
       {todayTours.length > 0 && (
         <HomeSection title="Needs your attention">
@@ -2970,7 +2945,7 @@ function CreateSessionScreen({
 }) {
   const rec = useRecording();
 
-  const [phase, setPhase] = useState<"choose" | "uploading" | "details">(pendingUpload ? "uploading" : "choose");
+  const [phase, setPhase] = useState<"choose" | "practice" | "uploading" | "details">(pendingUpload ? "uploading" : "choose");
   const [uploadStats, setUploadStats] = useState<UploadStats>(initialUploadStats());
   const [sessionId, setSessionId] = useState<string | null>(pendingUpload?.sessionId ?? null);
   const [fileName, setFileName] = useState(pendingUpload?.name ?? "");
@@ -3286,6 +3261,15 @@ function CreateSessionScreen({
     onCreated(sessionId);
   }
 
+  if (phase === "practice") {
+    return (
+      <PracticeSessionsScreen
+        onBack={() => setPhase("choose")}
+        onOpenNewSession={() => setPhase("choose")}
+      />
+    );
+  }
+
   // ── Choose: Record or Upload ──
   if (phase === "choose") {
     return (
@@ -3293,6 +3277,11 @@ function CreateSessionScreen({
         <View style={st.page}>
           <BackBtn label="Sessions" onPress={onBack} />
           <Text style={st.pageTitle}>New Session</Text>
+          <CreateSessionModeTabs
+            active="session"
+            onSession={() => undefined}
+            onPractice={() => setPhase("practice")}
+          />
           <View style={[st.card, { padding: 20, gap: 14 }]}>
             <View style={{ alignItems: "center", gap: 8 }}>
               <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.brand + "10", alignItems: "center", justifyContent: "center" }}>
@@ -3408,6 +3397,47 @@ function CreateSessionScreen({
     </ScrollView>
   );
 }
+
+function CreateSessionModeTabs({
+  active,
+  onSession,
+  onPractice,
+}: {
+  active: "session" | "practice";
+  onSession: () => void;
+  onPractice: () => void;
+}) {
+  return (
+    <View style={createSessionTabsSt.wrap} accessibilityRole="tablist">
+      <Pressable
+        accessibilityRole="tab"
+        accessibilityState={{ selected: active === "session" }}
+        onPress={onSession}
+        style={[createSessionTabsSt.tab, active === "session" && createSessionTabsSt.tabActive]}
+      >
+        <Ionicons name="mic-outline" size={15} color={active === "session" ? C.brand : C.textMuted} />
+        <Text style={[createSessionTabsSt.label, active === "session" && createSessionTabsSt.labelActive]}>New session</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="tab"
+        accessibilityState={{ selected: active === "practice" }}
+        onPress={onPractice}
+        style={[createSessionTabsSt.tab, active === "practice" && createSessionTabsSt.tabActive]}
+      >
+        <Ionicons name="sparkles-outline" size={15} color={active === "practice" ? C.brand : C.textMuted} />
+        <Text style={[createSessionTabsSt.label, active === "practice" && createSessionTabsSt.labelActive]}>Practice</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const createSessionTabsSt = StyleSheet.create({
+  wrap: { flexDirection: "row", gap: 4, padding: 4, borderWidth: 1, borderColor: C.border, borderRadius: 13, backgroundColor: C.card },
+  tab: { flex: 1, minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 9 },
+  tabActive: { backgroundColor: C.brand + "10" },
+  label: { color: C.textMuted, fontSize: 12, fontWeight: "800" },
+  labelActive: { color: C.brand },
+});
 
 function AgentIdentityToggle({
   selected,

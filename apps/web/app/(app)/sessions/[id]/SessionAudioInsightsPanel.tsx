@@ -76,7 +76,7 @@ export function SessionAudioInsightsPanel({
   return (
     <div className={styles.audioPanel}>
       <header className={styles.audioPanelHeader}>
-        <div className={styles.sidebarSectionHead}>
+        <div className={styles.audioPanelTitleRow}>
           <h2>Audio insights</h2>
           <span
             className={styles.audioSentimentBadge}

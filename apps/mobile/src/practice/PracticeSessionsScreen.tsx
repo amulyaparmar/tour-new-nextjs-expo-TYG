@@ -1,5 +1,4 @@
-import { getSiteBaseUrl } from "@/config";
-import { authenticatedFetch } from "@/auth";
+import { authenticatedFetch, getCurrentSession } from "@/auth";
 import {
   TourBackButton as BackBtn,
   TourEmptyState as EmptyState,
@@ -8,7 +7,8 @@ import {
 import { tourColors as C } from "@/theme/tour-brand";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { NativePracticeSession } from "./NativePracticeSession";
 
 type Scenario = {
   id: string;
@@ -29,12 +29,20 @@ type Attempt = {
   created_at?: string;
 };
 
-export function PracticeSessionsScreen({ onBack }: { onBack: () => void }) {
+export function PracticeSessionsScreen({
+  onBack,
+  onOpenNewSession,
+}: {
+  onBack: () => void;
+  onOpenNewSession?: () => void;
+}) {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [livePractice, setLivePractice] = useState(false);
+  const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -58,13 +66,18 @@ export function PracticeSessionsScreen({ onBack }: { onBack: () => void }) {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function openPractice() {
-    const url = `${getSiteBaseUrl()}/new?tab=roleplay`;
-    try {
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert("Could not open practice", "Try again when you have a connection.");
+  function openPractice(scenario?: Scenario) {
+    if (!getCurrentSession()) {
+      Alert.alert("Sign in required", "Sign in again, then start your practice session.");
+      return;
     }
+    const selected = scenario ?? scenarios[0] ?? null;
+    if (!selected) {
+      Alert.alert("No practice scenarios", "Create a scenario on the web first, then return here to start a live practice call.");
+      return;
+    }
+    setSelectedScenario(selected);
+    setLivePractice(true);
   }
 
   const refresh = async () => {
@@ -72,6 +85,19 @@ export function PracticeSessionsScreen({ onBack }: { onBack: () => void }) {
     await load();
     setRefreshing(false);
   };
+
+  if (livePractice) {
+    return (
+      <NativePracticeSession
+        scenario={selectedScenario}
+        onBack={() => {
+          setLivePractice(false);
+          setSelectedScenario(null);
+          void load();
+        }}
+      />
+    );
+  }
 
   return (
     <ScrollView
@@ -81,14 +107,15 @@ export function PracticeSessionsScreen({ onBack }: { onBack: () => void }) {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={C.brand} />}
     >
       <View style={styles.page}>
-        <BackBtn label="Home" onPress={onBack} />
+        <BackBtn label="Sessions" onPress={onBack} />
         <View style={styles.hero}>
           <View style={styles.heroIcon}><Ionicons name="sparkles" size={24} color="#fff" /></View>
           <Text style={styles.title}>Practice sessions</Text>
           <Text style={styles.subtitle}>Rehearse live conversations with an AI prospect and return here to review your graded attempts.</Text>
         </View>
-        <PrimaryBtn label="Start live practice" icon="mic-outline" onPress={() => void openPractice()} />
-        <Text style={styles.webNote}>Live voice practice opens securely in Tour.you. Your scenarios and results stay synced to this property.</Text>
+        {onOpenNewSession ? <PracticeModeTabs onSession={onOpenNewSession} /> : null}
+        <PrimaryBtn label="Start live practice" icon="mic-outline" onPress={() => openPractice()} />
+        <Text style={styles.webNote}>Practice stays in the app. Your scenarios and graded results stay synced to this property.</Text>
 
         {loading ? <View style={styles.loading}><ActivityIndicator color={C.brand} /><Text style={styles.loadingText}>Loading practice…</Text></View> : null}
         {error ? (
@@ -103,7 +130,7 @@ export function PracticeSessionsScreen({ onBack }: { onBack: () => void }) {
           <>
             <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>Scenarios</Text><Text style={styles.sectionMeta}>{scenarios.length}</Text></View>
             {scenarios.length ? scenarios.map((scenario) => (
-              <Pressable key={scenario.id} accessibilityRole="button" accessibilityLabel={`Start ${scenario.name} practice`} onPress={() => void openPractice()} style={({ pressed }) => [styles.scenario, pressed && styles.pressed]}>
+              <Pressable key={scenario.id} accessibilityRole="button" accessibilityLabel={`Start ${scenario.name} practice`} onPress={() => openPractice(scenario)} style={({ pressed }) => [styles.scenario, pressed && styles.pressed]}>
                 <View style={styles.scenarioIcon}><Ionicons name="chatbubbles-outline" size={19} color={C.brand} /></View>
                 <View style={styles.flex}>
                   <View style={styles.scenarioTop}><Text style={styles.scenarioTitle}>{scenario.name}</Text>{scenario.difficulty ? <DifficultyBadge difficulty={scenario.difficulty} /> : null}</View>
@@ -122,6 +149,21 @@ export function PracticeSessionsScreen({ onBack }: { onBack: () => void }) {
         ) : null}
       </View>
     </ScrollView>
+  );
+}
+
+function PracticeModeTabs({ onSession }: { onSession: () => void }) {
+  return (
+    <View style={styles.modeTabs} accessibilityRole="tablist">
+      <Pressable accessibilityRole="tab" accessibilityState={{ selected: false }} onPress={onSession} style={styles.modeTab}>
+        <Ionicons name="mic-outline" size={15} color={C.textMuted} />
+        <Text style={styles.modeTabText}>New session</Text>
+      </Pressable>
+      <View accessibilityRole="tab" accessibilityState={{ selected: true }} style={[styles.modeTab, styles.modeTabActive]}>
+        <Ionicons name="sparkles-outline" size={15} color={C.brand} />
+        <Text style={[styles.modeTabText, styles.modeTabTextActive]}>Practice</Text>
+      </View>
+    </View>
   );
 }
 
@@ -150,6 +192,9 @@ const styles = StyleSheet.create({
   hero: { gap: 8, paddingTop: 4 }, heroIcon: { width: 46, height: 46, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: C.brand },
   title: { color: C.text, fontSize: 27, fontWeight: "900", lineHeight: 33 }, subtitle: { color: C.textSec, fontSize: 14, fontWeight: "600", lineHeight: 21 },
   webNote: { marginTop: -5, color: C.textMuted, fontSize: 11, lineHeight: 16, fontWeight: "600", textAlign: "center" },
+  modeTabs: { flexDirection: "row", gap: 4, padding: 4, borderWidth: 1, borderColor: C.border, borderRadius: 13, backgroundColor: C.card },
+  modeTab: { flex: 1, minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 9 },
+  modeTabActive: { backgroundColor: C.brand + "10" }, modeTabText: { color: C.textMuted, fontSize: 12, fontWeight: "800" }, modeTabTextActive: { color: C.brand },
   loading: { minHeight: 120, alignItems: "center", justifyContent: "center", gap: 10 }, loadingText: { color: C.textSec, fontSize: 13, fontWeight: "700" },
   error: { flexDirection: "row", alignItems: "center", gap: 9, padding: 12, borderRadius: 12, backgroundColor: C.redBg }, errorText: { color: C.red, fontSize: 13, fontWeight: "700" }, retry: { color: C.brand, fontSize: 13, fontWeight: "900" },
   sectionHeading: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }, historyHeading: { marginTop: 15 }, sectionTitle: { color: C.text, fontSize: 17, fontWeight: "900" }, sectionMeta: { minWidth: 20, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 99, backgroundColor: C.brand + "12", color: C.brand, fontSize: 11, fontWeight: "900", textAlign: "center" },
